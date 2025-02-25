@@ -1,0 +1,172 @@
+﻿@page "/login"
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Authentication
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inject IAuthenticationService AuthService
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<Login> Logger
+@inject IJSRuntime JSRuntime
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="card">
+            <div class="card-header card-header-thiel">
+                <h3 class="mb-0">Login</h3>
+            </div>
+            <div class="card-body">
+                <EditForm Model="@loginModel" OnValidSubmit="HandleLogin">
+                    <DataAnnotationsValidator />
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+
+                    <div class="mb-4">
+                        <label for="username" class="form-label fw-bold">Username</label>
+                        <InputText id="username" class="form-control form-control-lg" @bind-Value="loginModel.Username" />
+                        <ValidationMessage For="@(() => loginModel.Username)" />
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="password" class="form-label fw-bold">Password</label>
+                        <InputText type="password" id="password" class="form-control form-control-lg" @bind-Value="loginModel.Password" />
+                        <ValidationMessage For="@(() => loginModel.Password)" />
+                    </div>
+
+                    <button type="submit" class="btn btn-secondary w-100 btn-lg" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            <span class="ms-2">Logging in...</span>
+                        }
+                        else
+                        {
+                            <span>Login</span>
+                        }
+                    </button>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Debug button -->
+<button class="btn btn-secondary mt-3" @onclick="DebugStyles">Debug Styles</button>
+@code {
+    private LoginModel loginModel = new();
+    private string? errorMessage;
+    private bool isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if user is already logged in
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated ?? false)
+        {
+            NavigationManager.NavigateTo("/");
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            var (success, error) = await AuthService.LoginAsync(loginModel);
+
+            Logger.LogInformation("Login attempt for user {Username}. Success: {Success}",
+                loginModel.Username, success);
+
+            if (success)
+            {
+                var session = await AuthService.GetCurrentSessionAsync();
+                if (session != null)
+                {
+                    if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                    {
+                        await customProvider.NotifyUserAuthenticationAsync(session);
+                        NavigationManager.NavigateTo("/home");
+                    }
+                    else
+                    {
+                        Logger.LogError("Invalid authentication provider type");
+                        errorMessage = "Invalid authentication provider";
+                    }
+                }
+                else
+                {
+                    Logger.LogError("Session creation failed for user {Username}", loginModel.Username);
+                    errorMessage = "Session creation failed";
+                }
+            }
+            else
+            {
+                Logger.LogWarning("Login failed for user {Username}: {Error}",
+                    loginModel.Username, error);
+                errorMessage = error ?? "Login failed";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Unexpected error during login for user {Username}",
+                loginModel.Username);
+            errorMessage = "An unexpected error occurred";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DebugStyles()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", @"
+        // Debug Container and Card structure
+        const selectors = ['.login-container', '.login-card', '.card'];
+        selectors.forEach(selector => {
+            const el = document.querySelector(selector);
+            if (el) {
+                console.log(`\n=== ${selector} Details ===`);
+                const computed = window.getComputedStyle(el);
+                console.log('Width:', computed.width);
+                console.log('Max-Width:', computed.maxWidth);
+                console.log('Margin:', computed.margin);
+                console.log('Padding:', computed.padding);
+                console.log('Display:', computed.display);
+                console.log('Position:', computed.position);
+                console.log('Box-Sizing:', computed.boxSizing);
+
+                console.log('Actual dimensions:');
+                console.log('- offsetWidth:', el.offsetWidth);
+                console.log('- offsetHeight:', el.offsetHeight);
+                console.log('- clientWidth:', el.clientWidth);
+                console.log('- clientHeight:', el.clientHeight);
+            }
+        });
+
+        // Log parent hierarchy
+        console.log('\n=== Parent Hierarchy ===');
+        let element = document.querySelector('.login-container');
+        let level = 0;
+        while (element && level < 10) {
+            const computed = window.getComputedStyle(element);
+            console.log(`\nLevel ${level}:`);
+            console.log('- Element:', element.tagName.toLowerCase() + (element.className ? '.' + element.className.replace(/ /g, '.') : ''));
+            console.log('- Width:', computed.width);
+            console.log('- Max-Width:', computed.maxWidth);
+            console.log('- Display:', computed.display);
+            console.log('- Position:', computed.position);
+            console.log('- Actual Width:', element.offsetWidth + 'px');
+
+            element = element.parentElement;
+            level++;
+        }
+    ");
+    }
+}

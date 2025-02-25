@@ -1,0 +1,29 @@
+﻿/* Stats Component */
+.stats {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.stat-box {
+    background-color: #4a4a4a;
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 4px;
+    min-width: 160px;
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.9;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin-top: 0.25rem;
+}

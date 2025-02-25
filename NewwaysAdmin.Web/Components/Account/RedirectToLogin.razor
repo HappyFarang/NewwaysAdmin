@@ -1,0 +1,31 @@
+﻿@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+@inject ILogger<RedirectToLogin> Logger
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            if (!user.Identity?.IsAuthenticated ?? true)
+            {
+                var currentUri = Navigation.ToBaseRelativePath(Navigation.Uri);
+                if (!currentUri.StartsWith("login", StringComparison.OrdinalIgnoreCase))
+                {
+                    var returnUrl = Uri.EscapeDataString(Navigation.Uri);
+                    Logger.LogInformation("Redirecting to login with returnUrl: {ReturnUrl}", returnUrl);
+                    Navigation.NavigateTo($"/login?returnUrl={returnUrl}", replace: true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in RedirectToLogin");
+        }
+    }
+}

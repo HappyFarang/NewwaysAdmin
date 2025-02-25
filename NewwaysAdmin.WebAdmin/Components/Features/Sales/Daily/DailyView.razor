@@ -1,0 +1,91 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+
+<div class="daily-view">
+    <div class="controls mb-4">
+        <input type="date" class="form-control w-auto"
+               value="@_selectedDate.ToString("yyyy-MM-dd")"
+               @onchange="@(e => OnDateChanged(DateTime.Parse(e.Value?.ToString() ?? string.Empty)))" />
+    </div>
+
+    @if (_isLoading)
+    {
+            <div class="loading-spinner" />
+    }
+    else if (_salesData?.Sales.Count == 0)
+    {
+            <div class="alert alert-info mt-4">
+                No sales data available for @_selectedDate.ToString("yyyy-MM-dd")
+            </div>
+    }
+    else
+    {
+        @foreach (var product in GetUniqueProducts())
+        {
+            var uniqueSkus = GetUniqueSkusForProduct(product);
+                    <div class="product-section mb-5">
+                        <div class="product-header mb-4">
+                            <h4 class="mb-3 text-center">@product</h4>
+                            <div class="stats d-flex justify-content-center gap-4">
+                                <div class="stat-box">
+                                    <div class="stat-label">Items Sold</div>
+                                    <div class="stat-value">@GetTotalItemsSold(product)</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-label">Orders</div>
+                                    <div class="stat-value">@GetTotalOrders(product)</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-label">Returns</div>
+                                    <div class="stat-value">@GetTotalReturns(product)</div>
+                                </div>
+                                <div class="stat-box">
+                                    <div class="stat-label">Free Samples</div>
+                                    <div class="stat-value">@GetTotalSamples(product)</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                @foreach (var platform in Config.Platforms)
+                                {
+                                                <th>@platform.Value.Name</th>
+                                }
+                                        <th>Returns</th>
+                                        <th>Total Orders</th>
+                                        <th>Total Items</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                            @foreach (var sku in uniqueSkus)
+                            {
+                                            <tr>
+                                                <td>@sku.Config.ProductName (@sku.SkuId)</td>
+                                    @foreach (var platform in Config.Platforms)
+                                    {
+                                                        <td>@GetQuantity(platform.Key, sku.SkuId)</td>
+                                    }
+                                                <td>@GetTotalReturnsForSku(sku.SkuId)</td>
+                                                <td>@GetTotalForSku(sku.SkuId)</td>
+                                                <td>@(GetTotalForSku(sku.SkuId) * sku.Config.PackSize)</td>
+                                            </tr>
+                            }
+                                    <tr>
+                                        <td>Samples</td>
+                                @foreach (var platform in Config.Platforms)
+                                {
+                                                <td>@GetSampleQuantity(platform.Key, product)</td>
+                                }
+                                        <td>-</td>
+                                        <td>@GetTotalSamples(product)</td>
+                                        <td>@GetTotalSamples(product)</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+        }
+    }
+</div>

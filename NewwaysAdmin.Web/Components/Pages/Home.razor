@@ -1,0 +1,15 @@
+﻿@page "/"
+@attribute [Authorize]
+@inject ILogger<Home> Logger
+
+<PageTitle>Home</PageTitle>
+
+<h1>Hello, world!</h1>
+<p>Welcome to your new app.</p>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Logger.LogInformation("Home page initialized");
+    }
+}

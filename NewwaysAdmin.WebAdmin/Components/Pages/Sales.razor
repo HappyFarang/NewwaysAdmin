@@ -1,0 +1,76 @@
+﻿@page "/sales"
+@using NewwaysAdmin.SharedModels.Config
+@using NewwaysAdmin.WebAdmin.Models
+@using NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+
+<PageTitle>Sales Overview</PageTitle>
+
+<div class="page-container">
+    <div class="toolbar-wrapper">
+        <div class="toolbar">
+            <div class="toolbar-buttons">
+                <button class="btn @(ActiveView == ViewType.Daily ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Daily)">
+                    Daily
+                </button>
+                <button class="btn @(ActiveView == ViewType.Weekly ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Weekly)">
+                    Weekly
+                </button>
+                <button class="btn @(ActiveView == ViewType.Monthly ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Monthly)">
+                    Monthly
+                </button>
+            </div>
+            <button class="toolbar-action" @onclick="OpenReturnModal">
+                Enter Return
+            </button>
+        </div>
+    </div>
+    <div class="content-wrapper">
+        @switch (ActiveView)
+        {
+            case ViewType.Daily:
+                @if (_config != null)
+                {
+                                <DailyView Config="@_config" />
+                }
+                break;
+            case ViewType.Weekly:
+                        <p>Weekly view coming soon</p>
+                break;
+            case ViewType.Monthly:
+                        <p>Monthly view coming soon</p>
+                break;
+        }
+    </div>
+</div>
+
+@code {
+    [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
+    private ProcessorConfig? _config;
+    private enum ViewType { Daily, Weekly, Monthly }
+    private ViewType ActiveView { get; set; } = ViewType.Daily;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _config = await ConfigProvider.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // Handle error
+        }
+    }
+
+    private void SwitchView(ViewType view)
+    {
+        ActiveView = view;
+    }
+
+    private void OpenReturnModal()
+    {
+        // Implement later
+    }
+}

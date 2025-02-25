@@ -1,0 +1,279 @@
+﻿@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.Accounts
+
+<div class="card">
+    <div class="card-header card-header-thiel">
+        <h4 class="mb-0">User Management</h4>
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrEmpty(_alertMessage))
+        {
+                <div class="alert @_alertClass alert-dismissible fade show" role="alert">
+                @_alertMessage
+                    <button type="button" class="btn-close" @onclick="() => _alertMessage = null"></button>
+                </div>
+        }
+
+        <div class="mb-4">
+            <button class="btn btn-primary" @onclick="ShowCreateUserModal">
+                <span class="bi bi-person-plus-fill me-2"></span>Create New User
+            </button>
+        </div>
+
+        @if (_isLoading)
+        {
+                <div class="text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+        }
+        else if (_users != null && _users.Any())
+        {
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Status</th>
+                                <th>Last Login</th>
+                                <th>Pages Access</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var user in _users.Where(u => !u.IsAdmin))
+                        {
+                                    <tr>
+                                        <td>@user.Username</td>
+                                        <td>
+                                    @if (user.IsActive)
+                                    {
+                                                    <span class="badge bg-success">Active</span>
+                                    }
+                                    else
+                                    {
+                                                    <span class="badge bg-danger">Inactive</span>
+                                    }
+                                        </td>
+                                        <td>@(user.LastLoginAt?.ToString("g") ?? "Never")</td>
+                                        <td>
+                                            <small class="text-muted">
+                                        @foreach (var access in user.PageAccess.Where(p => p.AccessLevel != AccessLevel.None))
+                                        {
+                                                        <span class="badge bg-info me-1">
+                                                @access.NavigationId (@access.AccessLevel)
+                                                        </span>
+                                        }
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-primary me-2" @onclick="() => EditUser(user)">
+                                                <span class="bi bi-pencil-fill"></span>
+                                            </button>
+                                            <button class="btn btn-sm btn-danger" @onclick="() => ShowDeleteConfirmation(user)">
+                                                <span class="bi bi-trash-fill"></span>
+                                            </button>
+                                        </td>
+                                    </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+        }
+        else
+        {
+                <div class="alert alert-info">
+                    <span class="bi bi-info-circle me-2"></span>
+                    No users found.
+                </div>
+        }
+    </div>
+</div>
+
+@if (_showUserEditor && _currentUser != null)
+{
+        <UserPermissionsEditor 
+            Model="@_currentUser"
+            IsNewUser="@_isNewUser"
+            OnSave="@HandleUserSave"
+            OnCancel="@HandleUserCancel" />
+}
+
+@if (_showDeleteConfirm)
+{
+        <div class="modal fade show" style="display: block" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Confirm Delete</h5>
+                        <button type="button" class="btn-close" @onclick="() => _showDeleteConfirm = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to delete user "@_userToDelete?.Username"? This action cannot be undone.</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => _showDeleteConfirm = false">Cancel</button>
+                        <button type="button" class="btn btn-danger" @onclick="ConfirmDelete">
+                            <span class="bi bi-trash-fill me-2"></span>Delete User
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+}
+
+@code {
+    [Inject] public IAuthenticationService AuthService { get; set; } = null!;
+
+    private List<User>? _users;
+    private bool _showUserEditor;
+    private bool _isNewUser;
+    private User? _currentUser;
+    private bool _isLoading;
+    private string? _alertMessage;
+    private string _alertClass = string.Empty;
+    private bool _showDeleteConfirm;
+    private User? _userToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        try
+        {
+            _isLoading = true;
+            _users = await AuthService.GetAllUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowError("Failed to load users. Please try again.");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void ShowCreateUserModal()
+    {
+        _isNewUser = true;
+        _currentUser = new User
+            {
+                Username = string.Empty,
+                PasswordHash = string.Empty,
+                Salt = string.Empty,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true,
+                PageAccess = new List<UserPageAccess>()
+            };
+        _showUserEditor = true;
+    }
+
+    private void EditUser(User user)
+    {
+        _isNewUser = false;
+        // Create a new User instance instead of using with keyword
+        _currentUser = new User
+            {
+                Username = user.Username,
+                PasswordHash = user.PasswordHash,
+                Salt = user.Salt,
+                CreatedAt = user.CreatedAt,
+                LastLoginAt = user.LastLoginAt,
+                IsActive = user.IsActive,
+                IsAdmin = user.IsAdmin,
+                PageAccess = new List<UserPageAccess>(user.PageAccess)
+            };
+        _showUserEditor = true;
+    }
+
+    private void ShowDeleteConfirmation(User user)
+    {
+        _userToDelete = user;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_userToDelete == null) return;
+
+        try
+        {
+            if (await AuthService.DeleteUserAsync(_userToDelete.Username))
+            {
+                ShowSuccess($"User '{_userToDelete.Username}' has been deleted.");
+                await LoadUsers();
+            }
+            else
+            {
+                ShowError("Failed to delete user. Please try again.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("An error occurred while deleting the user.");
+        }
+        finally
+        {
+            _showDeleteConfirm = false;
+            _userToDelete = null;
+        }
+    }
+
+    private async Task HandleUserSave(User user)
+    {
+        try
+        {
+            bool success = false;
+
+            if (_isNewUser)
+            {
+                success = await AuthService.CreateUserAsync(user);
+                if (!success)
+                {
+                    ShowError("Failed to create user. The username might already exist.");
+                    return;
+                }
+                ShowSuccess($"User '{user.Username}' has been created successfully.");
+            }
+            else
+            {
+                await AuthService.UpdateUserAsync(user);
+                success = true;
+                ShowSuccess($"User '{user.Username}' has been updated successfully.");
+            }
+
+            if (success)
+            {
+                _showUserEditor = false;
+                await LoadUsers();
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("An unexpected error occurred. Please try again.");
+        }
+    }
+
+    private void HandleUserCancel()
+    {
+        _showUserEditor = false;
+    }
+
+    private void ShowSuccess(string message)
+    {
+        _alertMessage = message;
+        _alertClass = "alert-success";
+    }
+
+    private void ShowError(string message)
+    {
+        _alertMessage = message;
+        _alertClass = "alert-danger";
+    }
+}

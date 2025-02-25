@@ -1,0 +1,57 @@
+﻿@page "/predicted-earnings"
+@using NewwaysAdmin.SharedModels.Config
+@using NewwaysAdmin.WebAdmin.Services
+@using NewwaysAdmin.WebAdmin.Components.Features.Sales.PredictedEarnings
+
+<PageTitle>Predicted Earnings</PageTitle>
+
+<div class="page-container">
+    <div class="toolbar-wrapper">
+        <div class="toolbar">
+            <div class="toolbar-buttons">
+                <button class="btn @(ActiveView == ViewType.Daily ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Daily)">
+                    Daily
+                </button>
+                <button class="btn @(ActiveView == ViewType.Weekly ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Weekly)">
+                    Weekly
+                </button>
+                <button class="btn @(ActiveView == ViewType.Monthly ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Monthly)">
+                    Monthly
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="content-wrapper">
+        @if (_config != null)
+        {
+            <PredictedEarningsView Config="@_config" />
+        }
+    </div>
+</div>
+
+@code {
+    [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
+    private ProcessorConfig? _config;
+    private enum ViewType { Daily, Weekly, Monthly }
+    private ViewType ActiveView { get; set; } = ViewType.Daily;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _config = await ConfigProvider.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // Handle error
+        }
+    }
+
+    private void SwitchView(ViewType view)
+    {
+        ActiveView = view;
+    }
+}

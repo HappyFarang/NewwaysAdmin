@@ -1,0 +1,89 @@
+﻿@page "/settings"
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.Accounts
+@using NewwaysAdmin.SharedModels.Config
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.PdfProcessor
+@inject IAuthenticationService AuthService
+@inject NavigationManager NavigationManager
+@inject IAuthenticationService AuthService
+@inject NavigationManager NavigationManager
+
+<PageTitle>System Settings</PageTitle>
+
+<div class="page-container">
+    <div class="toolbar-wrapper">
+        <div class="toolbar">
+            <div class="toolbar-buttons">
+                <button class="btn @(ActiveView == ViewType.Accounts ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.Accounts)">
+                    Accounts
+                </button>
+                <button class="btn @(ActiveView == ViewType.PdfProcessor ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.PdfProcessor)">
+                    PDF Processor
+                </button>
+                <button class="btn @(ActiveView == ViewType.PdfAnalyzer ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.PdfAnalyzer)">
+                    PDF Analyzer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="content-wrapper">
+        @if (!isAdmin)
+        {
+            <p>Access Denied. This page is only available to administrators.</p>
+        }
+        else
+        {
+            @switch (ActiveView)
+            {
+                case ViewType.Accounts:
+                    <Accounts />
+                    break;
+                case ViewType.PdfProcessor:
+                    <PdfProcessor Config="@_config" />
+                    break;
+                case ViewType.PdfAnalyzer:
+                    <PdfAnalyzer />
+                    break;
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
+    private ProcessorConfig? _config;
+    private bool isAdmin = false;
+    private enum ViewType { Accounts, PdfProcessor, PdfAnalyzer }
+    private ViewType ActiveView { get; set; } = ViewType.Accounts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await AuthService.GetCurrentSessionAsync();
+        isAdmin = session?.IsAdmin ?? false;
+
+        if (!isAdmin)
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        try
+        {
+            _config = await ConfigProvider.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // Handle error
+        }
+    }
+
+    private void SwitchView(ViewType view)
+    {
+        ActiveView = view;
+    }
+}

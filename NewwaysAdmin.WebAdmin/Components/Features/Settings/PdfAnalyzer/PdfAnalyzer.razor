@@ -1,0 +1,412 @@
+﻿@using Microsoft.AspNetCore.Components.Web
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Collections.Generic
+@using iText.Kernel.Pdf
+@using iText.Kernel.Pdf.Canvas.Parser
+@using iText.Kernel.Pdf.Canvas.Parser.Listener
+@using System.IO
+@using System.Text
+@using System.Text.Unicode
+
+<div class="analyzer-container">
+    <div class="controls-section">
+        <div class="upload-zone @(isDragging ? "dragging" : "")"
+             ondragenter="@HandleDragEnter"
+             ondragleave="@HandleDragLeave"
+             ondragover="@HandleDragOver"
+             ondrop="@HandleDrop">
+            <InputFile OnChange="@OnFileSelected" class="file-input" />
+            <div class="upload-content">
+                <i class="bi bi-cloud-upload"></i>
+                <p>Drag and drop your PDF file here or click to browse</p>
+            </div>
+        </div>
+
+        <div class="regex-controls">
+            <div class="regex-input">
+                <input @bind="RegexPattern"
+                       @bind:event="oninput"
+                       placeholder="Enter regex pattern"
+                       class="form-control" />
+            </div>
+
+            <div class="view-toggle">
+                <button class="btn @(IsRawView ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => IsRawView = true">
+                    Raw View
+                </button>
+                <button class="btn @(!IsRawView ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => IsRawView = false">
+                    Formatted View
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger">@ErrorMessage</div>
+    }
+
+    @if (!string.IsNullOrEmpty(PdfText))
+    {
+        <div class="results-container">
+            @if (IsRawView)
+            {
+                <pre class="raw-text">@((MarkupString)HighlightMatches(PdfText))</pre>
+            }
+            else
+            {
+                <div class="formatted-text">
+                    @{
+                        var lines = PdfText.Split('\n');
+                        for (int i = 0; i < lines.Length; i++)
+                        {
+                            <div class="line">
+                                <span class="line-number">@(i + 1)</span>
+                                <span class="line-content">@((MarkupString)HighlightMatches(lines[i]))</span>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+
+        @if (Matches.Any())
+        {
+            <div class="matches-info">
+                <h4>Matches Found: @Matches.Count</h4>
+                <div class="matches-list">
+                    @foreach (var match in Matches.Take(10))
+                    {
+                        <div class="match-item">
+                            <span class="match-value">@match.Value</span>
+                            @if (match.Groups.Count > 1)
+                            {
+                                <div class="groups">
+                                    @for (int i = 1; i < match.Groups.Count; i++)
+                                    {
+                                        <span class="group">Group @i: @match.Groups[i].Value</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<style>
+    .analyzer-container {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        padding: 1rem;
+        height: 100%;
+        background-color: #fff;
+    }
+
+    .controls-section {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        position: sticky;
+        top: 0;
+        background-color: #fff;
+        z-index: 100;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .upload-zone {
+        border: 2px dashed #ccc;
+        border-radius: 4px;
+        padding: 2rem;
+        text-align: center;
+        background: white;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.3s ease;
+    }
+
+        .upload-zone:hover {
+            border-color: #007bff;
+            background-color: rgba(0,123,255,0.05);
+        }
+
+        .upload-zone.dragging {
+            border-color: #007bff;
+            background-color: rgba(0,123,255,0.1);
+        }
+
+        .upload-zone input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+    .upload-content {
+        pointer-events: none;
+    }
+
+        .upload-content i {
+            font-size: 2rem;
+            color: #6c757d;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-content p {
+            margin: 0;
+            color: #6c757d;
+        }
+
+    .regex-controls {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .regex-input {
+        flex: 1;
+        min-width: 300px;
+    }
+
+    .view-toggle {
+        display: flex;
+        gap: 0.5rem;
+        flex-shrink: 0;
+    }
+
+    .results-container {
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: white;
+        overflow-x: auto;
+    }
+
+    .raw-text {
+        padding: 1rem;
+        white-space: pre-wrap;
+        font-family: monospace;
+        margin: 0;
+    }
+
+    .formatted-text {
+        font-family: monospace;
+    }
+
+    .line {
+        display: flex;
+        padding: 0 0.5rem;
+    }
+
+        .line:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+    .line-number {
+        min-width: 3rem;
+        color: #6c757d;
+        user-select: none;
+        padding-right: 1rem;
+    }
+
+    .line-content {
+        flex: 1;
+        white-space: pre-wrap;
+    }
+
+    .match-highlight {
+        padding: 0 2px;
+        border-radius: 2px;
+    }
+
+    .quantity-highlight {
+        background-color: #90EE90; /* Light green */
+    }
+
+    .sku-highlight {
+        background-color: #ffd700; /* Yellow */
+    }
+
+    .matches-info {
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 1rem;
+        background: white;
+    }
+
+    .match-item {
+        margin: 0.5rem 0;
+        padding: 0.5rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+        border-left: 3px solid #007bff;
+    }
+
+    .match-value {
+        display: block;
+        font-weight: bold;
+        margin-bottom: 0.5rem;
+    }
+
+    .groups {
+        margin-left: 1rem;
+        font-family: monospace;
+        color: #0056b3;
+    }
+
+    .group {
+        display: block;
+        margin: 0.25rem 0;
+        padding: 0.25rem 0.5rem;
+        background: rgba(0,123,255,0.1);
+        border-radius: 2px;
+    }
+</style>
+
+@code {
+    private string PdfText = "";
+    private string RegexPattern = "";
+    private string ErrorMessage = "";
+    private bool isDragging = false;
+    private bool IsRawView = true;
+    private List<Match> Matches = new();
+
+    private void HandleDragEnter(DragEventArgs e)
+    {
+        isDragging = true;
+    }
+
+    private void HandleDragLeave(DragEventArgs e)
+    {
+        isDragging = false;
+    }
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+    }
+
+    private async Task HandleDrop(DragEventArgs e)
+    {
+        isDragging = false;
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            ErrorMessage = "";
+            var file = e.File;
+
+            if (file.ContentType != "application/pdf")
+            {
+                ErrorMessage = "Please upload a PDF file";
+                return;
+            }
+
+            using var memoryStream = new MemoryStream();
+            await file.OpenReadStream().CopyToAsync(memoryStream);
+            memoryStream.Position = 0;
+
+            using var pdfReader = new PdfReader(memoryStream);
+            using var pdfDocument = new PdfDocument(pdfReader);
+            var textBuilder = new StringBuilder();
+
+            for (int i = 1; i <= pdfDocument.GetNumberOfPages(); i++)
+            {
+                var strategy = new LocationTextExtractionStrategy();
+                var pageText = PdfTextExtractor.GetTextFromPage(pdfDocument.GetPage(i), strategy);
+                var normalized = NormalizeText(pageText);
+                textBuilder.AppendLine(normalized);
+            }
+
+            PdfText = textBuilder.ToString();
+            UpdateMatches();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Error processing file: {ex.Message}";
+        }
+    }
+
+    private string NormalizeText(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return string.Empty;
+
+        var lines = input.Split(new[] { '\n', '\r' }, StringSplitOptions.None);
+        var processedLines = lines.Select(line =>
+        {
+            var normalized = line.Normalize(NormalizationForm.FormD);
+            normalized = new string(normalized.Where(c => !char.IsControl(c) && !IsCombiningCharacter(c)).ToArray());
+            normalized = Regex.Replace(normalized, @"\s+", " ");
+            return normalized.Trim();
+        });
+
+        return string.Join(Environment.NewLine, processedLines.Where(l => !string.IsNullOrWhiteSpace(l)));
+    }
+
+    private static bool IsCombiningCharacter(char c)
+    {
+        return (c >= '\u0300' && c <= '\u036F') ||  // Combining Diacritical Marks
+               (c >= '\u0E31' && c <= '\u0E3A') ||  // Thai vowel marks and tone marks
+               (c >= '\u0E47' && c <= '\u0E4E');    // Thai diacritics
+    }
+
+    protected override void OnParametersSet()
+    {
+        UpdateMatches();
+    }
+
+    private void UpdateMatches()
+    {
+        Matches.Clear();
+        if (string.IsNullOrEmpty(PdfText) || string.IsNullOrEmpty(RegexPattern))
+            return;
+
+        try
+        {
+            var regex = new Regex(RegexPattern);
+            Matches = regex.Matches(PdfText).Cast<Match>().ToList();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Invalid regex pattern: {ex.Message}";
+        }
+    }
+
+    private string HighlightMatches(string text)
+    {
+        if (string.IsNullOrEmpty(RegexPattern))
+            return text;
+
+        try
+        {
+            var regex = new Regex(RegexPattern);
+            return regex.Replace(text, m =>
+            {
+                if (m.Groups.Count > 1)
+                {
+                    // Extract quantity (group 1) and SKU (group 2)
+                    var quantity = m.Groups[1].Value;
+                    var sku = m.Groups[2].Value;
+                    return $"<span class=\"match-highlight quantity-highlight\">{quantity}</span>" +
+                           $"<span class=\"match-highlight sku-highlight\">{sku}</span>";
+                }
+                // Fallback for matches without groups
+                return $"<span class=\"match-highlight sku-highlight\">{m.Value}</span>";
+            });
+        }
+        catch
+        {
+            return text;
+        }
+    }
+}

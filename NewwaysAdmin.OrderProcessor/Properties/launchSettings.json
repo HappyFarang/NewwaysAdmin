@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "NewwaysAdmin.OrderProcessor": {
+      "commandName": "Project",
+      "commandLineArgs": "--Test"
+    }
+  }
+}

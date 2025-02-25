@@ -1,0 +1,121 @@
+﻿@page "/login"
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Logging
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager NavManager
+@inject ILogger<Login> Logger
+
+<PageTitle>Login - NewwaysAdmin</PageTitle>
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card mt-5">
+                <div class="card-header">
+                    <h3 class="text-center">Login</h3>
+                </div>
+                <div class="card-body">
+                    <EditForm Model="@loginModel" OnValidSubmit="HandleLogin">
+                        <DataAnnotationsValidator />
+                        @if (!string.IsNullOrEmpty(errorMessage))
+                        {
+                            <div class="alert alert-danger">
+                                @errorMessage
+                            </div>
+                        }
+                        <div class="form-group mb-3">
+                            <label for="username">Username</label>
+                            <InputText id="username" class="form-control" @bind-Value="loginModel.Username" />
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="password">Password</label>
+                            <InputText type="password" id="password" class="form-control" @bind-Value="loginModel.Password" />
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="ms-2">Logging in...</span>
+                            }
+                            else
+                            {
+                                <span>Login</span>
+                            }
+                        </button>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private class LoginModel
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+
+    private LoginModel loginModel = new();
+    private string errorMessage = string.Empty;
+    private bool isLoading = false;
+
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            if (authState.User.Identity?.IsAuthenticated ?? false)
+            {
+                NavManager.NavigateTo("/");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error checking authentication state");
+        }
+    }
+
+    private async Task HandleLogin()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+
+            Logger.LogInformation("Attempting login for user: {Username}", loginModel.Username);
+
+            var authStateProvider = (CustomAuthenticationStateProvider)AuthStateProvider;
+            var result = await authStateProvider.LoginAsync(loginModel.Username, loginModel.Password);
+
+            Logger.LogInformation("Login result: {Result}", result);
+
+            if (result)
+            {
+                var targetUrl = string.IsNullOrEmpty(ReturnUrl) ? "/" : ReturnUrl;
+                Logger.LogInformation("Login successful, redirecting to: {Url}", targetUrl);
+                NavManager.NavigateTo(targetUrl, replace: true);
+            }
+            else
+            {
+                Logger.LogWarning("Login failed for user: {Username}", loginModel.Username);
+                errorMessage = "Invalid username or password";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during login");
+            errorMessage = "An error occurred while logging in";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+}

@@ -1,0 +1,54 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using NewwaysAdmin.Web.Components.Account
+@inject ILogger<App> Logger
+
+<ErrorBoundary @ref="_errorBoundary">
+    <ChildContent>
+        <CascadingAuthenticationState>
+            <Router AppAssembly="@typeof(Program).Assembly">
+                <Found Context="routeData">
+                    <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                        <NotAuthorized>
+                            @if (context?.User?.Identity?.IsAuthenticated != true)
+                            {
+                                <RedirectToLogin />
+                            }
+                            else
+                            {
+                                <p>You are not authorized to access this resource.</p>
+                            }
+                        </NotAuthorized>
+                    </AuthorizeRouteView>
+                </Found>
+                <NotFound>
+                    <PageTitle>Not found</PageTitle>
+                    <LayoutView Layout="@typeof(Layout.MainLayout)">
+                        <p role="alert">Sorry, there's nothing at this address.</p>
+                    </LayoutView>
+                </NotFound>
+            </Router>
+        </CascadingAuthenticationState>
+    </ChildContent>
+    <ErrorContent Context="exception">
+        @{
+            Logger.LogError(exception, "Error in application");
+        }
+        <div class="alert alert-danger">
+            <h4>Error</h4>
+            <p>@exception.Message</p>
+            @if (System.Diagnostics.Debugger.IsAttached)
+            {
+                <p>@exception.StackTrace</p>
+            }
+        </div>
+    </ErrorContent>
+</ErrorBoundary>
+
+@code {
+    private ErrorBoundary? _errorBoundary;
+
+    protected override void OnParametersSet()
+    {
+        _errorBoundary?.Recover();
+    }
+}

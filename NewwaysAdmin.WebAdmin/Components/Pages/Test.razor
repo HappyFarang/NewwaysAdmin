@@ -1,0 +1,98 @@
+﻿@page "/test"
+@using Microsoft.AspNetCore.Components.Authorization
+@using NewwaysAdmin.WebAdmin.Services.Navigation
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Services.Modules
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Models.Navigation
+
+@inject INavigationService NavigationService
+@inject IAuthenticationService AuthService
+@inject IModuleRegistry ModuleRegistry
+
+<AuthorizeView>
+    <Authorized>
+        <h3>Test Page</h3>
+
+        <h4>Basic Auth Info:</h4>
+        <ul>
+            <li>Username: @context.User.Identity?.Name</li>
+            <li>Is Admin: @context.User.IsInRole("Admin")</li>
+            <li>Authentication Type: @context.User.Identity?.AuthenticationType</li>
+        </ul>
+
+        <h4>Navigation Claims:</h4>
+        <ul>
+            @foreach (var claim in context.User.Claims.Where(c => c.Type == "Navigation"))
+            {
+                <li>Has access to: @claim.Value</li>
+            }
+        </ul>
+
+        <h4>Access Level Claims:</h4>
+        <ul>
+            @foreach (var claim in context.User.Claims.Where(c => c.Type.StartsWith("Access_")))
+            {
+                <li>@claim.Type.Replace("Access_", ""): @claim.Value</li>
+            }
+        </ul>
+
+        @if (_currentUser is not null)
+        {
+            <h4>User Permissions:</h4>
+            <ul>
+                @foreach (var access in _currentUser.PageAccess)
+                {
+                    <li>@access.NavigationId: @access.AccessLevel</li>
+                }
+            </ul>
+        }
+
+        @if (_allModules is not null)
+        {
+            <h4>All Available Modules:</h4>
+            <ul>
+                @foreach (var module in _allModules)
+                {
+                    <li>@module.Name (@module.Id) - Path: @module.Path</li>
+                }
+            </ul>
+        }
+
+        <h4>All Claims:</h4>
+        <pre>
+            @foreach (var claim in context.User.Claims)
+            {
+                @($"{claim.Type}: {claim.Value}")
+            <br />
+            }
+        </pre>
+    </Authorized>
+    <NotAuthorized>
+        <p>You are not authorized to view this page</p>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private User? _currentUser;
+    private List<NavigationItem>? _allModules;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is null) return;
+
+        var authState = await AuthState;
+        if (authState.User.Identity?.IsAuthenticated ?? false)
+        {
+            var username = authState.User.Identity.Name;
+            if (username is not null)
+            {
+                _currentUser = await AuthService.GetUserByNameAsync(username);
+                _allModules = await ModuleRegistry.GetRegisteredModulesAsync();
+            }
+        }
+    }
+}

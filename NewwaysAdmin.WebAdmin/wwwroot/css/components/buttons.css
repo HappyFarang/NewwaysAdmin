@@ -1,0 +1,66 @@
+﻿/* Base Button Styles */
+.btn {
+    transition: all 0.3s ease;
+}
+
+/* Navigation Button Styles */
+.nav-item .nav-link.menu-button,
+.nav-item button.menu-button {
+    color: white !important;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 8px;
+    margin: 4px 0;
+    transition: all 0.3s ease;
+    height: 3rem;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-decoration: none;
+    padding: 0 var(--spacing-md);
+}
+
+    .nav-item .nav-link.menu-button:hover,
+    .nav-item button.menu-button:hover {
+        background-color: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.5);
+        transform: translateX(5px);
+    }
+
+    .nav-item .nav-link.menu-button.active {
+        background-color: rgba(255, 255, 255, 0.25);
+        border-color: rgba(255, 255, 255, 0.7);
+        font-weight: bold;
+    }
+
+/* Secondary Button */
+.btn-secondary {
+    background-color: var(--theme-secondary);
+    border-color: var(--theme-secondary);
+    color: white;
+    padding: 0.75rem;
+    font-size: var(--font-size-lg);
+    transition: all 0.3s ease;
+}
+
+    .btn-secondary:hover {
+        background-color: #5a6268;
+        border-color: #545b62;
+        transform: translateY(-1px);
+    }
+
+    .btn-secondary:active {
+        transform: translateY(0);
+    }
+.toolbar-buttons .btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #ddd;
+    background: transparent;
+    color: #666;
+}
+
+    .toolbar-buttons .btn.active {
+        background: #4a4a4a;
+        color: white;
+        border-color: #4a4a4a;
+    }

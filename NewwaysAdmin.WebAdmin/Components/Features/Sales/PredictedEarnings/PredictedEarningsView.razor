@@ -1,0 +1,129 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.PredictedEarnings
+@using NewwaysAdmin.SharedModels.Config
+@using NewwaysAdmin.SharedModels.Sales
+@using NewwaysAdmin.WebAdmin.Services
+
+<div class="predicted-earnings-view">
+    <div class="controls mb-4">
+        <input type="date" class="form-control w-auto"
+               value="@_selectedDate.ToString("yyyy-MM-dd")"
+               @onchange="@(e => OnDateChanged(DateTime.Parse(e.Value?.ToString() ?? string.Empty)))" />
+    </div>
+
+    <div class="input-section mb-5">
+        <h4>Input Parameters</h4>
+        <div class="row">
+            <div class="col-md-4">
+                <label>Base Price per Bag</label>
+                <input type="number" class="form-control" @bind="_basePrice" />
+            </div>
+            <div class="col-md-4">
+                <label>Affiliate Commission Rate (%)</label>
+                <input type="number" class="form-control" @bind="_affiliateCommissionRate" />
+            </div>
+            <div class="col-md-4">
+                <label>Platform Commission Rate (%)</label>
+                <input type="number" class="form-control" @bind="_platformCommissionRate" />
+            </div>
+        </div>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="loading-spinner" />
+    }
+    else
+    {
+        <div class="results-section">
+            <h4>Predicted Earnings</h4>
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Bags Sold</th>
+                        <th>Gross Revenue</th>
+                        <th>Affiliate Commission</th>
+                        <th>Platform Commission</th>
+                        <th>Net Earnings</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var result in _predictedEarnings)
+                    {
+                        <tr>
+                            <td>@result.Date.ToString("yyyy-MM-dd")</td>
+                            <td>@result.BagsSold</td>
+                            <td>@result.GrossRevenue.ToString("C")</td>
+                            <td>@result.AffiliateCommission.ToString("C")</td>
+                            <td>@result.PlatformCommission.ToString("C")</td>
+                            <td>@result.NetEarnings.ToString("C")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public ProcessorConfig Config { get; set; } = null!;
+    [Inject] private SalesDataProvider SalesProvider { get; set; } = null!;
+
+    private DateTime _selectedDate = DateTime.Today;
+    private bool _isLoading;
+    private decimal _basePrice = 10.0m; // Default base price
+    private decimal _affiliateCommissionRate = 5.0m; // Default affiliate commission rate
+    private decimal _platformCommissionRate = 10.0m; // Default platform commission rate
+    private List<PredictedEarningResult> _predictedEarnings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CalculatePredictedEarningsAsync();
+    }
+
+    private async Task CalculatePredictedEarningsAsync()
+    {
+        _isLoading = true;
+        try
+        {
+            // Fetch sales data for the selected date
+            var salesData = await SalesProvider.GetSalesDataAsync(_selectedDate, _selectedDate);
+
+            // Calculate predicted earnings
+            _predictedEarnings = salesData
+                .Select(dailyData => new PredictedEarningResult
+                    {
+                        Date = dailyData.Date,
+                        BagsSold = dailyData.Data.Sales.Sum(s => s.Quantity), // Sum all quantities
+                        GrossRevenue = dailyData.Data.Sales.Sum(s => s.Quantity) * _basePrice,
+                        AffiliateCommission = dailyData.Data.Sales.Sum(s => s.Quantity) *
+                            _basePrice * (_affiliateCommissionRate / 100),
+                        PlatformCommission = dailyData.Data.Sales.Sum(s => s.Quantity) *
+                            _basePrice * (_platformCommissionRate / 100),
+                        NetEarnings = dailyData.Data.Sales.Sum(s => s.Quantity) * _basePrice *
+                            (1 - (_affiliateCommissionRate + _platformCommissionRate) / 100)
+                    })
+                .ToList();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnDateChanged(DateTime newDate)
+    {
+        _selectedDate = newDate;
+        await CalculatePredictedEarningsAsync();
+    }
+
+    private class PredictedEarningResult
+    {
+        public DateTime Date { get; set; }
+        public int BagsSold { get; set; }
+        public decimal GrossRevenue { get; set; }
+        public decimal AffiliateCommission { get; set; }
+        public decimal PlatformCommission { get; set; }
+        public decimal NetEarnings { get; set; }
+    }
+}

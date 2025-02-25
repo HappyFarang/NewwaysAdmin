@@ -1,0 +1,269 @@
+﻿@using NewwaysAdmin.SharedModels.Config
+@namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.PdfProcessor
+
+<div class="settings-container">
+    <div class="toolbar-section mb-4">
+        <button class="btn btn-primary me-2" @onclick="AddPlatform">
+            <span class="bi bi-plus-circle me-2"></span>Add Platform
+        </button>
+        <button class="btn btn-primary" @onclick="AddProduct">
+            <span class="bi bi-plus-circle me-2"></span>Add Product
+        </button>
+    </div>
+
+    @if (Config != null)
+    {
+        foreach (var platform in Config.Platforms)
+        {
+            <div class="platform-card mb-4">
+                <div class="platform-header">
+                    <div class="d-flex justify-content-between align-items-center p-3 bg-light border-bottom">
+                        <h5 class="mb-0">Platform: @platform.Value.Name</h5>
+                        <div>
+                            <button class="btn btn-outline-primary me-2" @onclick="() => AddSkuToPlatform(platform.Key)">
+                                <span class="bi bi-plus-circle me-2"></span>Add SKU
+                            </button>
+                            <button class="btn btn-outline-danger" @onclick="() => RemovePlatform(platform.Key)">
+                                <span class="bi bi-trash"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                @foreach (var productGroup in GetProductGroups(platform.Value.Skus))
+                {
+                    <div class="product-section p-3 border-bottom">
+                        <div class="product-header mb-3">
+                            <h6 class="mb-2">Product: @productGroup.Key.Name</h6>
+                            <small class="text-muted">@productGroup.Key.Description</small>
+                        </div>
+
+                        <div class="sku-list">
+                            @foreach (var sku in productGroup.Value)
+                            {
+                                <div class="sku-item d-flex align-items-center gap-4 mb-2 p-2 border rounded">
+                                    <div class="sku-id" style="width: 80px;">
+                                        <strong>@sku.Key</strong>
+                                    </div>
+                                    <div class="pack-size" style="width: 120px;">
+                                        Pack Size: @sku.Value.PackSize
+                                    </div>
+                                    <div class="formula flex-grow-1">
+                                        <input type="text" class="form-control"
+                                               @bind="Config.Platforms[platform.Key].Skus[sku.Key].Pattern"
+                                               placeholder="Formula pattern" />
+                                    </div>
+                                    <button class="btn btn-outline-danger btn-sm"
+                                            @onclick="() => RemoveSku(platform.Key, sku.Key)">
+                                        <span class="bi bi-trash"></span>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <button class="btn btn-primary mt-3" @onclick="SaveConfig">
+            <span class="bi bi-save me-2"></span>Save Configuration
+        </button>
+    }
+</div>
+
+@if (showAddProductModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New Product</h5>
+                    <button type="button" class="btn-close" @onclick="() => showAddProductModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Product Name</label>
+                        <input type="text" class="form-control" @bind="newProduct.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <input type="text" class="form-control" @bind="newProduct.Description" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showAddProductModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveNewProduct">Save Product</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@if (showAddSkuModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add New SKU</h5>
+                    <button type="button" class="btn-close" @onclick="() => showAddSkuModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Select Product</label>
+                        <div class="form-group">
+                            <select class="form-select" @bind="selectedProductIndex">
+                                @for (int i = 0; i < availableProducts.Count; i++)
+                                {
+                                    <option value="@i">@availableProducts[i].Name - @availableProducts[i].Description</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="mb-3 mt-3">
+                            <label class="form-label">Pack Size</label>
+                            <input type="number" class="form-control" @bind="newSkuPackSize" min="1" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => showAddSkuModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveNewSku">Add SKU</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public ProcessorConfig? Config { get; set; }
+    [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
+
+    private bool showAddProductModal = false;
+    private bool showAddSkuModal = false;
+    private string? currentPlatformId;
+    private ProductInfo newProduct = new();
+    private List<ProductInfo> availableProducts = new();
+    private int selectedProductIndex = -1;
+    private int newSkuPackSize = 1;
+
+    private class ProductInfo
+    {
+        public string Name { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+
+    private Dictionary<ProductInfo, Dictionary<string, SkuConfig>> GetProductGroups(Dictionary<string, SkuConfig> skus)
+    {
+        return skus.GroupBy(s => new ProductInfo
+            {
+                Name = s.Value.ProductName,
+                Description = s.Value.ProductDescription
+            },
+        s => new KeyValuePair<string, SkuConfig>(s.Key, s.Value),
+        new ProductInfoComparer())
+        .ToDictionary(g => g.Key, g => g.ToDictionary(s => s.Key, s => s.Value));
+    }
+
+    private class ProductInfoComparer : IEqualityComparer<ProductInfo>
+    {
+        public bool Equals(ProductInfo? x, ProductInfo? y)
+        {
+            if (x == null || y == null) return false;
+            return x.Name == y.Name && x.Description == y.Description;
+        }
+
+        public int GetHashCode(ProductInfo obj)
+        {
+            return HashCode.Combine(obj.Name, obj.Description);
+        }
+    }
+
+    private async Task SaveConfig()
+    {
+        if (Config != null)
+        {
+            await ConfigProvider.SaveAsync(Config);
+        }
+    }
+
+    private void AddPlatform()
+    {
+        if (Config != null)
+        {
+            var platformId = $"platform_{Config.Platforms.Count + 1}";
+            Config.Platforms[platformId] = new PlatformConfig
+                {
+                    Name = "",
+                    Enabled = true,
+                    Identifiers = new List<string>(),
+                    OrderNumberPattern = "",
+                    Skus = new Dictionary<string, SkuConfig>()
+                };
+        }
+    }
+
+    private void RemovePlatform(string platformId)
+    {
+        if (Config != null)
+        {
+            Config.Platforms.Remove(platformId);
+        }
+    }
+
+    private void AddProduct()
+    {
+        newProduct = new ProductInfo();
+        showAddProductModal = true;
+    }
+
+    private void SaveNewProduct()
+    {
+        showAddProductModal = false;
+    }
+
+    private void AddSkuToPlatform(string platformId)
+    {
+        currentPlatformId = platformId;
+        availableProducts = Config!.Platforms.Values
+            .SelectMany(p => p.Skus.Values)
+            .Select(s => new ProductInfo { Name = s.ProductName, Description = s.ProductDescription })
+            .Distinct(new ProductInfoComparer())
+            .ToList();
+
+        if (!string.IsNullOrEmpty(newProduct.Name))
+        {
+            availableProducts.Add(newProduct);
+        }
+
+        selectedProductIndex = 0;
+        newSkuPackSize = 1;
+        showAddSkuModal = true;
+    }
+
+    private void SaveNewSku()
+    {
+        if (currentPlatformId != null && Config?.Platforms[currentPlatformId] != null && selectedProductIndex >= 0)
+        {
+            var product = availableProducts[selectedProductIndex];
+            var skuId = $"SKU{Config.Platforms[currentPlatformId].Skus.Count + 1}";
+            Config.Platforms[currentPlatformId].Skus[skuId] = new SkuConfig
+                {
+                    Pattern = "",
+                    ProductName = product.Name,
+                    ProductDescription = product.Description,
+                    PackSize = newSkuPackSize
+                };
+        }
+        showAddSkuModal = false;
+    }
+
+    private void RemoveSku(string platformId, string skuId)
+    {
+        if (Config?.Platforms[platformId] != null)
+        {
+            Config.Platforms[platformId].Skus.Remove(skuId);
+        }
+    }
+}

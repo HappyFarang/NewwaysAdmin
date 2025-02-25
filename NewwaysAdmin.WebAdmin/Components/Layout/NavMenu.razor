@@ -1,0 +1,167 @@
+﻿@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Services.Navigation
+@using NewwaysAdmin.WebAdmin.Services.Modules
+@using NewwaysAdmin.WebAdmin.Models.Navigation
+@using Microsoft.AspNetCore.Components.Authorization
+@using NewwaysAdmin.WebAdmin.Authentication
+
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IAuthenticationService AuthService
+@inject INavigationService NavigationService
+@inject IModuleRegistry ModuleRegistry
+@inject ILogger<NavMenu> Logger
+@inject IJSRuntime JSRuntime
+
+<div class="top-row navbar navbar-dark navbar-header-thiel">
+    <div class="container-fluid">
+        <span class="navbar-brand">NewwaysAdmin</span>
+        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+    </div>
+</div>
+
+<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
+    <nav class="nav-container">
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-content">
+                    <div class="nav-items">
+                        @if (_navigationItems != null && _navigationItems.Any())
+                        {
+                            @foreach (var item in _navigationItems)
+                            {
+                                <div class="nav-item">
+                                    <NavLink class="nav-link menu-button" href="@item.Path"
+                                             Match="@(item.Path == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)">
+                                        <span class="@item.Icon" aria-hidden="true"></span>
+                                        <span>@item.Name</span>
+                                    </NavLink>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="nav-item">
+                                <span class="nav-link menu-button">
+                                    <span class="bi bi-hourglass" aria-hidden="true"></span>
+                                    <span>Loading navigation...</span>
+                                </span>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="nav-footer">
+                        <div class="nav-item">
+                            <NavLink class="nav-link menu-button" @onclick="HandleLogout" href="javascript:void(0)">
+                                <span class="bi bi-box-arrow-right" aria-hidden="true"></span>
+                                <span>Logout</span>
+                            </NavLink>
+                        </div>
+                    </div>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="nav-item">
+                    <NavLink class="nav-link menu-button" href="login">
+                        <span class="bi bi-person-fill" aria-hidden="true"></span>
+                        <span>Login</span>
+                    </NavLink>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+</div>
+
+@code {
+    private bool collapseNavMenu = true;
+    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+    private List<NavigationItem> _navigationItems = new();
+    private bool _isAuthenticated;
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshNavigationItems();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Logger.LogInformation("OnParametersSetAsync called");
+        var authState = await AuthState;
+        var isCurrentlyAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
+
+        if (isCurrentlyAuthenticated != _isAuthenticated)
+        {
+            _isAuthenticated = isCurrentlyAuthenticated;
+            await RefreshNavigationItems();
+        }
+    }
+
+    private async Task RefreshNavigationItems()
+    {
+        try
+        {
+            var authState = await AuthState;
+            var user = authState.User;
+
+            if (user.Identity?.IsAuthenticated ?? false)
+            {
+                var identity = user.Identity as System.Security.Claims.ClaimsIdentity;
+                var username = identity?.Name;
+
+                if (username != null)
+                {
+                    var currentUser = await AuthService.GetUserByNameAsync(username);
+
+                    if (currentUser != null)
+                    {
+                        _navigationItems = await NavigationService.GetUserNavigationItemsAsync(currentUser);
+                    }
+                    else
+                    {
+                        _navigationItems.Clear();
+                    }
+                }
+                else
+                {
+                    _navigationItems.Clear();
+                }
+            }
+            else
+            {
+                _navigationItems.Clear();
+            }
+
+            StateHasChanged();
+            // NavigationManager.NavigateTo("/login");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in RefreshNavigationItems");
+            _navigationItems.Clear();
+        }
+    }
+
+    private void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+
+    private async Task HandleLogout()
+    {
+        try
+        {
+            await AuthService.LogoutAsync();
+            await JSRuntime.InvokeVoidAsync("window.location.reload", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during logout");
+        }
+    }
+}

@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.0.1" />
+		<PackageReference Include="Microsoft.AspNetCore.Authentication" Version="2.2.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Authorization" Version="8.0.1" />
+		<PackageReference Include="NetEscapades.AspNetCore.SecurityHeaders" Version="0.24.0" />
+		<ProjectReference Include="..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
+    <ProjectReference Include="..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
+	</ItemGroup>
+	
+</Project>
