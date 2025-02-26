@@ -257,13 +257,35 @@ namespace NewwaysAdmin.IO.Manager
                             }
                         }
                     }
+
+                    // Also check folder definitions specific to this application
+                    var definitionsNetworkPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
+                    if (Directory.Exists(definitionsNetworkPath))
+                    {
+                        foreach (var file in Directory.GetFiles(definitionsNetworkPath, "*.json"))
+                        {
+                            var fileName = Path.GetFileName(file);
+                            var localPath = Path.Combine(_localDefinitionsPath, fileName);
+                            var serverModTime = File.GetLastWriteTimeUtc(file);
+
+                            // Use the same tracking mechanism for definitions
+                            var relativePath = $"Definitions/{_applicationName}/{fileName}";
+                            if (_configSyncTracker.NeedsUpdate(relativePath, serverModTime))
+                            {
+                                await CopyFileAsync(file, localPath);
+                                _configSyncTracker.UpdateTracking(relativePath, serverModTime);
+                                _logger.LogInformation("Updated folder definition {File} from server", fileName);
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error in config sync");
                 }
 
-                await Task.Delay(TimeSpan.FromMinutes(1));
+                // Check more frequently if desired (or keep at 1 minute)
+                await Task.Delay(TimeSpan.FromSeconds(30));
             }
         }
 
@@ -338,24 +360,70 @@ namespace NewwaysAdmin.IO.Manager
 
             try
             {
+                // Always check defined paths that need to be kept up to date
                 foreach (var configPath in _machineConfig.CopyOnUpdate)
                 {
                     var networkPath = Path.Combine(NetworkBaseFolder, configPath);
                     if (!Directory.Exists(networkPath)) continue;
 
+                    _logger.LogInformation("Checking for config updates in {Path}", configPath);
+
+                    // Process all files in the directory and subdirectories
                     foreach (var file in Directory.GetFiles(networkPath, "*.*", SearchOption.AllDirectories))
                     {
                         if (cancellationToken.IsCancellationRequested) break;
 
                         var relativePath = GetRelativePath(file, NetworkBaseFolder);
-                        var serverModTime = File.GetLastWriteTimeUtc(file);
+                        var localPath = Path.Combine(LocalBaseFolder, relativePath);
 
-                        if (_configSyncTracker.NeedsUpdate(relativePath, serverModTime))
+                        bool needsUpdate = false;
+
+                        if (!File.Exists(localPath))
                         {
-                            var localPath = Path.Combine(LocalBaseFolder, relativePath);
+                            needsUpdate = true;
+                        }
+                        else
+                        {
+                            var serverModTime = File.GetLastWriteTimeUtc(file);
+                            var localModTime = File.GetLastWriteTimeUtc(localPath);
+                            needsUpdate = serverModTime > localModTime;
+                        }
+
+                        if (needsUpdate)
+                        {
+                            _logger.LogInformation("Updating file {File} from server", relativePath);
                             await CopyFileAsync(file, localPath);
-                            _configSyncTracker.UpdateTracking(relativePath, serverModTime);
-                            _logger.LogInformation("Updated local config: {File}", relativePath);
+                            _configSyncTracker.UpdateTracking(relativePath, File.GetLastWriteTimeUtc(file));
+                        }
+                    }
+                }
+
+                // Also check specific folder definitions
+                var definitionsNetworkPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
+                if (Directory.Exists(definitionsNetworkPath))
+                {
+                    foreach (var file in Directory.GetFiles(definitionsNetworkPath, "*.json"))
+                    {
+                        var fileName = Path.GetFileName(file);
+                        var localPath = Path.Combine(_localDefinitionsPath, fileName);
+
+                        bool needsUpdate = false;
+
+                        if (!File.Exists(localPath))
+                        {
+                            needsUpdate = true;
+                        }
+                        else
+                        {
+                            var serverModTime = File.GetLastWriteTimeUtc(file);
+                            var localModTime = File.GetLastWriteTimeUtc(localPath);
+                            needsUpdate = serverModTime > localModTime;
+                        }
+
+                        if (needsUpdate)
+                        {
+                            _logger.LogInformation("Updating folder definition {File} from server", fileName);
+                            await CopyFileAsync(file, localPath);
                         }
                     }
                 }
@@ -408,9 +476,53 @@ namespace NewwaysAdmin.IO.Manager
         {
             try
             {
-                var folder = await LoadLocalDefinitionAsync(folderName)
-                         ?? await LoadServerDefinitionAsync(folderName)
-                         ?? await CreateNewFolderDefinitionAsync(folderName);
+                // First try to load from server
+                var serverFolder = await LoadServerDefinitionAsync(folderName);
+
+                // Then check local definition
+                var localFolder = await LoadLocalDefinitionAsync(folderName);
+
+                StorageFolder? folder = null;
+
+                if (serverFolder != null && localFolder != null)
+                {
+                    // Both exist - check timestamps for newest
+                    var serverPath = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
+                    var localPath = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
+
+                    var serverModTime = File.GetLastWriteTimeUtc(serverPath);
+                    var localModTime = File.GetLastWriteTimeUtc(localPath);
+
+                    if (serverModTime > localModTime)
+                    {
+                        // Server is newer, copy to local
+                        _logger.LogInformation("Server definition is newer. Updating local copy for {Folder}", folderName);
+                        await CopyFileAsync(serverPath, localPath);
+                        folder = serverFolder;
+                    }
+                    else
+                    {
+                        folder = localFolder;
+                    }
+                }
+                else if (serverFolder != null)
+                {
+                    // Only server exists - copy to local
+                    _logger.LogInformation("Found folder definition on server. Creating local copy for {Folder}", folderName);
+                    var serverPath = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
+                    var localPath = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
+                    await CopyFileAsync(serverPath, localPath);
+                    folder = serverFolder;
+                }
+                else if (localFolder != null)
+                {
+                    folder = localFolder;
+                }
+                else
+                {
+                    // Neither exists - create new
+                    folder = await CreateNewFolderDefinitionAsync(folderName);
+                }
 
                 if (folder == null)
                 {

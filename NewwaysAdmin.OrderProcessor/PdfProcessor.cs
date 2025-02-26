@@ -80,37 +80,108 @@ namespace NewwaysAdmin.OrderProcessor
                             ["tiktok"] = new PlatformConfig
                             {
                                 Enabled = true,
-                                Identifiers = new List<string> { "tiktok", "TikTok" },
-                                OrderNumberPattern = @"Order\s*Number:\s*(\d+)",
+                                Identifiers = new List<string> { "tiktok", "TikTok", "JA118", "Thailand Post" },
+                                OrderNumberPattern = @"\d{18}",
                                 Skus = new Dictionary<string, SkuConfig>
                                 {
-                                    ["sku1"] = new SkuConfig { Pattern = @"SKU1\s+(\d+)", PackSize = 1 }
+                                    ["SKU1"] = new SkuConfig
+                                    {
+                                        Pattern = @"1\s*ถ[\u0E31-\u0E4E]*ง[\u0E31-\u0E4E]*\s*(\d+)",
+                                        ProductName = "Package Type 1",
+                                        ProductDescription = "Small package",
+                                        PackSize = 1
+                                    },
+                                    ["SKU2"] = new SkuConfig
+                                    {
+                                        Pattern = @"2\s*ถ[\u0E31-\u0E4E]*ง[\u0E31-\u0E4E]*\s*(\d+)",
+                                        ProductName = "Package Type 2",
+                                        ProductDescription = "Medium package",
+                                        PackSize = 1
+                                    },
+                                    ["SKU3"] = new SkuConfig
+                                    {
+                                        Pattern = @"3\s*ถ[\u0E31-\u0E4E]*ง[\u0E31-\u0E4E]*\s*(\d+)",
+                                        ProductName = "Package Type 3",
+                                        ProductDescription = "Large package",
+                                        PackSize = 1
+                                    },
+                                    ["GeneralSKU"] = new SkuConfig
+                                    {
+                                        Pattern = @"\b([123])\b\s*ถ\s*[\u0E31-\u0E4E]*\s*ง[\u0E31-\u0E4E]*\s*(\d+)",
+                                        ProductName = "General Package",
+                                        ProductDescription = "Any package type",
+                                        PackSize = 1
+                                    }
                                 }
                             },
                             ["lazada"] = new PlatformConfig
                             {
                                 Enabled = true,
-                                Identifiers = new List<string> { "lazada", "Lazada" },
+                                Identifiers = new List<string> { "lazada", "Lazada", "LZD" },
                                 OrderNumberPattern = @"Order\s*No\.\s*(\d+)",
                                 Skus = new Dictionary<string, SkuConfig>
                                 {
-                                    ["sku1"] = new SkuConfig { Pattern = @"SKU1\s+(\d+)", PackSize = 1 }
+                                    ["SKU1"] = new SkuConfig
+                                    {
+                                        Pattern = @"1\s*ถง\s*(\d+)",
+                                        ProductName = "Package Type 1",
+                                        ProductDescription = "Small package",
+                                        PackSize = 1
+                                    },
+                                    ["SKU2"] = new SkuConfig
+                                    {
+                                        Pattern = @"2\s*ถง\s*(\d+)",
+                                        ProductName = "Package Type 2",
+                                        ProductDescription = "Medium package",
+                                        PackSize = 1
+                                    },
+                                    ["SKU3"] = new SkuConfig
+                                    {
+                                        Pattern = @"3\s*ถง\s*(\d+)",
+                                        ProductName = "Package Type 3",
+                                        ProductDescription = "Large package",
+                                        PackSize = 1
+                                    }
                                 }
                             },
                             ["shopee"] = new PlatformConfig
                             {
                                 Enabled = true,
-                                Identifiers = new List<string> { "shopee", "Shopee" },
+                                Identifiers = new List<string> { "shopee", "Shopee", "SP" },
                                 OrderNumberPattern = @"Order\s*ID:\s*(\d+)",
                                 Skus = new Dictionary<string, SkuConfig>
                                 {
-                                    ["sku1"] = new SkuConfig { Pattern = @"SKU1\s+(\d+)", PackSize = 1 }
+                                    ["SKU1"] = new SkuConfig
+                                    {
+                                        Pattern = @"1\s*ถง\s*(\d+)",
+                                        ProductName = "Package Type 1",
+                                        ProductDescription = "Small package",
+                                        PackSize = 1
+                                    },
+                                    ["SKU2"] = new SkuConfig
+                                    {
+                                        Pattern = @"2\s*ถง\s*(\d+)",
+                                        ProductName = "Package Type 2",
+                                        ProductDescription = "Medium package",
+                                        PackSize = 1
+                                    },
+                                    ["SKU3"] = new SkuConfig
+                                    {
+                                        Pattern = @"3\s*ถง\s*(\d+)",
+                                        ProductName = "Package Type 3",
+                                        ProductDescription = "Large package",
+                                        PackSize = 1
+                                    }
                                 }
                             }
-                        }
+                        },
+                        Version = "1.0",
+                        LastUpdated = DateTime.UtcNow,
+                        UpdatedBy = "System"
                     };
                     // Save the default config for future use
                     await _configStorage.SaveAsync("platforms", platformConfig);
+                    _logger.LogInformation("Created and saved default platform configuration");
                 }
 
                 string normalizedText = await ExtractAndNormalizeTextAsync(pdfPath);

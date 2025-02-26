@@ -48,6 +48,14 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 _logger.LogInformation("Registering folder: {FolderName} at {Path}",
                     folder.Name, folder.Path);
 
+                // Check if folder is already registered
+                if (_config.RegisteredFolders.Any(f => f.Name == folder.Name))
+                {
+                    _logger.LogInformation("Folder {FolderName} is already registered, skipping registration",
+                        folder.Name);
+                    return; // Skip registration instead of throwing an error
+                }
+
                 _config.AddFolder(folder);
                 SaveConfiguration();
 
