@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.Configuration;
+using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.SharedModels.Config;
 
 namespace NewwaysAdmin.OrderProcessor
@@ -18,7 +19,12 @@ namespace NewwaysAdmin.OrderProcessor
             });
 
             // Add configuration providers
-            services.AddSingleton<ConfigProvider>();
+            services.AddSingleton<ConfigProvider>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger<ConfigProvider>();
+                var storageFactory = sp.GetRequiredService<EnhancedStorageFactory>();
+                return new ConfigProvider(logger, storageFactory);
+            });
             services.AddSingleton<IOConfigLoader>();
 
             // Configure IOManager options first

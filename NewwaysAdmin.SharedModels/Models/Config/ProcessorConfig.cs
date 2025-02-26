@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
+using NewwaysAdmin.Shared.IO.Structure;
+using NewwaysAdmin.Shared.IO;
 
 namespace NewwaysAdmin.SharedModels.Config
 {
@@ -102,25 +104,36 @@ namespace NewwaysAdmin.SharedModels.Config
 
     public class ConfigProvider
     {
-        private const string ConfigPath = @"C:\NewwaysCore\config\platform-config.json";
         private readonly ILogger _logger;
+        private readonly EnhancedStorageFactory _storageFactory;
+        private IDataStorage<ProcessorConfig>? _configStorage;
+        private readonly SemaphoreSlim _initLock = new(1, 1);
         private static readonly JsonSerializerSettings _jsonSettings = new()
         {
             Formatting = Formatting.Indented
         };
 
-        public ConfigProvider(ILogger logger)
+        public ConfigProvider(ILogger logger, EnhancedStorageFactory storageFactory)
         {
             _logger = logger;
-            EnsureConfigDirectoryExists();
+            _storageFactory = storageFactory;
         }
 
-        private void EnsureConfigDirectoryExists()
+        private async Task EnsureStorageInitializedAsync()
         {
-            var directory = Path.GetDirectoryName(ConfigPath);
-            if (!Directory.Exists(directory))
+            if (_configStorage != null) return;
+
+            await _initLock.WaitAsync();
+            try
             {
-                Directory.CreateDirectory(directory!);
+                if (_configStorage == null)
+                {
+                    _configStorage = _storageFactory.GetStorage<ProcessorConfig>("PDFProcessor_Config");
+                }
+            }
+            finally
+            {
+                _initLock.Release();
             }
         }
 
@@ -128,23 +141,24 @@ namespace NewwaysAdmin.SharedModels.Config
         {
             try
             {
-                if (!File.Exists(ConfigPath))
+                await EnsureStorageInitializedAsync();
+
+                if (_configStorage == null)
+                    throw new InvalidOperationException("Config storage not initialized");
+
+                if (await _configStorage.ExistsAsync("platforms"))
                 {
-                    _logger.LogInformation("Config file not found. Creating default config.");
-                    var defaultConfig = CreateDefaultConfig();
-                    await SaveAsync(defaultConfig);
-                    return defaultConfig;
+                    var config = await _configStorage.LoadAsync("platforms");
+                    if (config != null)
+                    {
+                        return config;
+                    }
                 }
 
-                var json = await File.ReadAllTextAsync(ConfigPath);
-                var config = JsonConvert.DeserializeObject<ProcessorConfig>(json, _jsonSettings);
-
-                if (config == null)
-                {
-                    throw new InvalidOperationException("Failed to deserialize configuration");
-                }
-
-                return config;
+                _logger.LogInformation("Config file not found. Creating default config.");
+                var defaultConfig = CreateDefaultConfig();
+                await SaveAsync(defaultConfig);
+                return defaultConfig;
             }
             catch (Exception ex)
             {
@@ -157,9 +171,13 @@ namespace NewwaysAdmin.SharedModels.Config
         {
             try
             {
+                await EnsureStorageInitializedAsync();
+
+                if (_configStorage == null)
+                    throw new InvalidOperationException("Config storage not initialized");
+
                 ArgumentNullException.ThrowIfNull(config);
-                var json = JsonConvert.SerializeObject(config, _jsonSettings);
-                await File.WriteAllTextAsync(ConfigPath, json);
+                await _configStorage.SaveAsync("platforms", config);
                 _logger.LogInformation("Configuration saved successfully");
             }
             catch (Exception ex)
