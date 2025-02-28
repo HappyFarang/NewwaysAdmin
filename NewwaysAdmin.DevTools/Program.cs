@@ -887,7 +887,7 @@ namespace NewwaysAdmin.DevTools
         }
     }
 
-    // Class to deserialize the storage registry
+    // Class to deserialize the storage registry.
     public class StorageRegistry
     {
         public List<StorageFolder> RegisteredFolders { get; set; } = new List<StorageFolder>();
