@@ -25,7 +25,7 @@ public class OrderProcessorLogger
         {
             if (_storage == null)
             {
-                _storage = await _ioManager.GetStorageAsync<List<LogEntry>>("PDFProcessor_Logs");
+                _storage = await _ioManager.GetStorageAsync<List<LogEntry>>("Logs");
             }
         }
         finally

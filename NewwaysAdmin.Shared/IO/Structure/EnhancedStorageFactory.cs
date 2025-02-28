@@ -59,8 +59,11 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 _config.AddFolder(folder);
                 SaveConfiguration();
 
-                // Create the folder structure
-                var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path, folder.Name);
+                // Create the folder structure - create the path directory
+                var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path);
+
+                _logger.LogInformation("Creating directory at path: {FullPath}", fullPath);
+
                 if (!Directory.Exists(fullPath))
                 {
                     Directory.CreateDirectory(fullPath);
@@ -87,7 +90,10 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 return (IDataStorage<T>)cached;
             }
 
-            var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path, folder.Name);
+            var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path);
+
+            _logger.LogDebug("Getting storage for {FolderName} at full path: {FullPath}", folderName, fullPath);
+
             var options = new StorageOptions
             {
                 BasePath = fullPath,
@@ -112,8 +118,8 @@ namespace NewwaysAdmin.Shared.IO.Structure
 
             foreach (var folder in _config.RegisteredFolders.OrderBy(f => f.Path))
             {
-                sb.AppendLine($"\nFolder: {folder.Name}");
-                sb.AppendLine($"Path: {Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path, folder.Name)}");
+                sb.AppendLine($"\nFolder ID: {folder.Name}");
+                sb.AppendLine($"Physical Path: {Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path)}");
                 sb.AppendLine($"Description: {folder.Description}");
                 sb.AppendLine($"Type: {folder.Type}");
                 sb.AppendLine($"Created: {folder.Created}");
@@ -153,11 +159,7 @@ namespace NewwaysAdmin.Shared.IO.Structure
             });
             File.WriteAllText(_configPath, json);
         }
-        /// <summary>
-        /// Unregistearam>rs a folder from the storage system. This only removes the registration
-        /// and cached storage instances - it does NOT delete any files or folders from disk.
-        /// </summary>
-        /// <param name="folderPath">The path of the folder to unregister</p
+
         public void UnregisterFolder(string folderPath)
         {
             try
@@ -167,7 +169,7 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 // Find folder in config
                 var registeredFolders = _config.RegisteredFolders.ToList();
                 var folder = registeredFolders.FirstOrDefault(f =>
-                    Path.Combine(f.Path, f.Name).Replace('\\', '/') == folderPath.Replace('\\', '/'));
+                    f.Path.Replace('\\', '/') == folderPath.Replace('\\', '/'));
 
                 if (folder == null)
                 {

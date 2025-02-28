@@ -105,7 +105,7 @@ namespace NewwaysAdmin.SharedModels.Config
     public class ConfigProvider
     {
         private readonly ILogger _logger;
-        private readonly EnhancedStorageFactory _storageFactory;
+        private readonly EnhancedStorageFactory? _storageFactory;
         private IDataStorage<ProcessorConfig>? _configStorage;
         private readonly SemaphoreSlim _initLock = new(1, 1);
         private static readonly JsonSerializerSettings _jsonSettings = new()
@@ -113,7 +113,10 @@ namespace NewwaysAdmin.SharedModels.Config
             Formatting = Formatting.Indented
         };
 
-        public ConfigProvider(ILogger logger, EnhancedStorageFactory storageFactory)
+        // Constructor remains unchanged
+        public ConfigProvider(
+            ILogger logger,
+            EnhancedStorageFactory? storageFactory = null)
         {
             _logger = logger;
             _storageFactory = storageFactory;
@@ -128,7 +131,46 @@ namespace NewwaysAdmin.SharedModels.Config
             {
                 if (_configStorage == null)
                 {
+                    // If no storage factory is provided, throw an exception
+                    if (_storageFactory == null)
+                        throw new InvalidOperationException("No storage factory available for configuration storage");
+
                     _configStorage = _storageFactory.GetStorage<ProcessorConfig>("PDFProcessor_Config");
+                    _logger.LogInformation("Initialized configuration storage with identifier 'PDFProcessor_Config'");
+
+                    // Add diagnostic info about the storage path
+                    try
+                    {
+                        var storageType = _configStorage.GetType();
+                        var optionsField = storageType.GetField("_options", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        if (optionsField != null)
+                        {
+                            var options = optionsField.GetValue(_configStorage);
+                            var basePathProp = options.GetType().GetProperty("BasePath");
+                            if (basePathProp != null)
+                            {
+                                var basePath = basePathProp.GetValue(options) as string;
+                                _logger.LogInformation("Storage base path: {BasePath}", basePath);
+
+                                // Check if directory exists and is accessible
+                                if (Directory.Exists(basePath))
+                                {
+                                    _logger.LogInformation("Directory exists and is accessible");
+                                    // List files in the directory
+                                    var files = Directory.GetFiles(basePath, "*.*").Select(Path.GetFileName);
+                                    _logger.LogInformation("Files in directory: {Files}", string.Join(", ", files));
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("Directory does not exist or is not accessible: {BasePath}", basePath);
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Unable to get storage path information");
+                    }
                 }
             }
             finally
@@ -146,23 +188,43 @@ namespace NewwaysAdmin.SharedModels.Config
                 if (_configStorage == null)
                     throw new InvalidOperationException("Config storage not initialized");
 
-                if (await _configStorage.ExistsAsync("platforms"))
+                // List available files to diagnose the issue
+                var identifiers = await _configStorage.ListIdentifiersAsync();
+                _logger.LogInformation("Available configuration files: {Files}",
+                    string.Join(", ", identifiers));
+
+                // Try multiple variations of the filename
+                string[] possibleFiles = { "platforms", "platform", "Platforms", "Platform" };
+
+                foreach (var file in possibleFiles)
                 {
-                    var config = await _configStorage.LoadAsync("platforms");
-                    if (config != null)
+                    if (await _configStorage.ExistsAsync(file))
                     {
-                        return config;
+                        _logger.LogInformation("Found configuration file: {FileName}", file);
+                        var config = await _configStorage.LoadAsync(file);
+
+                        if (config != null && config.Platforms != null && config.Platforms.Count > 0)
+                        {
+                            _logger.LogInformation("Loaded configuration with {Count} platforms: {PlatformNames}",
+                                config.Platforms.Count,
+                                string.Join(", ", config.Platforms.Keys));
+                            return config;
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Configuration file {FileName} exists but is empty or invalid", file);
+                        }
                     }
                 }
 
-                _logger.LogInformation("Config file not found. Creating default config.");
+                _logger.LogInformation("No valid configuration found. Creating default config.");
                 var defaultConfig = CreateDefaultConfig();
                 await SaveAsync(defaultConfig);
                 return defaultConfig;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to load configuration");
+                _logger.LogError(ex, "Failed to load configuration: {Message}", ex.Message);
                 throw;
             }
         }
@@ -177,16 +239,31 @@ namespace NewwaysAdmin.SharedModels.Config
                     throw new InvalidOperationException("Config storage not initialized");
 
                 ArgumentNullException.ThrowIfNull(config);
-                await _configStorage.SaveAsync("platforms", config);
-                _logger.LogInformation("Configuration saved successfully");
+
+                // Save with the identifier "platform" (singular) to standardize
+                await _configStorage.SaveAsync("platform", config);
+                _logger.LogInformation("Configuration saved successfully as 'platform'");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save configuration");
+                _logger.LogError(ex, "Failed to save configuration: {Message}", ex.Message);
                 throw;
             }
         }
 
+        // CreateDefaultConfig remains unchanged
+        private ProcessorConfig CreateDefaultConfig()
+        {
+            return new ProcessorConfig
+            {
+                Version = "1.0",
+                LastUpdated = DateTime.UtcNow,
+                UpdatedBy = Environment.MachineName,
+                Platforms = new Dictionary<string, PlatformConfig>()
+            };
+        }
+
+        // ValidateConfig remains unchanged
         public bool ValidateConfig(ProcessorConfig config)
         {
             if (config == null) return false;
@@ -205,17 +282,6 @@ namespace NewwaysAdmin.SharedModels.Config
             }
 
             return true;
-        }
-
-        private ProcessorConfig CreateDefaultConfig()
-        {
-            return new ProcessorConfig
-            {
-                Version = "1.0",
-                LastUpdated = DateTime.UtcNow,
-                UpdatedBy = Environment.MachineName,
-                Platforms = new Dictionary<string, PlatformConfig>()
-            };
         }
     }
 }

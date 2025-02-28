@@ -459,10 +459,13 @@ namespace NewwaysAdmin.IO.Manager
                 _logger.LogError(ex, "Error processing pending transfers");
             }
         }
-        // Keep existing StorageFolder-related methods unchanged
+
         public async Task<IDataStorage<T>> GetStorageAsync<T>(string baseFolderName) where T : class, new()
         {
+            // Keep the uniqueFolderName construction as is
             string uniqueFolderName = $"{_applicationName}_{baseFolderName}";
+
+            _logger.LogDebug("Getting storage for folder: {FolderName}", uniqueFolderName);
 
             if (!_loadedFolders.ContainsKey(uniqueFolderName))
             {
@@ -582,12 +585,41 @@ namespace NewwaysAdmin.IO.Manager
         {
             var machineConfig = await _machineConfigProvider.LoadConfigAsync();
 
+            // Extract the base name without application prefix
+            string shortFolderName = folderName;
+            if (folderName.StartsWith($"{_applicationName}_"))
+            {
+                shortFolderName = folderName.Substring(_applicationName.Length + 1);
+            }
+
+            // Create a more intuitive path structure
+            string path;
+
+            // Special handling for config folders
+            if (shortFolderName.Equals("Config", StringComparison.OrdinalIgnoreCase))
+            {
+                // Place app configs in Config/AppName
+                path = $"Config/{_applicationName}";
+            }
+            else if (shortFolderName.Contains("Config", StringComparison.OrdinalIgnoreCase))
+            {
+                // If it has "Config" in the name but isn't exactly "Config"
+                path = $"Config/{_applicationName}";
+            }
+            else
+            {
+                // For other folders, place them under the app folder
+                path = _applicationName;
+            }
+
+            _logger.LogInformation("Creating folder definition for {FolderName} with path {Path}", folderName, path);
+
             return new StorageFolder
             {
                 Name = folderName,
                 Description = $"Auto-created folder for {_applicationName}",
                 Type = StorageType.Json,
-                Path = _applicationName,
+                Path = path,
                 IsShared = false,
                 CreateBackups = true,
                 MaxBackupCount = 5,

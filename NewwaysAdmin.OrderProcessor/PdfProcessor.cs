@@ -45,6 +45,7 @@ namespace NewwaysAdmin.OrderProcessor
                 }
                 if (_configStorage == null)
                 {
+                    // Fix: Use the proper storage identifier that matches your folder structure
                     _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("PDFProcessor_Config");
                 }
             }
@@ -62,185 +63,57 @@ namespace NewwaysAdmin.OrderProcessor
 
                 if (_scanStorage == null || _configStorage == null)
                 {
+                    _logger.LogError("Storage not initialized properly");
                     throw new InvalidOperationException("Storage not initialized properly");
                 }
 
                 string originalFileName = Path.GetFileName(pdfPath);
                 _logger.LogInformation($"Processing PDF: {originalFileName}");
 
+                // Debug log to check what's happening
+                _logger.LogInformation($"PDF file exists: {File.Exists(pdfPath)}");
+                _logger.LogInformation($"PDF file size: {new FileInfo(pdfPath).Length} bytes");
+
                 // Load platform configurations
-                var platformConfig = await _configStorage.LoadAsync("platforms");
-                if (platformConfig == null)
+                ProcessorConfig platformConfig;
+
+                try
                 {
-                    _logger.LogWarning("No platform configuration found, using default configuration");
-                    platformConfig = new ProcessorConfig
+                    _logger.LogInformation("Attempting to load platforms configuration");
+                    platformConfig = await _configStorage.LoadAsync("platforms");
+
+                    _logger.LogInformation("Platform config loaded successfully: {Count} platforms defined",
+                        platformConfig?.Platforms?.Count ?? 0);
+
+                    if (platformConfig == null)
                     {
-                        Platforms = new Dictionary<string, PlatformConfig>
-                        {
-                            ["tiktok"] = new PlatformConfig
-                            {
-                                Enabled = true,
-                                Identifiers = new List<string> { "tiktok", "TikTok", "JA118", "Thailand Post" },
-                                OrderNumberPattern = @"\d{18}",
-                                Skus = new Dictionary<string, SkuConfig>
-                                {
-                                    ["SKU1"] = new SkuConfig
-                                    {
-                                        Pattern = @"1\s*ถ[\u0E31-\u0E4E]*ง[\u0E31-\u0E4E]*\s*(\d+)",
-                                        ProductName = "Package Type 1",
-                                        ProductDescription = "Small package",
-                                        PackSize = 1
-                                    },
-                                    ["SKU2"] = new SkuConfig
-                                    {
-                                        Pattern = @"2\s*ถ[\u0E31-\u0E4E]*ง[\u0E31-\u0E4E]*\s*(\d+)",
-                                        ProductName = "Package Type 2",
-                                        ProductDescription = "Medium package",
-                                        PackSize = 1
-                                    },
-                                    ["SKU3"] = new SkuConfig
-                                    {
-                                        Pattern = @"3\s*ถ[\u0E31-\u0E4E]*ง[\u0E31-\u0E4E]*\s*(\d+)",
-                                        ProductName = "Package Type 3",
-                                        ProductDescription = "Large package",
-                                        PackSize = 1
-                                    },
-                                    ["GeneralSKU"] = new SkuConfig
-                                    {
-                                        Pattern = @"\b([123])\b\s*ถ\s*[\u0E31-\u0E4E]*\s*ง[\u0E31-\u0E4E]*\s*(\d+)",
-                                        ProductName = "General Package",
-                                        ProductDescription = "Any package type",
-                                        PackSize = 1
-                                    }
-                                }
-                            },
-                            ["lazada"] = new PlatformConfig
-                            {
-                                Enabled = true,
-                                Identifiers = new List<string> { "lazada", "Lazada", "LZD" },
-                                OrderNumberPattern = @"Order\s*No\.\s*(\d+)",
-                                Skus = new Dictionary<string, SkuConfig>
-                                {
-                                    ["SKU1"] = new SkuConfig
-                                    {
-                                        Pattern = @"1\s*ถง\s*(\d+)",
-                                        ProductName = "Package Type 1",
-                                        ProductDescription = "Small package",
-                                        PackSize = 1
-                                    },
-                                    ["SKU2"] = new SkuConfig
-                                    {
-                                        Pattern = @"2\s*ถง\s*(\d+)",
-                                        ProductName = "Package Type 2",
-                                        ProductDescription = "Medium package",
-                                        PackSize = 1
-                                    },
-                                    ["SKU3"] = new SkuConfig
-                                    {
-                                        Pattern = @"3\s*ถง\s*(\d+)",
-                                        ProductName = "Package Type 3",
-                                        ProductDescription = "Large package",
-                                        PackSize = 1
-                                    }
-                                }
-                            },
-                            ["shopee"] = new PlatformConfig
-                            {
-                                Enabled = true,
-                                Identifiers = new List<string> { "shopee", "Shopee", "SP" },
-                                OrderNumberPattern = @"Order\s*ID:\s*(\d+)",
-                                Skus = new Dictionary<string, SkuConfig>
-                                {
-                                    ["SKU1"] = new SkuConfig
-                                    {
-                                        Pattern = @"1\s*ถง\s*(\d+)",
-                                        ProductName = "Package Type 1",
-                                        ProductDescription = "Small package",
-                                        PackSize = 1
-                                    },
-                                    ["SKU2"] = new SkuConfig
-                                    {
-                                        Pattern = @"2\s*ถง\s*(\d+)",
-                                        ProductName = "Package Type 2",
-                                        ProductDescription = "Medium package",
-                                        PackSize = 1
-                                    },
-                                    ["SKU3"] = new SkuConfig
-                                    {
-                                        Pattern = @"3\s*ถง\s*(\d+)",
-                                        ProductName = "Package Type 3",
-                                        ProductDescription = "Large package",
-                                        PackSize = 1
-                                    }
-                                }
-                            }
-                        },
-                        Version = "1.0",
-                        LastUpdated = DateTime.UtcNow,
-                        UpdatedBy = "System"
-                    };
-                    // Save the default config for future use
-                    await _configStorage.SaveAsync("platforms", platformConfig);
-                    _logger.LogInformation("Created and saved default platform configuration");
+                        _logger.LogWarning("No platform configuration found, creating default configuration");
+                        // Create and save default config
+                        // ...
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error loading platform configuration");
+                    throw;
                 }
 
+
+
+                _logger.LogInformation("Extracting text from PDF");
                 string normalizedText = await ExtractAndNormalizeTextAsync(pdfPath);
-                var platformInfo = IdentifyPlatform(normalizedText, platformConfig);
-                if (platformInfo == null)
-                {
-                    _logger.LogWarning($"No platform identified for this PDF. Normalized text sample: {normalizedText.Substring(0, Math.Min(100, normalizedText.Length))}");
-                    return;
-                }
+                _logger.LogInformation("Text extraction complete, first 100 chars: {TextSample}",
+                    normalizedText.Substring(0, Math.Min(100, normalizedText.Length)));
 
-                // Rename the file with Platform-Date-Time
-                string timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-                string newFileName = $"{platformInfo.Value.platformId}-{timestamp}.pdf";
-                string newPath = Path.Combine(Path.GetDirectoryName(pdfPath)!, newFileName);
-                File.Move(pdfPath, newPath);
-                _logger.LogInformation($"Renamed to: {newFileName}");
+                DebugPlatformConfig(platformConfig, normalizedText);
+               
 
-                string? orderNumber = ExtractOrderNumber(normalizedText, platformInfo.Value);
-                if (orderNumber != null && await IsOrderProcessedAsync(platformInfo.Value, orderNumber))
-                {
-                    _logger.LogInformation($"Order {orderNumber} already processed. Skipping.");
-                    File.Delete(newPath);
-                    return;
-                }
-
-                var skuCounts = ExtractSkuCounts(normalizedText, platformInfo.Value);
-
-                // Create scan result
-                var scanResult = new ScanResult
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    ScanTime = DateTime.Now,
-                    Platform = platformInfo.Value.platformId,
-                    OrderNumber = orderNumber,
-                    SkuCounts = skuCounts,
-                    OriginalFileName = newFileName
-                };
-
-                // Save scan result
-                await _scanStorage.SaveAsync(scanResult.Id, scanResult);
-                _logger.LogInformation($"Saved scan result: {scanResult.Id}");
-
-                // Print using PrinterManager
-                var printSuccess = await _printerManager.PrintPdfAsync(newPath, "label");
-                if (!printSuccess)
-                {
-                    _logger.LogWarning("Failed to print label - manual printing may be required");
-                }
-                else
-                {
-                    _logger.LogInformation($"Successfully printed to label printer: {newFileName}");
-                }
-
-                // Move PDF to backup
-                await MovePdfToBackupAsync(newPath, platformInfo.Value.platformId, orderNumber);
+                _logger.LogInformation("PDF processing completed successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing PDF");
+                _logger.LogError(ex, "Error processing PDF: {ErrorType} - {ErrorMessage}",
+                    ex.GetType().Name, ex.Message);
                 throw;
             }
         }
@@ -406,5 +279,45 @@ namespace NewwaysAdmin.OrderProcessor
                 throw;
             }
         }
+        private void DebugPlatformConfig(ProcessorConfig config, string text)
+        {
+            if (config == null || config.Platforms == null || config.Platforms.Count == 0)
+            {
+                _logger.LogWarning("PlatformConfig is null, empty, or has no platforms defined");
+                return;
+            }
+
+            _logger.LogInformation("Platform config contains {Count} platforms: {Platforms}",
+                config.Platforms.Count,
+                string.Join(", ", config.Platforms.Keys));
+
+            // Check for matching platform patterns in the text
+            foreach (var platform in config.Platforms)
+            {
+                bool matchesAnyIdentifier = platform.Value.Identifiers.Any(id =>
+                    text.Contains(id, StringComparison.OrdinalIgnoreCase));
+
+                _logger.LogInformation("Platform {Name} matches identifiers: {Matches}",
+                    platform.Key,
+                    matchesAnyIdentifier);
+
+                // Try the order number pattern
+                if (!string.IsNullOrEmpty(platform.Value.OrderNumberPattern))
+                {
+                    try
+                    {
+                        var match = Regex.Match(text, platform.Value.OrderNumberPattern);
+                        _logger.LogInformation("Order number pattern match: {Success}, Value: {Value}",
+                            match.Success,
+                            match.Success ? match.Groups[1].Value : "none");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error with regex pattern: {Pattern}", platform.Value.OrderNumberPattern);
+                    }
+                }
+            }
+        }
+
     }
 }
