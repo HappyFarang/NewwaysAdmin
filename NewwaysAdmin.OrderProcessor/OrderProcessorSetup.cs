@@ -147,7 +147,6 @@ public static class OrderProcessorSetup
     }
     public static async Task InitializeServicesAsync(IServiceProvider serviceProvider)
     {
-        // Get the logger factory and create a logger specifically for initialization
         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger("OrderProcessor.Initialization");
 
@@ -155,56 +154,58 @@ public static class OrderProcessorSetup
         {
             logger.LogInformation("Starting service initialization...");
 
-            // Ensure the storage factory is properly initialized
+            // Get the EnhancedStorageFactory and IOManager
             var storageFactory = serviceProvider.GetRequiredService<EnhancedStorageFactory>();
-            logger.LogInformation("Storage factory initialized");
-
-            // Ensure storage configuration exists early on
             var ioManager = serviceProvider.GetRequiredService<IOManager>();
 
-            // Register the PDFProcessor_Config folder if it doesn't exist
-            var folder = new StorageFolder
+            logger.LogInformation("Storage factory and IO Manager initialized");
+
+            // Register PDFProcessor_Config folder
+            var configFolder = new StorageFolder
             {
                 Name = "PDFProcessor_Config",
                 Description = "PDFProcessor configuration storage",
                 Type = StorageType.Json,
-                Path = "Config/PDFProcessor", // This is the physical path where files will be stored
+                Path = "Config/PDFProcessor",
                 IsShared = false,
                 CreateBackups = true,
                 MaxBackupCount = 5,
-                CreatedBy = "System"
+                CreatedBy = "PDFProcessor"
             };
-
-            // The RegisterFolder method handles it if the folder already exists
-            storageFactory.RegisterFolder(folder);
+            storageFactory.RegisterFolder(configFolder);
             logger.LogInformation("Registered PDFProcessor_Config folder");
 
-            var machineConfig = serviceProvider.GetRequiredService<MachineConfigProvider>();
-            await machineConfig.LoadConfigAsync(); // Ensure config exists
-            logger.LogInformation("Machine config loaded");
-
-            var fileWatcher = serviceProvider.GetRequiredService<PdfFileWatcher>();
-            var processLogger = serviceProvider.GetRequiredService<OrderProcessorLogger>();
-
-            fileWatcher.Start();
-            logger.LogInformation("File watcher started");
-
-            // Use console directly as a fallback
-            Console.WriteLine("Application services initialized successfully");
-
-            try
+            // Register PDFProcessor_Results folder (shared with other applications)
+            var resultsFolder = new StorageFolder
             {
-                await processLogger.LogAsync("Application services initialized successfully");
-            }
-            catch (Exception ex)
+                Name = "PDFProcessor_Results",
+                Description = "Results from PDF processing - shared with Blazor app",
+                Type = StorageType.Json,
+                Path = "Data/PDFProcessor/Results",
+                IsShared = true,  // Important: allow sharing with Blazor app
+                CreateBackups = true,
+                MaxBackupCount = 5,
+                CreatedBy = "PDFProcessor"
+            };
+            storageFactory.RegisterFolder(resultsFolder);
+            logger.LogInformation("Registered PDFProcessor_Results folder");
+
+            // Register PDFProcessor_Scans folder for processing results
+            var scansFolder = new StorageFolder
             {
-                logger.LogWarning("Could not log to OrderProcessorLogger: {Error}", ex.Message);
-            }
-        }
-        catch (FileNotFoundException ex)
-        {
-            logger.LogError("Configuration file not found: {Error}", ex.Message);
-            throw;
+                Name = "PDFProcessor_Scans",
+                Description = "Storage for PDF scan results",
+                Type = StorageType.Json,
+                Path = "Data/PDFProcessor/Scans",
+                IsShared = false,
+                CreateBackups = true,
+                MaxBackupCount = 5,
+                CreatedBy = "PDFProcessor"
+            };
+            storageFactory.RegisterFolder(scansFolder);
+            logger.LogInformation("Registered PDFProcessor_Scans folder");
+
+            // Continue with the rest of the initialization...
         }
         catch (Exception ex)
         {
