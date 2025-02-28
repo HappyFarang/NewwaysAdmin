@@ -28,9 +28,9 @@ namespace NewwaysAdmin.IO.Manager
         public event EventHandler<NewDataEventArgs>? NewDataArrived;
         public bool IsServer => _isServer;
         public IOManager(
-         ILogger<IOManager> logger,
-          IOManagerOptions options,
-          MachineConfigProvider machineConfigProvider)
+    ILogger<IOManager> logger,
+    IOManagerOptions options,
+    MachineConfigProvider machineConfigProvider)
         {
             _logger = logger;
             _options = options;
@@ -57,7 +57,18 @@ namespace NewwaysAdmin.IO.Manager
             _serverDefinitionsPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
 
             Directory.CreateDirectory(_localDefinitionsPath);
-            Directory.CreateDirectory(_serverDefinitionsPath);
+            // Only try to create server directory if we're the server
+            if (_isServer)
+            {
+                try
+                {
+                    Directory.CreateDirectory(_serverDefinitionsPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not create server definitions directory. This is expected for client machines.");
+                }
+            }
 
             _configSyncTracker = new ConfigSyncTracker(LocalBaseFolder, logger);
 
@@ -357,80 +368,42 @@ namespace NewwaysAdmin.IO.Manager
         public async Task SyncConfigFilesAsync(CancellationToken cancellationToken = default)
         {
             if (_isServer) return; // Only clients sync config files
-
             try
             {
-                // Always check defined paths that need to be kept up to date
-                foreach (var configPath in _machineConfig.CopyOnUpdate)
+                string configPath = "Config"; // Default config path to sync
+                var networkPath = Path.Combine(NetworkBaseFolder, configPath);
+                if (!Directory.Exists(networkPath))
                 {
-                    var networkPath = Path.Combine(NetworkBaseFolder, configPath);
-                    if (!Directory.Exists(networkPath)) continue;
-
-                    _logger.LogInformation("Checking for config updates in {Path}", configPath);
-
-                    // Process all files in the directory and subdirectories
-                    foreach (var file in Directory.GetFiles(networkPath, "*.*", SearchOption.AllDirectories))
-                    {
-                        if (cancellationToken.IsCancellationRequested) break;
-
-                        var relativePath = GetRelativePath(file, NetworkBaseFolder);
-                        var localPath = Path.Combine(LocalBaseFolder, relativePath);
-
-                        bool needsUpdate = false;
-
-                        if (!File.Exists(localPath))
-                        {
-                            needsUpdate = true;
-                        }
-                        else
-                        {
-                            var serverModTime = File.GetLastWriteTimeUtc(file);
-                            var localModTime = File.GetLastWriteTimeUtc(localPath);
-                            needsUpdate = serverModTime > localModTime;
-                        }
-
-                        if (needsUpdate)
-                        {
-                            _logger.LogInformation("Updating file {File} from server", relativePath);
-                            await CopyFileAsync(file, localPath);
-                            _configSyncTracker.UpdateTracking(relativePath, File.GetLastWriteTimeUtc(file));
-                        }
-                    }
+                    _logger.LogWarning("Server config path not found: {Path}", networkPath);
+                    return;
                 }
 
-                // Also check specific folder definitions
-                var definitionsNetworkPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
-                if (Directory.Exists(definitionsNetworkPath))
+                _logger.LogInformation("Synchronizing config files from server path: {Path}", networkPath);
+
+                // Process all files in the directory and subdirectories
+                foreach (var file in Directory.GetFiles(networkPath, "*.*", SearchOption.AllDirectories))
                 {
-                    foreach (var file in Directory.GetFiles(definitionsNetworkPath, "*.json"))
-                    {
-                        var fileName = Path.GetFileName(file);
-                        var localPath = Path.Combine(_localDefinitionsPath, fileName);
+                    if (cancellationToken.IsCancellationRequested) break;
 
-                        bool needsUpdate = false;
+                    var relativePath = GetRelativePath(file, NetworkBaseFolder);
+                    var localPath = Path.Combine(LocalBaseFolder, relativePath);
 
-                        if (!File.Exists(localPath))
-                        {
-                            needsUpdate = true;
-                        }
-                        else
-                        {
-                            var serverModTime = File.GetLastWriteTimeUtc(file);
-                            var localModTime = File.GetLastWriteTimeUtc(localPath);
-                            needsUpdate = serverModTime > localModTime;
-                        }
+                    // Ensure directory exists
+                    Directory.CreateDirectory(Path.GetDirectoryName(localPath));
 
-                        if (needsUpdate)
-                        {
-                            _logger.LogInformation("Updating folder definition {File} from server", fileName);
-                            await CopyFileAsync(file, localPath);
-                        }
-                    }
+                    // Always copy from server to local (server is ground truth)
+                    _logger.LogInformation("Synchronizing file: {File}", relativePath);
+                    await CopyFileAsync(file, localPath);
+
+                    // Update tracking info
+                    _configSyncTracker.UpdateTracking(relativePath, File.GetLastWriteTimeUtc(file));
                 }
+
+                _logger.LogInformation("Config synchronization complete");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error syncing config files");
+                _logger.LogError(ex, "Error synchronizing config files from server");
             }
         }
 
@@ -489,25 +462,16 @@ namespace NewwaysAdmin.IO.Manager
 
                 if (serverFolder != null && localFolder != null)
                 {
-                    // Both exist - check timestamps for newest
+                    // Both exist - always prefer server version
                     var serverPath = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
                     var localPath = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
 
-                    var serverModTime = File.GetLastWriteTimeUtc(serverPath);
-                    var localModTime = File.GetLastWriteTimeUtc(localPath);
-
-                    if (serverModTime > localModTime)
-                    {
-                        // Server is newer, copy to local
-                        _logger.LogInformation("Server definition is newer. Updating local copy for {Folder}", folderName);
-                        await CopyFileAsync(serverPath, localPath);
-                        folder = serverFolder;
-                    }
-                    else
-                    {
-                        folder = localFolder;
-                    }
+                    // Always copy the server version to local to ensure we're up to date
+                    _logger.LogInformation("Using server definition for {Folder}. Updating local copy.", folderName);
+                    await CopyFileAsync(serverPath, localPath);
+                    folder = serverFolder;
                 }
+
                 else if (serverFolder != null)
                 {
                     // Only server exists - copy to local
@@ -592,27 +556,11 @@ namespace NewwaysAdmin.IO.Manager
                 shortFolderName = folderName.Substring(_applicationName.Length + 1);
             }
 
-            // Create a more intuitive path structure
-            string path;
+            // Set a default path that just puts the folder at the root level with the application name
+            // This is just a fallback - apps should explicitly set their paths
+            string path = _applicationName;
 
-            // Special handling for config folders
-            if (shortFolderName.Equals("Config", StringComparison.OrdinalIgnoreCase))
-            {
-                // Place app configs in Config/AppName
-                path = $"Config/{_applicationName}";
-            }
-            else if (shortFolderName.Contains("Config", StringComparison.OrdinalIgnoreCase))
-            {
-                // If it has "Config" in the name but isn't exactly "Config"
-                path = $"Config/{_applicationName}";
-            }
-            else
-            {
-                // For other folders, place them under the app folder
-                path = _applicationName;
-            }
-
-            _logger.LogInformation("Creating folder definition for {FolderName} with path {Path}", folderName, path);
+            _logger.LogInformation("Creating folder definition for {FolderName} with default path {Path}", folderName, path);
 
             return new StorageFolder
             {
