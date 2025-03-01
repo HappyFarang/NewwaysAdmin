@@ -45,12 +45,12 @@ namespace NewwaysAdmin.OrderProcessor
             {
                 if (_scanStorage == null)
                 {
-                    _scanStorage = await _ioManager.GetStorageAsync<ScanResult>("Scans"); // Simplified folder name
+                    _scanStorage = await _ioManager.GetStorageAsync<ScanResult>("PDFProcessor_Scans"); // Changed from "Scans"
                     _logger.LogDebug("Initialized scan storage");
                 }
                 if (_configStorage == null)
                 {
-                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("Config"); // Simplified folder name
+                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("PDFProcessor_Config"); // Changed from "Config"
                     _logger.LogDebug("Initialized config storage");
                 }
             }

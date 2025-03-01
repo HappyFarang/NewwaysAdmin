@@ -14,14 +14,12 @@ namespace NewwaysAdmin.OrderProcessor
         {
             services.AddLogging(builder => builder.AddConsole());
 
-            services.AddSingleton<IOManagerOptions>(sp =>
+            // First, register configuration and basic services
+            services.AddSingleton<IOManagerOptions>(sp => new IOManagerOptions
             {
-                return new IOManagerOptions
-                {
-                    LocalBaseFolder = "C:/NewwaysData",
-                    ServerDefinitionsPath = "X:/NewwaysAdmin",
-                    ApplicationName = "PDFProcessor"
-                };
+                LocalBaseFolder = "C:/NewwaysData",
+                ServerDefinitionsPath = "X:/NewwaysAdmin",
+                ApplicationName = "PDFProcessor"
             });
 
             services.AddSingleton<EnhancedStorageFactory>(sp =>
@@ -38,9 +36,6 @@ namespace NewwaysAdmin.OrderProcessor
 
             services.AddSingleton<IOManager>();
 
-            services.AddScoped<PdfProcessor>();
-
-            // Add ConfigSyncTracker
             services.AddSingleton<ConfigSyncTracker>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<ConfigSyncTracker>>();
@@ -48,13 +43,32 @@ namespace NewwaysAdmin.OrderProcessor
                 return new ConfigSyncTracker(options.LocalBaseFolder, logger);
             });
 
-            services.AddHostedService<FileSyncService>();
-
+            // Then register the OrderProcessorLogger
             services.AddSingleton(sp =>
             {
                 var ioManager = sp.GetRequiredService<IOManager>();
                 return new OrderProcessorLogger(ioManager, "OrderLogs");
             });
+
+            // Then register PdfProcessor
+            services.AddSingleton<PdfProcessor>(sp =>
+            {
+                var ioManager = sp.GetRequiredService<IOManager>();
+                var logger = sp.GetRequiredService<ILogger<PdfProcessor>>();
+                var backupFolder = "C:/PDFtemp/PDFbackup"; // Configure this path as needed
+
+                return new PdfProcessor(ioManager, backupFolder, logger);
+            });
+            // Finally register the PdfFileWatcher that depends on the above
+            services.AddSingleton<PdfFileWatcher>(sp =>
+            {
+                var processor = sp.GetRequiredService<PdfProcessor>();
+                var logger = sp.GetRequiredService<OrderProcessorLogger>();
+                var watcher = new PdfFileWatcher("C:/PDFtemp", processor, logger);
+                return watcher;
+            });
+
+            services.AddHostedService<FileSyncService>();
 
             return services;
         }
@@ -100,6 +114,40 @@ namespace NewwaysAdmin.OrderProcessor
                 };
                 storageFactory.RegisterFolder(scansFolder);
                 logger.LogInformation("Registered PDFProcessor_Scans folder");
+
+                var logsFolder = new StorageFolder
+                {
+                    Name = "Logs", // This name is important - matches what the logger is trying to use
+                    Description = "Application logs storage",
+                    Type = StorageType.Json,
+                    Path = "Logs", // Simple path structure
+                    IsShared = true, // Logs are often shared across applications
+                    CreateBackups = true,
+                    MaxBackupCount = 10,
+                    CreatedBy = "PDFProcessor"
+                };
+                storageFactory.RegisterFolder(logsFolder);
+                logger.LogInformation("Registered Logs folder");
+
+                // Make sure the PDF watch folder exists
+                string pdfWatchFolder = "C:/PDFtemp";
+                if (!Directory.Exists(pdfWatchFolder))
+                {
+                    Directory.CreateDirectory(pdfWatchFolder);
+                    logger.LogInformation($"Created PDF watch folder: {pdfWatchFolder}");
+                }
+
+                // Get and start the file watcher
+                var fileWatcher = serviceProvider.GetRequiredService<PdfFileWatcher>();
+                fileWatcher.Start();
+                logger.LogInformation("Started PDF file watcher for directory: {WatchFolder}", pdfWatchFolder);
+                
+                string pdfBackupFolder = "C:/PDFtemp/PDFbackup";
+                if (!Directory.Exists(pdfBackupFolder))
+                {
+                    Directory.CreateDirectory(pdfBackupFolder);
+                    logger.LogInformation($"Created PDF backup folder: {pdfBackupFolder}");
+                }
             }
             catch (Exception ex)
             {
