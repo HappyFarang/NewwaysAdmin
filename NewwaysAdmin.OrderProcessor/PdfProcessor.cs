@@ -13,7 +13,7 @@ namespace NewwaysAdmin.OrderProcessor
     public class PdfProcessor
     {
         private readonly IOManager _ioManager;
-        private readonly ILogger _logger;
+        private readonly ILogger<PdfProcessor> _logger;
         private readonly PrinterManager _printerManager;
         private readonly string _backupFolder;
         private readonly SemaphoreSlim _initLock = new(1, 1);
@@ -23,12 +23,16 @@ namespace NewwaysAdmin.OrderProcessor
         public PdfProcessor(
             IOManager ioManager,
             string backupFolder,
-            ILogger logger)  
+            ILogger<PdfProcessor> logger)
         {
             _ioManager = ioManager ?? throw new ArgumentNullException(nameof(ioManager));
             _backupFolder = backupFolder ?? throw new ArgumentNullException(nameof(backupFolder));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _printerManager = new PrinterManager(ioManager, logger);
+
+            // Subscribe to new file events from IOManager
+            _ioManager.NewDataArrived += async (s, e) => await OnNewDataAsync(e.FilePath);
+            _logger.LogInformation("PdfProcessor initialized and subscribed to IOManager events");
         }
 
         private async Task EnsureStorageInitializedAsync()
@@ -41,18 +45,33 @@ namespace NewwaysAdmin.OrderProcessor
             {
                 if (_scanStorage == null)
                 {
-                    _scanStorage = await _ioManager.GetStorageAsync<ScanResult>("PDFProcessor_Scans");
+                    _scanStorage = await _ioManager.GetStorageAsync<ScanResult>("Scans"); // Simplified folder name
+                    _logger.LogDebug("Initialized scan storage");
                 }
                 if (_configStorage == null)
                 {
-                    // Fix: Use the proper storage identifier that matches your folder structure
-                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("PDFProcessor_Config");
+                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("Config"); // Simplified folder name
+                    _logger.LogDebug("Initialized config storage");
                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to initialize storage");
+                throw;
             }
             finally
             {
                 _initLock.Release();
             }
+        }
+
+        private async Task OnNewDataAsync(string filePath)
+        {
+            if (!filePath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _logger.LogInformation("Detected new PDF file: {FilePath}", filePath);
+            await ProcessPdfAsync(filePath);
         }
 
         public async Task ProcessPdfAsync(string pdfPath)
@@ -68,15 +87,14 @@ namespace NewwaysAdmin.OrderProcessor
                 }
 
                 string originalFileName = Path.GetFileName(pdfPath);
-                _logger.LogInformation($"Processing PDF: {originalFileName}");
+                _logger.LogInformation("Processing PDF: {File}", originalFileName);
 
-                // Debug log to check what's happening
-                _logger.LogInformation($"PDF file exists: {File.Exists(pdfPath)}");
-                _logger.LogInformation($"PDF file size: {new FileInfo(pdfPath).Length} bytes");
+                // Debug logs for file existence and size
+                _logger.LogInformation("PDF file exists: {Exists}", File.Exists(pdfPath));
+                _logger.LogInformation("PDF file size: {Size} bytes", new FileInfo(pdfPath).Length);
 
                 // Load platform configurations
                 ProcessorConfig platformConfig;
-
                 try
                 {
                     _logger.LogInformation("Attempting to load platforms configuration");
@@ -88,8 +106,8 @@ namespace NewwaysAdmin.OrderProcessor
                     if (platformConfig == null)
                     {
                         _logger.LogWarning("No platform configuration found, creating default configuration");
-                        // Create and save default config
-                        // ...
+                        platformConfig = CreateDefaultConfig();
+                        await _configStorage.SaveAsync("platforms", platformConfig);
                     }
                 }
                 catch (Exception ex)
@@ -98,22 +116,55 @@ namespace NewwaysAdmin.OrderProcessor
                     throw;
                 }
 
-
-
                 _logger.LogInformation("Extracting text from PDF");
                 string normalizedText = await ExtractAndNormalizeTextAsync(pdfPath);
                 _logger.LogInformation("Text extraction complete, first 100 chars: {TextSample}",
-                    normalizedText.Substring(0, Math.Min(100, normalizedText.Length)));
+                    normalizedText.Length > 100 ? normalizedText.Substring(0, 100) : normalizedText);
 
                 DebugPlatformConfig(platformConfig, normalizedText);
-               
 
-                _logger.LogInformation("PDF processing completed successfully");
+                var platform = IdentifyPlatform(normalizedText, platformConfig);
+                if (platform == null)
+                {
+                    _logger.LogWarning("No platform identified for {File}", originalFileName);
+                    return;
+                }
+
+                string? orderNumber = ExtractOrderNumber(normalizedText, platform.Value);
+                var skuCounts = ExtractSkuCounts(normalizedText, platform.Value);
+
+                // Check if order was already processed
+                if (orderNumber != null && await IsOrderProcessedAsync(platform.Value, orderNumber))
+                {
+                    _logger.LogInformation("Order {OrderNumber} already processed, skipping", orderNumber);
+                    await MovePdfToBackupAsync(pdfPath, platform.Value.platformId, orderNumber);
+                    return;
+                }
+
+                var scanResult = new ScanResult
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    ScanTime = DateTime.UtcNow,
+                    Platform = platform.Value.platformId,
+                    OrderNumber = orderNumber,
+                    SkuCounts = skuCounts,
+                    OriginalFileName = originalFileName
+                };
+
+                await _scanStorage.SaveAsync(scanResult.Id, scanResult);
+                await MovePdfToBackupAsync(pdfPath, platform.Value.platformId, orderNumber);
+
+                // Optional: Print if configured
+                if (await _printerManager.PrintPdfAsync(pdfPath))
+                {
+                    _logger.LogInformation("Printed PDF: {File}", originalFileName);
+                }
+
+                _logger.LogInformation("PDF processing completed successfully for {File}", originalFileName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing PDF: {ErrorType} - {ErrorMessage}",
-                    ex.GetType().Name, ex.Message);
+                _logger.LogError(ex, "Error processing PDF: {ErrorType} - {ErrorMessage}", ex.GetType().Name, ex.Message);
                 throw;
             }
         }
@@ -257,7 +308,7 @@ namespace NewwaysAdmin.OrderProcessor
             {
                 if (!Directory.Exists(_backupFolder))
                 {
-                    Directory.CreateDirectory(_backupFolder);
+                    await Task.Run(() => Directory.CreateDirectory(_backupFolder));
                 }
 
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -270,8 +321,8 @@ namespace NewwaysAdmin.OrderProcessor
                     await sourceStream.CopyToAsync(destinationStream);
                 }
 
-                File.Delete(pdfPath);
-                _logger.LogInformation($"Moved processed file to backup: {fileName}");
+                await Task.Run(() => File.Delete(pdfPath));
+                _logger.LogInformation("Moved processed file to backup: {File}", fileName);
             }
             catch (Exception ex)
             {
@@ -279,6 +330,7 @@ namespace NewwaysAdmin.OrderProcessor
                 throw;
             }
         }
+
         private void DebugPlatformConfig(ProcessorConfig config, string text)
         {
             if (config == null || config.Platforms == null || config.Platforms.Count == 0)
@@ -291,7 +343,6 @@ namespace NewwaysAdmin.OrderProcessor
                 config.Platforms.Count,
                 string.Join(", ", config.Platforms.Keys));
 
-            // Check for matching platform patterns in the text
             foreach (var platform in config.Platforms)
             {
                 bool matchesAnyIdentifier = platform.Value.Identifiers.Any(id =>
@@ -301,7 +352,6 @@ namespace NewwaysAdmin.OrderProcessor
                     platform.Key,
                     matchesAnyIdentifier);
 
-                // Try the order number pattern
                 if (!string.IsNullOrEmpty(platform.Value.OrderNumberPattern))
                 {
                     try
@@ -319,5 +369,15 @@ namespace NewwaysAdmin.OrderProcessor
             }
         }
 
+        private ProcessorConfig CreateDefaultConfig()
+        {
+            return new ProcessorConfig
+            {
+                Platforms = new Dictionary<string, PlatformConfig>(),
+                Version = "1.0",
+                LastUpdated = DateTime.UtcNow,
+                UpdatedBy = Environment.MachineName
+            };
+        }
     }
 }

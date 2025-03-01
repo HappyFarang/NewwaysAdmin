@@ -3,6 +3,7 @@ using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
 using Newtonsoft.Json;
 using NewwaysAdmin.Shared.Configuration;
+using System.Threading;
 
 namespace NewwaysAdmin.IO.Manager
 {
@@ -20,34 +21,34 @@ namespace NewwaysAdmin.IO.Manager
         private readonly string _applicationName;
         private readonly string _localDefinitionsPath;
         private readonly string _serverDefinitionsPath;
-        private readonly string LocalBaseFolder = @"C:\NewwaysData";
-        private readonly string NetworkBaseFolder = @"X:\NewwaysAdmin";
+        public static readonly string NetworkBaseFolder = @"X:\NewwaysAdmin";
 
         private readonly MachineConfig _machineConfig;
 
         public event EventHandler<NewDataEventArgs>? NewDataArrived;
         public bool IsServer => _isServer;
+        public string LocalBaseFolder => _options.LocalBaseFolder;
+
         public IOManager(
-    ILogger<IOManager> logger,
-    IOManagerOptions options,
-    MachineConfigProvider machineConfigProvider)
+            ILogger<IOManager> logger,
+            IOManagerOptions options,
+            MachineConfigProvider machineConfigProvider,
+            EnhancedStorageFactory storageFactory)
         {
             _logger = logger;
-            _options = options;
-            _machineConfigProvider = machineConfigProvider;
+            _options = options ?? throw new ArgumentNullException(nameof(options));
+            _machineConfigProvider = machineConfigProvider ?? throw new ArgumentNullException(nameof(machineConfigProvider));
+            _storageFactory = storageFactory ?? throw new ArgumentNullException(nameof(storageFactory));
             _applicationName = options.ApplicationName;
-            _storageFactory = new EnhancedStorageFactory(logger);
 
-            // Load the shared machine config
             var sharedConfig = machineConfigProvider.LoadConfigAsync().Result;
             _machineId = sharedConfig.MachineName;
             _isServer = sharedConfig.MachineRole == "SERVER";
 
-            // Create IO-specific machine config
             _machineConfig = new MachineConfig
             {
                 MachineRole = sharedConfig.MachineRole,
-                ExcludedFolders = new List<string> { "Machine" },  // Exclude machine config folder
+                ExcludedFolders = new List<string> { "Machine" },
                 OneWayFolders = new List<string>(),
                 OneWayFoldersPush = new List<string>(),
                 CopyOnUpdate = new List<string> { "Config" }
@@ -57,7 +58,6 @@ namespace NewwaysAdmin.IO.Manager
             _serverDefinitionsPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
 
             Directory.CreateDirectory(_localDefinitionsPath);
-            // Only try to create server directory if we're the server
             if (_isServer)
             {
                 try
@@ -74,7 +74,6 @@ namespace NewwaysAdmin.IO.Manager
 
             SetupWatchers();
 
-            // Only start config sync for clients
             if (!_isServer)
             {
                 Task.Run(() => StartConfigSyncMonitorAsync());
@@ -87,12 +86,10 @@ namespace NewwaysAdmin.IO.Manager
         {
             if (_isServer)
             {
-                // Server watches network folder for incoming files
                 SetupRecursiveWatcher(NetworkBaseFolder, isLocal: false);
             }
             else
             {
-                // Clients watch local folders for outgoing files
                 SetupRecursiveWatcher(LocalBaseFolder, isLocal: true);
             }
         }
@@ -101,7 +98,6 @@ namespace NewwaysAdmin.IO.Manager
         {
             foreach (var dir in Directory.GetDirectories(baseFolder, "*", SearchOption.AllDirectories))
             {
-                // Skip excluded folders
                 if (_machineConfig.ExcludedFolders.Any(ex =>
                     dir.StartsWith(Path.Combine(baseFolder, ex), StringComparison.OrdinalIgnoreCase)))
                     continue;
@@ -124,14 +120,12 @@ namespace NewwaysAdmin.IO.Manager
                 var relativePath = GetRelativePath(filePath, isLocal ? LocalBaseFolder : NetworkBaseFolder);
                 var folderPath = Path.GetDirectoryName(relativePath);
 
-                // Handle config files differently
                 if (IsConfigPath(relativePath))
                 {
                     await HandleConfigFileAsync(filePath, relativePath, isLocal);
                     return;
                 }
 
-                // Handle regular data files
                 await HandleDataFileAsync(filePath, relativePath, isLocal);
             }
             catch (Exception ex)
@@ -149,14 +143,12 @@ namespace NewwaysAdmin.IO.Manager
         {
             if (_isServer && isLocal)
             {
-                // Server updates network config
                 var networkPath = Path.Combine(NetworkBaseFolder, relativePath);
                 await CopyFileAsync(filePath, networkPath);
                 _logger.LogInformation("Updated network config: {File}", relativePath);
             }
             else if (!_isServer && !isLocal && _machineConfig.CopyOnUpdate.Contains("Config"))
             {
-                // Client copies updated config from network
                 var localPath = Path.Combine(LocalBaseFolder, relativePath);
                 var serverModTime = File.GetLastWriteTimeUtc(filePath);
 
@@ -174,22 +166,21 @@ namespace NewwaysAdmin.IO.Manager
             var folderPath = Path.GetDirectoryName(relativePath);
             if (string.IsNullOrEmpty(folderPath)) return;
 
-            // Determine if this is a one-way push folder
             bool isOneWayPush = _machineConfig.OneWayFoldersPush.Any(f =>
                 folderPath.StartsWith(f, StringComparison.OrdinalIgnoreCase));
 
             if (_isServer)
             {
-                if (!isLocal) // Server receiving from network
+                if (!isLocal)
                 {
                     var localPath = Path.Combine(LocalBaseFolder, relativePath);
                     await MoveFileAsync(filePath, localPath);
                     NotifyNewData(folderPath, localPath);
                 }
             }
-            else // Client
+            else
             {
-                if (isLocal && isOneWayPush) // Client pushing to network
+                if (isLocal && isOneWayPush)
                 {
                     var networkPath = Path.Combine(NetworkBaseFolder, relativePath);
                     await MoveFileAsync(filePath, networkPath);
@@ -218,7 +209,6 @@ namespace NewwaysAdmin.IO.Manager
                 Directory.CreateDirectory(directory);
             }
 
-            // Wait for file to be completely written
             await WaitForFileAccessAsync(sourcePath);
             File.Move(sourcePath, targetPath, true);
         }
@@ -269,7 +259,6 @@ namespace NewwaysAdmin.IO.Manager
                         }
                     }
 
-                    // Also check folder definitions specific to this application
                     var definitionsNetworkPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
                     if (Directory.Exists(definitionsNetworkPath))
                     {
@@ -279,7 +268,6 @@ namespace NewwaysAdmin.IO.Manager
                             var localPath = Path.Combine(_localDefinitionsPath, fileName);
                             var serverModTime = File.GetLastWriteTimeUtc(file);
 
-                            // Use the same tracking mechanism for definitions
                             var relativePath = $"Definitions/{_applicationName}/{fileName}";
                             if (_configSyncTracker.NeedsUpdate(relativePath, serverModTime))
                             {
@@ -295,7 +283,6 @@ namespace NewwaysAdmin.IO.Manager
                     _logger.LogError(ex, "Error in config sync");
                 }
 
-                // Check more frequently if desired (or keep at 1 minute)
                 await Task.Delay(TimeSpan.FromSeconds(30));
             }
         }
@@ -306,7 +293,7 @@ namespace NewwaysAdmin.IO.Manager
                 .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
 
-        private void NotifyNewData(string folder, string filePath)
+        internal void NotifyNewData(string folder, string filePath)
         {
             NewDataArrived?.Invoke(this, new NewDataEventArgs
             {
@@ -314,9 +301,10 @@ namespace NewwaysAdmin.IO.Manager
                 FilePath = filePath
             });
         }
+
         public async Task ProcessIncomingFilesAsync(CancellationToken cancellationToken = default)
         {
-            if (!_isServer) return; // Only server processes incoming files
+            if (!_isServer) return;
             try
             {
                 var networkIncoming = Path.Combine(NetworkBaseFolder, "Incoming");
@@ -341,8 +329,7 @@ namespace NewwaysAdmin.IO.Manager
 
         public async Task ProcessConfigUpdatesAsync(CancellationToken cancellationToken = default)
         {
-            if (!_isServer) return; // Only server processes config updates
-
+            if (!_isServer) return;
             try
             {
                 var configFolder = Path.Combine(NetworkBaseFolder, "Config");
@@ -351,10 +338,8 @@ namespace NewwaysAdmin.IO.Manager
                 foreach (var file in Directory.GetFiles(configFolder, "*.*", SearchOption.AllDirectories))
                 {
                     if (cancellationToken.IsCancellationRequested) break;
-
                     var relativePath = GetRelativePath(file, NetworkBaseFolder);
                     var localPath = Path.Combine(LocalBaseFolder, relativePath);
-
                     await CopyFileAsync(file, localPath);
                     _logger.LogInformation("Updated local config: {File}", relativePath);
                 }
@@ -367,10 +352,10 @@ namespace NewwaysAdmin.IO.Manager
 
         public async Task SyncConfigFilesAsync(CancellationToken cancellationToken = default)
         {
-            if (_isServer) return; // Only clients sync config files
+            if (_isServer) return;
             try
             {
-                string configPath = "Config"; // Default config path to sync
+                string configPath = "Config";
                 var networkPath = Path.Combine(NetworkBaseFolder, configPath);
                 if (!Directory.Exists(networkPath))
                 {
@@ -380,22 +365,15 @@ namespace NewwaysAdmin.IO.Manager
 
                 _logger.LogInformation("Synchronizing config files from server path: {Path}", networkPath);
 
-                // Process all files in the directory and subdirectories
                 foreach (var file in Directory.GetFiles(networkPath, "*.*", SearchOption.AllDirectories))
                 {
                     if (cancellationToken.IsCancellationRequested) break;
-
                     var relativePath = GetRelativePath(file, NetworkBaseFolder);
                     var localPath = Path.Combine(LocalBaseFolder, relativePath);
 
-                    // Ensure directory exists
                     Directory.CreateDirectory(Path.GetDirectoryName(localPath));
-
-                    // Always copy from server to local (server is ground truth)
                     _logger.LogInformation("Synchronizing file: {File}", relativePath);
                     await CopyFileAsync(file, localPath);
-
-                    // Update tracking info
                     _configSyncTracker.UpdateTracking(relativePath, File.GetLastWriteTimeUtc(file));
                 }
 
@@ -417,7 +395,6 @@ namespace NewwaysAdmin.IO.Manager
                 foreach (var file in Directory.GetFiles(outgoingFolder, "*.*", SearchOption.AllDirectories))
                 {
                     if (cancellationToken.IsCancellationRequested) break;
-
                     var relativePath = GetRelativePath(file, LocalBaseFolder);
                     var targetPath = _isServer ?
                         Path.Combine(LocalBaseFolder, "Processed", relativePath) :
@@ -433,202 +410,18 @@ namespace NewwaysAdmin.IO.Manager
             }
         }
 
-        public async Task<IDataStorage<T>> GetStorageAsync<T>(string baseFolderName) where T : class, new()
+        public async Task<IDataStorage<T>> GetStorageAsync<T>(string folderName) where T : class, new()
         {
-            // Keep the uniqueFolderName construction as is
-            string uniqueFolderName = $"{_applicationName}_{baseFolderName}";
-
-            _logger.LogDebug("Getting storage for folder: {FolderName}", uniqueFolderName);
-
-            if (!_loadedFolders.ContainsKey(uniqueFolderName))
-            {
-                await LoadFolderDefinitionAsync(uniqueFolderName);
-            }
-
-            return _storageFactory.GetStorage<T>(uniqueFolderName);
-        }
-
-        private async Task LoadFolderDefinitionAsync(string folderName)
-        {
-            try
-            {
-                // First try to load from server
-                var serverFolder = await LoadServerDefinitionAsync(folderName);
-
-                // Then check local definition
-                var localFolder = await LoadLocalDefinitionAsync(folderName);
-
-                StorageFolder? folder = null;
-
-                if (serverFolder != null && localFolder != null)
-                {
-                    // Both exist - always prefer server version
-                    var serverPath = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
-                    var localPath = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
-
-                    // Always copy the server version to local to ensure we're up to date
-                    _logger.LogInformation("Using server definition for {Folder}. Updating local copy.", folderName);
-                    await CopyFileAsync(serverPath, localPath);
-                    folder = serverFolder;
-                }
-
-                else if (serverFolder != null)
-                {
-                    // Only server exists - copy to local
-                    _logger.LogInformation("Found folder definition on server. Creating local copy for {Folder}", folderName);
-                    var serverPath = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
-                    var localPath = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
-                    await CopyFileAsync(serverPath, localPath);
-                    folder = serverFolder;
-                }
-                else if (localFolder != null)
-                {
-                    folder = localFolder;
-                }
-                else
-                {
-                    // Neither exists - create new
-                    folder = await CreateNewFolderDefinitionAsync(folderName);
-                }
-
-                if (folder == null)
-                {
-                    throw new InvalidOperationException($"Could not create folder definition for: {folderName}");
-                }
-
-                _loadedFolders[folderName] = folder;
-                _storageFactory.RegisterFolder(folder);
-
-                if (!await FolderExistsOnServerAsync(folderName))
-                {
-                    await SaveFolderDefinitionAsync(folderName, folder);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to load/create folder definition for {Folder}", folderName);
-                throw;
-            }
-        }
-
-        private async Task SaveFolderDefinitionAsync(string folderName, StorageFolder folder)
-        {
-            try
-            {
-                var localPath = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
-                await SaveDefinitionToPathAsync(localPath, folder);
-                _logger.LogDebug("Saved local folder definition for {Folder}", folderName);
-
-                var serverPath = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
-                await SaveDefinitionToPathAsync(serverPath, folder);
-                _logger.LogDebug("Saved server folder definition for {Folder}", folderName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save folder definition for {Folder}", folderName);
-                throw;
-            }
-        }
-
-        private async Task SaveDefinitionToPathAsync(string path, StorageFolder folder)
-        {
-            var directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            var json = JsonConvert.SerializeObject(folder, new JsonSerializerSettings
-            {
-                Formatting = Formatting.Indented
-            });
-            await File.WriteAllTextAsync(path, json);
-        }
-
-        private async Task<StorageFolder?> CreateNewFolderDefinitionAsync(string folderName)
-        {
-            var machineConfig = await _machineConfigProvider.LoadConfigAsync();
-
-            // Extract the base name without application prefix
-            string shortFolderName = folderName;
-            if (folderName.StartsWith($"{_applicationName}_"))
-            {
-                shortFolderName = folderName.Substring(_applicationName.Length + 1);
-            }
-
-            // Set a default path that just puts the folder at the root level with the application name
-            // This is just a fallback - apps should explicitly set their paths
-            string path = _applicationName;
-
-            _logger.LogInformation("Creating folder definition for {FolderName} with default path {Path}", folderName, path);
-
-            return new StorageFolder
-            {
-                Name = folderName,
-                Description = $"Auto-created folder for {_applicationName}",
-                Type = StorageType.Json,
-                Path = path,
-                IsShared = false,
-                CreateBackups = true,
-                MaxBackupCount = 5,
-                CreatedBy = $"{machineConfig.MachineName}_{_applicationName}"
-            };
-        }
-
-        private async Task<bool> FolderExistsOnServerAsync(string folderName)
-        {
-            var path = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
-            return await Task.Run(() => File.Exists(path));
-        }
-
-        private async Task<StorageFolder?> LoadLocalDefinitionAsync(string folderName)
-        {
-            var path = Path.Combine(_localDefinitionsPath, $"{folderName}.json");
-            _logger.LogDebug("Checking local definition at: {Path}", path);
-
-            if (!File.Exists(path))
-            {
-                _logger.LogDebug("No local definition found at: {Path}", path);
-                return null;
-            }
-
-            try
-            {
-                var json = await File.ReadAllTextAsync(path);
-                return JsonConvert.DeserializeObject<StorageFolder>(json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error reading local definition");
-                return null;
-            }
-        }
-
-        private async Task<StorageFolder?> LoadServerDefinitionAsync(string folderName)
-        {
-            var path = Path.Combine(_serverDefinitionsPath, $"{folderName}.json");
-            _logger.LogDebug("Checking server definition at: {Path}", path);
-
-            if (!File.Exists(path))
-            {
-                _logger.LogDebug("No server definition found at: {Path}", path);
-                return null;
-            }
-
-            try
-            {
-                var json = await File.ReadAllTextAsync(path);
-                return JsonConvert.DeserializeObject<StorageFolder>(json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error reading server definition");
-                return null;
-            }
+            return await _storageFactory.GetStorageAsync<T>(folderName);
         }
     }
 
-    // Configuration classes for JSON
+    public class NewDataEventArgs : EventArgs
+    {
+        public string Folder { get; set; } = string.Empty;
+        public string FilePath { get; set; } = string.Empty;
+    }
+
     public class MachineConfig
     {
         public string MachineRole { get; set; } = "Client";  // Default to Client
@@ -637,10 +430,4 @@ namespace NewwaysAdmin.IO.Manager
         public List<string> OneWayFoldersPush { get; set; } = new();
         public List<string> CopyOnUpdate { get; set; } = new();
     }
-
-    public class NewDataEventArgs : EventArgs
-    {
-        public string Folder { get; set; } = string.Empty;
-        public string FilePath { get; set; } = string.Empty;
-    }
-}
+} 

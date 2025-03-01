@@ -15,19 +15,17 @@ namespace NewwaysAdmin.Shared.IO.Structure
         private readonly StorageConfiguration _config;
         private readonly Dictionary<string, IDataStorageBase> _storageCache = new();
         private readonly string _configPath;
+        private readonly SemaphoreSlim _lock = new(1, 1); // Ensure thread safety for async operations
 
         public EnhancedStorageFactory(ILogger logger)
         {
             _logger = logger;
-
-            // Ensure base directory exists
             if (!Directory.Exists(StorageConfiguration.DEFAULT_BASE_DIRECTORY))
             {
                 Directory.CreateDirectory(StorageConfiguration.DEFAULT_BASE_DIRECTORY);
                 _logger.LogInformation("Created base directory: {Path}", StorageConfiguration.DEFAULT_BASE_DIRECTORY);
             }
 
-            // Create Config folder if it doesn't exist
             var fullConfigPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, CONFIG_FOLDER);
             if (!Directory.Exists(fullConfigPath))
             {
@@ -35,63 +33,24 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 _logger.LogInformation("Created config directory: {Path}", fullConfigPath);
             }
 
-            // Set config path in the Config folder
             _configPath = Path.Combine(fullConfigPath, CONFIG_FILENAME);
             _config = LoadConfiguration();
             _logger.LogInformation("Storage factory initialized");
         }
 
-        public void RegisterFolder(StorageFolder folder)
-        {
-            try
-            {
-                _logger.LogInformation("Registering folder: {FolderName} at {Path}",
-                    folder.Name, folder.Path);
-
-                // Check if folder is already registered
-                if (_config.RegisteredFolders.Any(f => f.Name == folder.Name))
-                {
-                    _logger.LogInformation("Folder {FolderName} is already registered, skipping registration",
-                        folder.Name);
-                    return; // Skip registration instead of throwing an error
-                }
-
-                _config.AddFolder(folder);
-                SaveConfiguration();
-
-                // Create the folder structure - create the path directory
-                var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path);
-
-                _logger.LogInformation("Creating directory at path: {FullPath}", fullPath);
-
-                if (!Directory.Exists(fullPath))
-                {
-                    Directory.CreateDirectory(fullPath);
-                    _logger.LogInformation("Created directory: {Path}", fullPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to register folder: {FolderName}", folder.Name);
-                throw;
-            }
-        }
-
+        // Existing synchronous GetStorage method (unchanged)
         public IDataStorage<T> GetStorage<T>(string folderName) where T : class, new()
         {
             var folder = _config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName)
-                ?? throw new StorageException($"Folder not found: {folderName}",
-                    folderName, StorageOperation.Load);
+                ?? throw new StorageException($"Folder not found: {folderName}", folderName, StorageOperation.Load);
 
             var cacheKey = $"{folderName}_{typeof(T).Name}";
-
             if (_storageCache.TryGetValue(cacheKey, out var cached))
             {
                 return (IDataStorage<T>)cached;
             }
 
             var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path);
-
             _logger.LogDebug("Getting storage for {FolderName} at full path: {FullPath}", folderName, fullPath);
 
             var options = new StorageOptions
@@ -110,6 +69,81 @@ namespace NewwaysAdmin.Shared.IO.Structure
             return storage;
         }
 
+        // New async method
+        public async Task<IDataStorage<T>> GetStorageAsync<T>(string folderName) where T : class, new()
+        {
+            await _lock.WaitAsync();
+            try
+            {
+                var folder = _config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
+                if (folder == null)
+                {
+                    throw new StorageException($"Folder not found: {folderName}", folderName, StorageOperation.Load);
+                }
+
+                var cacheKey = $"{folderName}_{typeof(T).Name}";
+                if (_storageCache.TryGetValue(cacheKey, out var cached))
+                {
+                    return (IDataStorage<T>)cached;
+                }
+
+                var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path);
+                _logger.LogDebug("Getting storage async for {FolderName} at full path: {FullPath}", folderName, fullPath);
+
+                if (!Directory.Exists(fullPath))
+                {
+                    await Task.Run(() => Directory.CreateDirectory(fullPath));
+                    _logger.LogInformation("Created directory async: {Path}", fullPath);
+                }
+
+                var options = new StorageOptions
+                {
+                    BasePath = fullPath,
+                    FileExtension = folder.Type == StorageType.Json ? ".json" : ".bin",
+                    CreateBackups = folder.CreateBackups,
+                    MaxBackupCount = folder.MaxBackupCount
+                };
+
+                IDataStorage<T> storage = folder.Type == StorageType.Json
+                    ? new JsonStorage<T>(options)
+                    : new BinaryStorage<T>(options);
+
+                _storageCache[cacheKey] = storage;
+                return storage;
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+         public void RegisterFolder(StorageFolder folder)
+        {
+            try
+            {
+                _logger.LogInformation("Registering folder: {FolderName} at {Path}", folder.Name, folder.Path);
+
+                if (_config.RegisteredFolders.Any(f => f.Name == folder.Name))
+                {
+                    _logger.LogInformation("Folder {FolderName} already registered, skipping", folder.Name);
+                    return;
+                }
+
+                _config.AddFolder(folder);
+                SaveConfiguration();
+
+                var fullPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folder.Path);
+                if (!Directory.Exists(fullPath))
+                {
+                    Directory.CreateDirectory(fullPath);
+                    _logger.LogInformation("Created directory: {Path}", fullPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to register folder: {FolderName}", folder.Name);
+                throw;
+            }
+        }
         public string GetDirectoryStructure()
         {
             var sb = new StringBuilder();
