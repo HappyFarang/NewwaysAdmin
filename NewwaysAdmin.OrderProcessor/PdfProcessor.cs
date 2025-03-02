@@ -93,27 +93,120 @@ namespace NewwaysAdmin.OrderProcessor
                 _logger.LogInformation("PDF file exists: {Exists}", File.Exists(pdfPath));
                 _logger.LogInformation("PDF file size: {Size} bytes", new FileInfo(pdfPath).Length);
 
-                // Load platform configurations
-                ProcessorConfig platformConfig;
-                try
+                // Initialize platformConfig as null before diagnostic code
+                ProcessorConfig platformConfig = null;
+                var directConfigFound = false;
+
+                // DIAGNOSTIC CODE START
+                string configDirectoryPath = Path.Combine("C:/NewwaysData/Config/PDFProcessor");
+                _logger.LogInformation("Checking config directory: {Path}", configDirectoryPath);
+
+                if (Directory.Exists(configDirectoryPath))
                 {
-                    _logger.LogInformation("Attempting to load platforms configuration");
-                    platformConfig = await _configStorage.LoadAsync("platform");
+                    _logger.LogInformation("Config directory exists");
+                    var files = Directory.GetFiles(configDirectoryPath, "*.json");
+                    _logger.LogInformation("JSON files in config directory: {Files}", string.Join(", ", files.Select(Path.GetFileName)));
 
-                    _logger.LogInformation("Platform config loaded successfully: {Count} platforms defined",
-                        platformConfig?.Platforms?.Count ?? 0);
-
-                    if (platformConfig == null)
+                    string platformsFilePath = Path.Combine(configDirectoryPath, "platforms.json");
+                    if (File.Exists(platformsFilePath))
                     {
-                        _logger.LogWarning("No platform configuration found, creating default configuration");
-                        platformConfig = CreateDefaultConfig();
-                        await _configStorage.SaveAsync("platforms", platformConfig);
+                        _logger.LogInformation("platforms.json exists, size: {Size} bytes", new FileInfo(platformsFilePath).Length);
+
+                        try
+                        {
+                            string rawContent = File.ReadAllText(platformsFilePath);
+                            _logger.LogInformation("Raw file content (first 100 chars): {Content}",
+                                rawContent.Length > 100 ? rawContent.Substring(0, 100) : rawContent);
+
+                            // Try direct deserialization with Newtonsoft
+                            var directConfig = Newtonsoft.Json.JsonConvert.DeserializeObject<ProcessorConfig>(
+                                rawContent,
+                                new Newtonsoft.Json.JsonSerializerSettings
+                                {
+                                    NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore
+                                });
+
+                            _logger.LogInformation("Direct deserialization result: nullObject={IsNull}, platforms=null={PlatformsNull}, platformsCount={Count}",
+                                directConfig == null,
+                                directConfig?.Platforms == null,
+                                directConfig?.Platforms?.Count ?? 0);
+
+                            if (directConfig?.Platforms != null && directConfig.Platforms.Count > 0)
+                            {
+                                foreach (var platformKey in directConfig.Platforms.Keys)
+                                {
+                                    _logger.LogInformation("Platform found: {Key}", platformKey);
+                                }
+
+                                // If direct deserialization works, store it for later use
+                                platformConfig = directConfig;
+                                directConfigFound = true;
+                                _logger.LogInformation("Successfully deserialized config directly from file");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error directly reading/parsing platforms.json");
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("platforms.json file does not exist at: {Path}", platformsFilePath);
+                        // Try searching for it with different casing
+                        foreach (var file in files)
+                        {
+                            if (file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) &&
+                                Path.GetFileNameWithoutExtension(file).Equals("platforms", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _logger.LogInformation("Found potential platforms file with different casing: {File}", Path.GetFileName(file));
+                            }
+                        }
                     }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogError(ex, "Error loading platform configuration");
-                    throw;
+                    _logger.LogWarning("Config directory does not exist: {Path}", configDirectoryPath);
+                }
+                // DIAGNOSTIC CODE END
+
+                // Only attempt to load from storage if direct loading didn't work
+                if (!directConfigFound)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Attempting to load platforms configuration from storage");
+
+                        // List identifiers before loading
+                        var identifiers = await _configStorage.ListIdentifiersAsync();
+                        _logger.LogInformation("Available identifiers: {Identifiers}", string.Join(", ", identifiers));
+
+                        platformConfig = await _configStorage.LoadAsync("platforms");
+
+                        _logger.LogInformation("Platforms config loaded successfully: {Count} platforms defined",
+                            platformConfig?.Platforms?.Count ?? 0);
+
+                        // Log all properties from the loaded object
+                        _logger.LogInformation("Loaded config: Version={Version}, UpdatedBy={UpdatedBy}, LastUpdated={LastUpdated}",
+                            platformConfig?.Version,
+                            platformConfig?.UpdatedBy,
+                            platformConfig?.LastUpdated);
+
+                        if (platformConfig == null)
+                        {
+                            _logger.LogWarning("No platforms configuration found, creating default configuration");
+                            platformConfig = CreateDefaultConfig();
+                            await _configStorage.SaveAsync("platforms", platformConfig);
+
+                            // Check if save worked
+                            var savedConfig = await _configStorage.LoadAsync("platforms");
+                            _logger.LogInformation("After save, loaded platforms count: {Count}", savedConfig?.Platforms?.Count ?? 0);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error loading platforms configuration");
+                        throw;
+                    }
                 }
 
                 _logger.LogInformation("Extracting text from PDF");
@@ -121,11 +214,48 @@ namespace NewwaysAdmin.OrderProcessor
                 _logger.LogInformation("Text extraction complete, first 100 chars: {TextSample}",
                     normalizedText.Length > 100 ? normalizedText.Substring(0, 100) : normalizedText);
 
-                platformConfig = await SafeLoadConfigAsync("platforms");
-                if (platformConfig == null)
+                // DIAGNOSTIC CODE: Test if reloading gives different results
+                if (platformConfig?.Platforms?.Count == 0)
                 {
+                    var reloadedConfig = await SafeLoadConfigAsync("platforms");
+                    _logger.LogInformation("Reloaded config platforms count: {Count}", reloadedConfig?.Platforms?.Count ?? 0);
+
+                    // Compare loaded configs
+                    if (reloadedConfig?.Platforms?.Count > 0)
+                    {
+                        _logger.LogInformation("Using reloaded config which has {Count} platforms", reloadedConfig.Platforms.Count);
+                        platformConfig = reloadedConfig;
+                    }
+                    else
+                    {
+                        // Try loading directly from different file names
+                        foreach (var identifier in new[] { "platform", "Platforms", "Platform" })
+                        {
+                            try
+                            {
+                                _logger.LogInformation("Trying to load from alternate identifier: {Identifier}", identifier);
+                                var alternateConfig = await _configStorage.LoadAsync(identifier);
+                                if (alternateConfig?.Platforms?.Count > 0)
+                                {
+                                    _logger.LogInformation("Found {Count} platforms in identifier: {Identifier}",
+                                        alternateConfig.Platforms.Count, identifier);
+                                    platformConfig = alternateConfig;
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to load from alternate identifier: {Identifier}", identifier);
+                            }
+                        }
+                    }
+                }
+
+                // As a fallback, create a default config with some platforms
+                if (platformConfig == null || platformConfig.Platforms == null || platformConfig.Platforms.Count == 0)
+                {
+                    _logger.LogWarning("No platforms configuration could be loaded, using default");
                     platformConfig = CreateDefaultConfig();
-                    await _configStorage.SaveAsync("platforms", platformConfig);
                 }
 
                 DebugPlatformConfig(platformConfig, normalizedText);
@@ -133,7 +263,7 @@ namespace NewwaysAdmin.OrderProcessor
                 var platform = IdentifyPlatform(normalizedText, platformConfig);
                 if (platform == null)
                 {
-                    _logger.LogWarning("No platform identified for {File}", originalFileName);
+                    _logger.LogWarning("No platforms identified for {File}", originalFileName);
                     return;
                 }
 
@@ -174,6 +304,57 @@ namespace NewwaysAdmin.OrderProcessor
                 _logger.LogError(ex, "Error processing PDF: {ErrorType} - {ErrorMessage}", ex.GetType().Name, ex.Message);
                 throw;
             }
+        }
+
+        // Add this new method to create a sample configuration with platforms
+        private ProcessorConfig CreateDefaultConfigWithSamplePlatforms()
+        {
+            var config = new ProcessorConfig
+            {
+                Version = "1.0",
+                LastUpdated = DateTime.UtcNow,
+                UpdatedBy = "Emergency Default Creator",
+                Platforms = new Dictionary<string, PlatformConfig>()
+            };
+
+            // Add sample platforms
+            config.Platforms.Add("tiktok", new PlatformConfig
+            {
+                Name = "TikTok",
+                Enabled = true,
+                Identifiers = new List<string> { "Order ID:" },
+                OrderNumberPattern = "Order ID: (\\d+)",
+                Skus = new Dictionary<string, SkuConfig>
+                {
+                    ["SKU1"] = new SkuConfig
+                    {
+                        Pattern = "1\\s*ถ\\s*[\\u0E31-\\u0E4E]*\\s*ง[\\u0E31-\\u0E4E]*\\s*(\\d+)",
+                        ProductName = "Package Type 1",
+                        ProductDescription = "Small package",
+                        PackSize = 1
+                    }
+                }
+            });
+
+            config.Platforms.Add("shopee", new PlatformConfig
+            {
+                Name = "Shopee",
+                Enabled = true,
+                Identifiers = new List<string> { "Shopee Order No" },
+                OrderNumberPattern = "Shopee Order No\\. ([A-Z0-9]+)",
+                Skus = new Dictionary<string, SkuConfig>
+                {
+                    ["SKU1"] = new SkuConfig
+                    {
+                        Pattern = "1\\s*ถง\\s*(\\d+)",
+                        ProductName = "Package Type 1",
+                        ProductDescription = "Small package",
+                        PackSize = 1
+                    }
+                }
+            });
+
+            return config;
         }
         private async Task<ProcessorConfig> SafeLoadConfigAsync(string identifier)
         {

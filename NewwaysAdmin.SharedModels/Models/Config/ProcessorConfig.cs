@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
-using System.Text.Json.Serialization;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Shared.IO;
 
@@ -10,47 +9,47 @@ namespace NewwaysAdmin.SharedModels.Config
 {
     public class ProcessorConfig
     {
-        [JsonPropertyName("version")]
+        [JsonProperty("version")]
         public string Version { get; set; } = "1.0";
 
-        [JsonPropertyName("platforms")]
+        [JsonProperty("platforms")]
         public Dictionary<string, PlatformConfig> Platforms { get; set; } = new();
 
-        [JsonPropertyName("lastUpdated")]
+        [JsonProperty("lastUpdated")]
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
 
-        [JsonPropertyName("updatedBy")]
+        [JsonProperty("updatedBy")]
         public string UpdatedBy { get; set; } = string.Empty;
     }
 
     // This is the local processing state that doesn't get shared
     public class ProcessorLocalState
     {
-        [JsonPropertyName("machineName")]
+        [JsonProperty("machineName")]
         public string MachineName { get; set; } = string.Empty;
 
-        [JsonPropertyName("lastProcessedDate")]
+        [JsonProperty("lastProcessedDate")]
         public DateTime LastProcessedDate { get; set; }
 
-        [JsonPropertyName("processedFiles")]
+        [JsonProperty("processedFiles")]
         public List<ProcessedFileInfo> ProcessedFiles { get; set; } = new();
     }
 
     public class ProcessedFileInfo
     {
-        [JsonPropertyName("fileName")]
+        [JsonProperty("fileName")]
         public string FileName { get; set; } = string.Empty;
 
-        [JsonPropertyName("processedDate")]
+        [JsonProperty("processedDate")]
         public DateTime ProcessedDate { get; set; }
 
-        [JsonPropertyName("backupPath")]
+        [JsonProperty("backupPath")]
         public string BackupPath { get; set; } = string.Empty;
 
-        [JsonPropertyName("orderNumber")]
+        [JsonProperty("orderNumber")]
         public string? OrderNumber { get; set; }
 
-        [JsonPropertyName("platform")]
+        [JsonProperty("platform")]
         public string Platform { get; set; } = string.Empty;
     }
 
@@ -240,9 +239,9 @@ namespace NewwaysAdmin.SharedModels.Config
 
                 ArgumentNullException.ThrowIfNull(config);
 
-                // Save with the identifier "platform" (singular) to standardize
-                await _configStorage.SaveAsync("platform", config);
-                _logger.LogInformation("Configuration saved successfully as 'platform'");
+                // Save with the identifier "platforms" (plural) to match what PdfProcessor is looking for
+                await _configStorage.SaveAsync("platforms", config);
+                _logger.LogInformation("Configuration saved successfully as 'platforms'");
             }
             catch (Exception ex)
             {
