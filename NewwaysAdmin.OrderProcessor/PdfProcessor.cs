@@ -98,7 +98,7 @@ namespace NewwaysAdmin.OrderProcessor
                 try
                 {
                     _logger.LogInformation("Attempting to load platforms configuration");
-                    platformConfig = await _configStorage.LoadAsync("platforms");
+                    platformConfig = await _configStorage.LoadAsync("platform");
 
                     _logger.LogInformation("Platform config loaded successfully: {Count} platforms defined",
                         platformConfig?.Platforms?.Count ?? 0);
@@ -120,6 +120,13 @@ namespace NewwaysAdmin.OrderProcessor
                 string normalizedText = await ExtractAndNormalizeTextAsync(pdfPath);
                 _logger.LogInformation("Text extraction complete, first 100 chars: {TextSample}",
                     normalizedText.Length > 100 ? normalizedText.Substring(0, 100) : normalizedText);
+
+                platformConfig = await SafeLoadConfigAsync("platforms");
+                if (platformConfig == null)
+                {
+                    platformConfig = CreateDefaultConfig();
+                    await _configStorage.SaveAsync("platforms", platformConfig);
+                }
 
                 DebugPlatformConfig(platformConfig, normalizedText);
 
@@ -168,7 +175,38 @@ namespace NewwaysAdmin.OrderProcessor
                 throw;
             }
         }
+        private async Task<ProcessorConfig> SafeLoadConfigAsync(string identifier)
+        {
+            try
+            {
+                if (!await _configStorage.ExistsAsync(identifier))
+                {
+                    _logger.LogWarning("Configuration file '{Identifier}' does not exist", identifier);
+                    return null;
+                }
 
+                var config = await _configStorage.LoadAsync(identifier);
+                if (config == null)
+                {
+                    _logger.LogWarning("Configuration loaded as null from '{Identifier}'", identifier);
+                    return null;
+                }
+
+                if (config.Platforms == null)
+                {
+                    _logger.LogWarning("Configuration loaded successfully but Platforms property is null");
+                    config.Platforms = new Dictionary<string, PlatformConfig>();
+                }
+
+                _logger.LogInformation("Config loaded successfully with {Count} platforms", config.Platforms.Count);
+                return config;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading configuration '{Identifier}'", identifier);
+                return null;
+            }
+        }
         private async Task<string> ExtractAndNormalizeTextAsync(string pdfPath)
         {
             var normalizedText = new StringBuilder();
