@@ -116,7 +116,18 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 _lock.Release();
             }
         }
-         public void RegisterFolder(StorageFolder folder)
+
+        public void RegisterFolder(StorageFolder folder)
+        {
+            RegisterFolder(folder, null);
+        }
+
+        /// <summary>
+        /// Registers a folder with the storage factory and optionally saves the definition to the server
+        /// </summary>
+        /// <param name="folder">The folder to register</param>
+        /// <param name="applicationName">Optional application name for saving definition to server</param>
+        public void RegisterFolder(StorageFolder folder, string? applicationName = null)
         {
             try
             {
@@ -137,6 +148,47 @@ namespace NewwaysAdmin.Shared.IO.Structure
                     Directory.CreateDirectory(fullPath);
                     _logger.LogInformation("Created directory: {Path}", fullPath);
                 }
+
+                // Save the folder definition to the server if application name is provided
+                if (!string.IsNullOrEmpty(applicationName))
+                {
+                    try
+                    {
+                        // Ensure application name is valid for a directory
+                        string safeName = new string(applicationName.Select(c =>
+                            Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+
+                        string definitionsPath = Path.Combine("X:/NewwaysAdmin/Definitions", safeName);
+                        if (!Directory.Exists(definitionsPath))
+                        {
+                            Directory.CreateDirectory(definitionsPath);
+                            _logger.LogInformation("Created server definitions directory: {Path}", definitionsPath);
+                        }
+
+                        string definitionFile = Path.Combine(definitionsPath, $"{folder.Name}.json");
+
+                        // Use Newtonsoft.Json for better formatting control
+                        string json = Newtonsoft.Json.JsonConvert.SerializeObject(folder, Newtonsoft.Json.Formatting.Indented);
+                        File.WriteAllText(definitionFile, json);
+                        _logger.LogInformation("Saved folder definition to server: {Path}", definitionFile);
+
+                        // Also save a copy locally
+                        string localDefinitionsPath = Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, "Definitions", safeName);
+                        if (!Directory.Exists(localDefinitionsPath))
+                        {
+                            Directory.CreateDirectory(localDefinitionsPath);
+                        }
+
+                        string localDefinitionFile = Path.Combine(localDefinitionsPath, $"{folder.Name}.json");
+                        File.WriteAllText(localDefinitionFile, json);
+                        _logger.LogInformation("Saved folder definition locally: {Path}", localDefinitionFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log but don't throw - the folder is already registered in memory
+                        _logger.LogWarning(ex, "Could not save folder definition to server: {Error}", ex.Message);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -144,6 +196,7 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 throw;
             }
         }
+
         public string GetDirectoryStructure()
         {
             var sb = new StringBuilder();

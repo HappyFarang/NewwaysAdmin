@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.IO.Manager;
-using NewwaysAdmin.OrderProcessor;
 using NewwaysAdmin.Shared.Configuration;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
@@ -10,6 +9,8 @@ namespace NewwaysAdmin.OrderProcessor
 {
     public static class OrderProcessorSetup
     {
+        private const string APPLICATION_NAME = "PdfProcessor";
+
         public static IServiceCollection AddOrderProcessor(this IServiceCollection services)
         {
             services.AddLogging(builder => builder.AddConsole());
@@ -92,13 +93,15 @@ namespace NewwaysAdmin.OrderProcessor
                     Name = "PDFProcessor_Config",
                     Description = "PDFProcessor configuration storage",
                     Type = StorageType.Json,
-                    Path = "Config/PDFProcessor",
+                    Path = "Config/PdfProcessor",  // Note the lowercase 'p' in PdfProcessor
                     IsShared = false,
                     CreateBackups = true,
                     MaxBackupCount = 5,
                     CreatedBy = "PDFProcessor"
                 };
-                storageFactory.RegisterFolder(configFolder);
+
+                // Use the overloaded RegisterFolder method with application name
+                storageFactory.RegisterFolder(configFolder, APPLICATION_NAME);
                 logger.LogInformation("Registered PDFProcessor_Config folder");
 
                 var scansFolder = new StorageFolder
@@ -106,13 +109,15 @@ namespace NewwaysAdmin.OrderProcessor
                     Name = "PDFProcessor_Scans",
                     Description = "Storage for PDF scan results",
                     Type = StorageType.Json,
-                    Path = "Data/PDFProcessor/Scans",
+                    Path = "Data/PdfProcessor/Scans",  // Note the lowercase 'p' in PdfProcessor
                     IsShared = false,
                     CreateBackups = true,
                     MaxBackupCount = 5,
                     CreatedBy = "PDFProcessor"
                 };
-                storageFactory.RegisterFolder(scansFolder);
+
+                // Use the overloaded RegisterFolder method with application name
+                storageFactory.RegisterFolder(scansFolder, APPLICATION_NAME);
                 logger.LogInformation("Registered PDFProcessor_Scans folder");
 
                 var logsFolder = new StorageFolder
@@ -126,7 +131,9 @@ namespace NewwaysAdmin.OrderProcessor
                     MaxBackupCount = 10,
                     CreatedBy = "PDFProcessor"
                 };
-                storageFactory.RegisterFolder(logsFolder);
+
+                // Use the overloaded RegisterFolder method with application name
+                storageFactory.RegisterFolder(logsFolder, APPLICATION_NAME);
                 logger.LogInformation("Registered Logs folder");
 
                 // Make sure the PDF watch folder exists
@@ -141,7 +148,7 @@ namespace NewwaysAdmin.OrderProcessor
                 var fileWatcher = serviceProvider.GetRequiredService<PdfFileWatcher>();
                 fileWatcher.Start();
                 logger.LogInformation("Started PDF file watcher for directory: {WatchFolder}", pdfWatchFolder);
-                
+
                 string pdfBackupFolder = "C:/PDFtemp/PDFbackup";
                 if (!Directory.Exists(pdfBackupFolder))
                 {
