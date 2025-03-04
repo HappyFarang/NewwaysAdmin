@@ -299,6 +299,10 @@ namespace NewwaysAdmin.OrderProcessor
                     return;
                 }
 
+                // Replace this section in the ProcessPdfAsync method
+                // After creating the scanResult object:
+
+                // Save scan result using the IO system
                 var scanResult = new ScanResult
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -309,7 +313,24 @@ namespace NewwaysAdmin.OrderProcessor
                     OriginalFileName = originalFileName
                 };
 
+                // First save locally through storage
                 await _scanStorage.SaveAsync(scanResult.Id, scanResult);
+                _logger.LogInformation("Saved scan result locally with ID: {ScanId}", scanResult.Id);
+
+                // Queue for transfer to server 
+                try
+                {
+                    // The path where scan results are stored
+                    string scanFolderPath = "Data/PdfProcessor/Scans";
+                    await _ioManager.QueueForServerTransferAsync(scanFolderPath, scanResult.Id, scanResult);
+                    _logger.LogInformation("Queued scan result for server transfer: {ScanId}", scanResult.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not queue scan for server transfer, but local save was successful");
+                }
+
+                // Move the PDF file to backup
                 await MovePdfToBackupAsync(pdfPath, platform.Value.platformId, orderNumber);
 
                 // Optional: Print if configured

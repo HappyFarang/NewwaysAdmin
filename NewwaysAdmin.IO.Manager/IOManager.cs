@@ -414,6 +414,47 @@ namespace NewwaysAdmin.IO.Manager
         {
             return await _storageFactory.GetStorageAsync<T>(folderName);
         }
+        /// <summary>
+        /// Queues an object for transfer to the server by serializing it to JSON and saving it in the outgoing folder
+        /// </summary>
+        /// <typeparam name="T">The type of object to transfer</typeparam>
+        /// <param name="folderPath">The folder path relative to base folder (e.g. "Data/PdfProcessor/Scans")</param>
+        /// <param name="fileId">The unique identifier for the file</param>
+        /// <param name="data">The data to serialize and transfer</param>
+        /// <returns>A task representing the asynchronous operation</returns>
+        public async Task QueueForServerTransferAsync<T>(string folderPath, string fileId, T data) where T : class
+        {
+            if (_isServer)
+            {
+                // If this is a server, just log the operation
+                _logger.LogInformation("Running on server, not queueing data for transfer: {FileId}", fileId);
+                return;
+            }
+
+            try
+            {
+                // First, serialize the data to JSON
+                string json = JsonConvert.SerializeObject(data, Formatting.Indented);
+
+                // Create the outgoing directory structure
+                string outgoingDir = Path.Combine(LocalBaseFolder, "Outgoing", folderPath);
+                Directory.CreateDirectory(outgoingDir);
+
+                // Save the file to outgoing directory with a JSON extension
+                string outgoingPath = Path.Combine(outgoingDir, $"{fileId}.json");
+                await File.WriteAllTextAsync(outgoingPath, json);
+
+                _logger.LogInformation("Queued file for server transfer: {FilePath}", outgoingPath);
+
+                // Try to process immediately if the server is available
+                await ProcessPendingTransfersAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error queueing file for server transfer: {FileId}", fileId);
+                throw;
+            }
+        }
     }
 
     public class NewDataEventArgs : EventArgs

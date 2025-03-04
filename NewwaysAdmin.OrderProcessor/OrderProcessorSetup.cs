@@ -9,20 +9,14 @@ namespace NewwaysAdmin.OrderProcessor
 {
     public static class OrderProcessorSetup
     {
+        // Consistent application name for all registrations
         private const string APPLICATION_NAME = "PdfProcessor";
 
         public static IServiceCollection AddOrderProcessor(this IServiceCollection services)
         {
             services.AddLogging(builder => builder.AddConsole());
 
-            // First, register configuration and basic services
-            services.AddSingleton<IOManagerOptions>(sp => new IOManagerOptions
-            {
-                LocalBaseFolder = "C:/NewwaysData",
-                ServerDefinitionsPath = "X:/NewwaysAdmin",
-                ApplicationName = "PDFProcessor"
-            });
-
+            // Configuration and shared services
             services.AddSingleton<EnhancedStorageFactory>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<EnhancedStorageFactory>>();
@@ -35,37 +29,58 @@ namespace NewwaysAdmin.OrderProcessor
                 return new MachineConfigProvider(logger);
             });
 
-            services.AddSingleton<IOManager>();
+            // IO Manager using the application name
+            services.AddSingleton<IOManagerOptions>(sp => new IOManagerOptions
+            {
+                LocalBaseFolder = "C:/NewwaysData",
+                ServerDefinitionsPath = "X:/NewwaysAdmin/Definitions",
+                ApplicationName = APPLICATION_NAME
+            });
 
+            services.AddSingleton<IOManager>();
             services.AddSingleton<ConfigSyncTracker>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<ConfigSyncTracker>>();
-                var options = sp.GetRequiredService<IOManagerOptions>();
-                return new ConfigSyncTracker(options.LocalBaseFolder, logger);
+                var ioManager = sp.GetRequiredService<IOManager>();
+                return new ConfigSyncTracker(ioManager.LocalBaseFolder, logger);
             });
 
-            // Then register the OrderProcessorLogger
+            // OrderProcessorLogger
             services.AddSingleton(sp =>
             {
                 var ioManager = sp.GetRequiredService<IOManager>();
                 return new OrderProcessorLogger(ioManager, "OrderLogs");
             });
 
-            // Then register PdfProcessor
+            // PdfProcessor
             services.AddSingleton<PdfProcessor>(sp =>
             {
                 var ioManager = sp.GetRequiredService<IOManager>();
                 var logger = sp.GetRequiredService<ILogger<PdfProcessor>>();
-                var backupFolder = "C:/PDFtemp/PDFbackup"; // Configure this path as needed
 
+                // Use a path within NewwaysData structure for consistency
+                var backupFolder = Path.Combine(ioManager.LocalBaseFolder, "Data", "PdfProcessor", "Backup");
                 return new PdfProcessor(ioManager, backupFolder, logger);
             });
-            // Finally register the PdfFileWatcher that depends on the above
+
+            // PdfFileWatcher
             services.AddSingleton<PdfFileWatcher>(sp =>
             {
                 var processor = sp.GetRequiredService<PdfProcessor>();
                 var logger = sp.GetRequiredService<OrderProcessorLogger>();
-                var watcher = new PdfFileWatcher("C:/PDFtemp", processor, logger);
+
+                // Read the PDF watch folder from configuration if possible
+                var machineConfig = sp.GetRequiredService<MachineConfigProvider>().LoadConfigAsync().GetAwaiter().GetResult();
+                var pdfWatchFolder = "C:/PDFtemp"; // Default
+
+                // Try to get path from config if available
+                if (machineConfig.Apps.TryGetValue("PdfProcessor", out var appConfig) &&
+                    appConfig.LocalPaths.TryGetValue("WatchFolder", out var configuredPath))
+                {
+                    pdfWatchFolder = configuredPath;
+                }
+
+                var watcher = new PdfFileWatcher(pdfWatchFolder, processor, logger);
                 return watcher;
             });
 
@@ -86,81 +101,92 @@ namespace NewwaysAdmin.OrderProcessor
                 var ioManager = serviceProvider.GetRequiredService<IOManager>();
                 var storageFactory = serviceProvider.GetRequiredService<EnhancedStorageFactory>();
 
-                logger.LogInformation("Storage factory and IO Manager initialized");
-
+                // Register folder for configuration storage
                 var configFolder = new StorageFolder
                 {
-                    Name = "PDFProcessor_Config",
-                    Description = "PDFProcessor configuration storage",
+                    Name = "PdfProcessor_Config",
+                    Description = "PDF Processor configuration storage",
                     Type = StorageType.Json,
-                    Path = "Config/PdfProcessor",  // Note the lowercase 'p' in PdfProcessor
+                    Path = "Config/PdfProcessor",
                     IsShared = false,
                     CreateBackups = true,
                     MaxBackupCount = 5,
-                    CreatedBy = "PDFProcessor"
+                    CreatedBy = APPLICATION_NAME
                 };
 
-                // Use the overloaded RegisterFolder method with application name
                 storageFactory.RegisterFolder(configFolder, APPLICATION_NAME);
-                logger.LogInformation("Registered PDFProcessor_Config folder");
+                logger.LogInformation("Registered PdfProcessor_Config folder");
 
+                // Register folder for scan results
                 var scansFolder = new StorageFolder
                 {
-                    Name = "PDFProcessor_Scans",
+                    Name = "PdfProcessor_Scans",
                     Description = "Storage for PDF scan results",
                     Type = StorageType.Json,
-                    Path = "Data/PdfProcessor/Scans",  // Note the lowercase 'p' in PdfProcessor
+                    Path = "Data/PdfProcessor/Scans",
                     IsShared = false,
                     CreateBackups = true,
                     MaxBackupCount = 5,
-                    CreatedBy = "PDFProcessor"
+                    CreatedBy = APPLICATION_NAME
                 };
 
-                // Use the overloaded RegisterFolder method with application name
                 storageFactory.RegisterFolder(scansFolder, APPLICATION_NAME);
-                logger.LogInformation("Registered PDFProcessor_Scans folder");
+                logger.LogInformation("Registered PdfProcessor_Scans folder");
 
+                // Register shared logs folder
                 var logsFolder = new StorageFolder
                 {
-                    Name = "Logs", // This name is important - matches what the logger is trying to use
+                    Name = "Logs",
                     Description = "Application logs storage",
                     Type = StorageType.Json,
-                    Path = "Logs", // Simple path structure
-                    IsShared = true, // Logs are often shared across applications
+                    Path = "Logs",
+                    IsShared = true,
                     CreateBackups = true,
                     MaxBackupCount = 10,
-                    CreatedBy = "PDFProcessor"
+                    CreatedBy = APPLICATION_NAME
                 };
 
-                // Use the overloaded RegisterFolder method with application name
                 storageFactory.RegisterFolder(logsFolder, APPLICATION_NAME);
                 logger.LogInformation("Registered Logs folder");
 
-                // Make sure the PDF watch folder exists
-                string pdfWatchFolder = "C:/PDFtemp";
-                if (!Directory.Exists(pdfWatchFolder))
-                {
-                    Directory.CreateDirectory(pdfWatchFolder);
-                    logger.LogInformation($"Created PDF watch folder: {pdfWatchFolder}");
-                }
+                // Create necessary directories
+                await EnsureDirectoriesExistAsync(ioManager.LocalBaseFolder);
 
-                // Get and start the file watcher
+                // Start file watcher
                 var fileWatcher = serviceProvider.GetRequiredService<PdfFileWatcher>();
                 fileWatcher.Start();
-                logger.LogInformation("Started PDF file watcher for directory: {WatchFolder}", pdfWatchFolder);
-
-                string pdfBackupFolder = "C:/PDFtemp/PDFbackup";
-                if (!Directory.Exists(pdfBackupFolder))
-                {
-                    Directory.CreateDirectory(pdfBackupFolder);
-                    logger.LogInformation($"Created PDF backup folder: {pdfBackupFolder}");
-                }
+                logger.LogInformation("Started PDF file watcher");
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Failed to initialize services: {Error}", ex.Message);
                 throw;
             }
+        }
+
+        private static async Task EnsureDirectoriesExistAsync(string baseFolder)
+        {
+            // Create standard directories
+            var directories = new[]
+            {
+            Path.Combine(baseFolder, "Data", "PdfProcessor", "Scans"),
+            Path.Combine(baseFolder, "Data", "PdfProcessor", "Backup"),
+            Path.Combine(baseFolder, "Config", "PdfProcessor"),
+            Path.Combine(baseFolder, "Logs"),
+            Path.Combine(baseFolder, "Outgoing"),
+            "C:/PDFtemp",
+            "C:/PDFtemp/PDFbackup"
+        };
+
+            foreach (var dir in directories)
+            {
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+            }
+
+            await Task.CompletedTask;
         }
     }
 }
