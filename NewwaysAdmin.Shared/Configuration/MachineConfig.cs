@@ -1,5 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
-using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace NewwaysAdmin.Shared.Configuration
 {
@@ -7,6 +7,8 @@ namespace NewwaysAdmin.Shared.Configuration
     {
         public string MachineName { get; set; } = "UNKNOWN";
         public string MachineRole { get; set; } = "UNKNOWN";
+        public string LocalBaseFolder { get; set; } = "C:/NewwaysData";
+        public string ServerBasePath { get; set; } = "X:/NewwaysAdmin";
         public Dictionary<string, AppConfig> Apps { get; set; } = new();
     }
 
@@ -19,7 +21,7 @@ namespace NewwaysAdmin.Shared.Configuration
 
     public class MachineConfigProvider
     {
-        private const string DEFAULT_CONFIG_PATH = @"C:\NewwaysAdmin\Machine\machine-config.json";
+        private const string DEFAULT_CONFIG_PATH = @"C:\MachineConfig\machine.json";
         private readonly ILogger<MachineConfigProvider> _logger;
         private readonly string _configPath;
 
@@ -35,64 +37,26 @@ namespace NewwaysAdmin.Shared.Configuration
             {
                 if (!File.Exists(_configPath))
                 {
-                    var defaultConfig = CreateDefaultConfig();
-                    await SaveConfigAsync(defaultConfig);
-                    return defaultConfig;
+                    _logger.LogError("Machine configuration file not found at {Path}", _configPath);
+                    throw new FileNotFoundException($"Machine configuration file not found at {_configPath}");
                 }
 
                 var json = await File.ReadAllTextAsync(_configPath);
-                var loadedConfig = JsonSerializer.Deserialize<MachineConfig>(json);
-                return loadedConfig ?? CreateDefaultConfig();
+                var loadedConfig = Newtonsoft.Json.JsonConvert.DeserializeObject<MachineConfig>(json);
+
+                if (loadedConfig == null)
+                {
+                    _logger.LogError("Failed to deserialize machine configuration");
+                    throw new InvalidOperationException("Failed to deserialize machine configuration");
+                }
+
+                return loadedConfig;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to load machine configuration");
-                return CreateDefaultConfig();
+                throw; // Let the caller handle this - it's a critical configuration
             }
-        }
-
-        private async Task SaveConfigAsync(MachineConfig machineConfig)
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(_configPath);
-                if (!string.IsNullOrEmpty(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                var json = JsonSerializer.Serialize(machineConfig, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-                await File.WriteAllTextAsync(_configPath, json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save machine configuration");
-                throw;
-            }
-        }
-
-        private MachineConfig CreateDefaultConfig()
-        {
-            return new MachineConfig
-            {
-                MachineName = Environment.MachineName,
-                MachineRole = "WORKSTATION",
-                Apps = new Dictionary<string, AppConfig>
-                {
-                    ["PDFProcessor"] = new AppConfig
-                    {
-                        LocalPaths = new Dictionary<string, string>
-                        {
-                            ["WatchFolder"] = @"C:\PDFtemp",
-                            ["BackupFolder"] = @"C:\PDFtemp\PDFbackup",
-                            ["LogFile"] = @"C:\PDFtemp\log.txt"
-                        }
-                    }
-                }
-            };
         }
     }
 }

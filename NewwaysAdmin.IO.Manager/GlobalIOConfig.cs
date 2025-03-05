@@ -1,10 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
+﻿// GlobalIOConfig.cs
+using Newtonsoft.Json;
 
 namespace NewwaysAdmin.IO.Manager
 {
@@ -12,5 +7,6 @@ namespace NewwaysAdmin.IO.Manager
     {
         public string LocalBaseFolder { get; set; } = "C:/NewwaysData";
         public string ServerDefinitionsPath { get; set; } = "X:/NewwaysAdmin/Definitions";
+        public string MachineRole { get; set; } = "CLIENT";
     }
 }

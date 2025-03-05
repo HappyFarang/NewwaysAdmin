@@ -22,11 +22,11 @@ namespace NewwaysAdmin.OrderProcessor
 
         public PdfProcessor(
             IOManager ioManager,
-            string backupFolder,
+            string backupFolderOld,
             ILogger<PdfProcessor> logger)
         {
             _ioManager = ioManager ?? throw new ArgumentNullException(nameof(ioManager));
-            _backupFolder = backupFolder ?? throw new ArgumentNullException(nameof(backupFolder));
+            _backupFolder = "C:/PDFtemp/PDFbackup";
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _printerManager = new PrinterManager(ioManager, logger);
 
@@ -589,14 +589,21 @@ namespace NewwaysAdmin.OrderProcessor
         {
             try
             {
-                if (!Directory.Exists(_backupFolder))
+                // Use the direct path without Path.Combine
+                string backupFolder = "C:/PDFtemp/PDFbackup";
+
+                if (!Directory.Exists(backupFolder))
                 {
-                    await Task.Run(() => Directory.CreateDirectory(_backupFolder));
+                    await Task.Run(() => Directory.CreateDirectory(backupFolder));
                 }
 
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 string fileName = $"{timestamp}_{platform}_{orderNumber ?? "unknown"}_{Path.GetFileName(pdfPath)}";
-                string backupPath = Path.Combine(_backupFolder, fileName);
+
+                // Use raw path with simple string concatenation for clarity
+                string backupPath = backupFolder + "/" + fileName;
+
+                _logger.LogDebug("Moving PDF from {SourcePath} to {BackupPath}", pdfPath, backupPath);
 
                 using (var sourceStream = File.OpenRead(pdfPath))
                 using (var destinationStream = File.Create(backupPath))

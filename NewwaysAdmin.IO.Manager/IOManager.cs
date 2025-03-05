@@ -30,10 +30,10 @@ namespace NewwaysAdmin.IO.Manager
         public string LocalBaseFolder => _options.LocalBaseFolder;
 
         public IOManager(
-            ILogger<IOManager> logger,
-            IOManagerOptions options,
-            MachineConfigProvider machineConfigProvider,
-            EnhancedStorageFactory storageFactory)
+    ILogger<IOManager> logger,
+    IOManagerOptions options,
+    MachineConfigProvider machineConfigProvider,
+    EnhancedStorageFactory storageFactory)
         {
             _logger = logger;
             _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -41,10 +41,23 @@ namespace NewwaysAdmin.IO.Manager
             _storageFactory = storageFactory ?? throw new ArgumentNullException(nameof(storageFactory));
             _applicationName = options.ApplicationName;
 
+            // Load machine config from the fixed location outside IO system
             var sharedConfig = machineConfigProvider.LoadConfigAsync().Result;
             _machineId = sharedConfig.MachineName;
             _isServer = sharedConfig.MachineRole == "SERVER";
 
+            // Use machine config's base folder if available, otherwise use the one from options
+            var localBaseFolder = !string.IsNullOrEmpty(sharedConfig.LocalBaseFolder)
+                ? sharedConfig.LocalBaseFolder
+                : options.LocalBaseFolder;
+
+            if (localBaseFolder != options.LocalBaseFolder)
+            {
+                _logger.LogInformation("Using machine config LocalBaseFolder: {Path} instead of options value: {OptionsPath}",
+                    localBaseFolder, options.LocalBaseFolder);
+            }
+
+            // Continue with existing code...
             _machineConfig = new MachineConfig
             {
                 MachineRole = sharedConfig.MachineRole,
@@ -54,9 +67,10 @@ namespace NewwaysAdmin.IO.Manager
                 CopyOnUpdate = new List<string> { "Config" }
             };
 
-            _localDefinitionsPath = Path.Combine(LocalBaseFolder, "Config", "Definitions", _applicationName);
+            _localDefinitionsPath = Path.Combine(localBaseFolder, "Config", "Definitions", _applicationName);
             _serverDefinitionsPath = Path.Combine(NetworkBaseFolder, "Definitions", _applicationName);
 
+            // Continue with the rest of your initialization...
             Directory.CreateDirectory(_localDefinitionsPath);
             if (_isServer)
             {
@@ -70,7 +84,7 @@ namespace NewwaysAdmin.IO.Manager
                 }
             }
 
-            _configSyncTracker = new ConfigSyncTracker(LocalBaseFolder, logger);
+            _configSyncTracker = new ConfigSyncTracker(localBaseFolder, logger);
 
             SetupWatchers();
 
