@@ -17,6 +17,7 @@ namespace NewwaysAdmin.OrderProcessor
         public string? OrderNumber { get; set; }
         public Dictionary<string, int> SkuCounts { get; set; } = new();
         public string OriginalFileName { get; set; } = string.Empty;
+        public string? Courier { get; set; }
     }
 
     public class PrinterConfig

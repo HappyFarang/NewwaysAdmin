@@ -280,6 +280,9 @@ namespace NewwaysAdmin.OrderProcessor
                 string? orderNumber = ExtractOrderNumber(normalizedText, platform.Value);
                 var skuCounts = ExtractSkuCounts(normalizedText, platform.Value);
 
+                // Find courier info
+                string? courier = ExtractCourier(normalizedText, platform.Value);
+
                 // Check if order was already processed
                 if (orderNumber != null && await IsOrderProcessedAsync(platform.Value, orderNumber))
                 {
@@ -310,7 +313,8 @@ namespace NewwaysAdmin.OrderProcessor
                     Platform = platform.Value.platformId,
                     OrderNumber = orderNumber,
                     SkuCounts = skuCounts,
-                    OriginalFileName = originalFileName
+                    OriginalFileName = originalFileName,
+                    Courier = courier
                 };
 
                 // First save locally through storage
@@ -527,6 +531,7 @@ namespace NewwaysAdmin.OrderProcessor
                                 }
                             }
                         }
+
                         catch (Exception ex)
                         {
                             // Just log and continue to the next file if there's an error with this one
@@ -583,6 +588,30 @@ namespace NewwaysAdmin.OrderProcessor
                 // In case of errors, assume it's not a duplicate to be safe
                 return false;
             }
+        }
+
+        private string? ExtractCourier(string text, (string platformId, PlatformConfig config) platform)
+        {
+            if (platform.config.CourierPatterns == null || !platform.config.CourierPatterns.Any())
+                return null;
+
+            foreach (var courierEntry in platform.config.CourierPatterns)
+            {
+                string courierName = courierEntry.Key;
+                string pattern = courierEntry.Value;
+
+                if (string.IsNullOrEmpty(pattern))
+                    continue;
+
+                var match = Regex.Match(text, pattern);
+                if (match.Success)
+                {
+                    // Return either the captured group or the courier name if no capture group
+                    return match.Groups.Count > 1 ? match.Groups[1].Value : courierName;
+                }
+            }
+
+            return null;
         }
 
         private async Task MovePdfToBackupAsync(string pdfPath, string platform, string? orderNumber)

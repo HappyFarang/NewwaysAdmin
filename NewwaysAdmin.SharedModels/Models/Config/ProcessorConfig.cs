@@ -84,6 +84,9 @@ namespace NewwaysAdmin.SharedModels.Config
 
         [JsonProperty("orderNumberPattern")]
         public string OrderNumberPattern { get; set; } = "";
+
+        [JsonProperty("courierPatterns")]
+        public Dictionary<string, string> CourierPatterns { get; set; } = new();
     }
 
     public class SkuConfig
