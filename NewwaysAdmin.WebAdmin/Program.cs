@@ -14,6 +14,9 @@ using NewwaysAdmin.WebAdmin.Infrastructure.Storage;
 using NewwaysAdmin.SharedModels.Config;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.SharedModels.Sales;
+using NewwaysAdmin.IO.Manager;
+using NewwaysAdmin.Shared.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -40,6 +43,18 @@ public class Program
         services.AddHttpContextAccessor();
         services.AddAuthorizationCore();
 
+        // Add MachineConfigProvider
+        services.AddSingleton<MachineConfigProvider>();
+
+        // Add IOManager without redundant configuration
+        services.AddSingleton<IOManager>();
+        services.AddSingleton<ConfigSyncTracker>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<ConfigSyncTracker>>();
+            var ioManager = sp.GetRequiredService<IOManager>();
+            return new ConfigSyncTracker(ioManager.LocalBaseFolder, logger);
+        });
+
         // Add logging
         services.AddLogging(logging =>
         {
@@ -62,16 +77,16 @@ public class Program
         services.AddSingleton<StorageManager>();
         services.AddScoped<SalesDataProvider>();
 
-        // Add ConfigProvider
+        // Add ConfigProvider - KEEP ONLY THIS ONE REGISTRATION
         services.AddSingleton<ConfigProvider>(sp =>
         {
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ConfigProvider>();
-            return new ConfigProvider(logger);
+            var ioManager = sp.GetRequiredService<IOManager>();  // Add this line
+            return new ConfigProvider(logger, ioManager);  // Add ioManager parameter
         });
 
         // Circuit handling
-
         services.AddScoped<CircuitHandler, CustomCircuitHandler>();
         services.AddSingleton<ICircuitManager, CircuitManager>();
 

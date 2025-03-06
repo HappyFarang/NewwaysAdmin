@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Shared.IO;
+using NewwaysAdmin.IO.Manager;
 
 namespace NewwaysAdmin.SharedModels.Config
 {
@@ -107,7 +108,7 @@ namespace NewwaysAdmin.SharedModels.Config
     public class ConfigProvider
     {
         private readonly ILogger _logger;
-        private readonly EnhancedStorageFactory? _storageFactory;
+        private readonly IOManager _ioManager;
         private IDataStorage<ProcessorConfig>? _configStorage;
         private readonly SemaphoreSlim _initLock = new(1, 1);
         private static readonly JsonSerializerSettings _jsonSettings = new()
@@ -115,29 +116,24 @@ namespace NewwaysAdmin.SharedModels.Config
             Formatting = Formatting.Indented
         };
 
-        // Constructor remains unchanged
+        // Updated constructor to use IOManager
         public ConfigProvider(
             ILogger logger,
-            EnhancedStorageFactory? storageFactory = null)
+            IOManager ioManager)
         {
             _logger = logger;
-            _storageFactory = storageFactory;
+            _ioManager = ioManager;
         }
 
         private async Task EnsureStorageInitializedAsync()
         {
             if (_configStorage != null) return;
-
             await _initLock.WaitAsync();
             try
             {
                 if (_configStorage == null)
                 {
-                    // If no storage factory is provided, throw an exception
-                    if (_storageFactory == null)
-                        throw new InvalidOperationException("No storage factory available for configuration storage");
-
-                    _configStorage = _storageFactory.GetStorage<ProcessorConfig>("PDFProcessor_Config");
+                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("PDFProcessor_Config");
                     _logger.LogInformation("Initialized configuration storage with identifier 'PDFProcessor_Config'");
 
                     // Add diagnostic info about the storage path
@@ -153,7 +149,6 @@ namespace NewwaysAdmin.SharedModels.Config
                             {
                                 var basePath = basePathProp.GetValue(options) as string;
                                 _logger.LogInformation("Storage base path: {BasePath}", basePath);
-
                                 // Check if directory exists and is accessible
                                 if (Directory.Exists(basePath))
                                 {

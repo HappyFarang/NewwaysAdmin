@@ -1,43 +1,66 @@
 ﻿using System.Security.Cryptography;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
+using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.WebAdmin.Models.Auth;
 using NewwaysAdmin.WebAdmin.Services.Circuit;
 using NewwaysAdmin.WebAdmin.Services.Modules;
 
-
 namespace NewwaysAdmin.WebAdmin.Services.Auth;
 
 public class AuthenticationService : IAuthenticationService
 {
-    private readonly IDataStorage<List<User>> _userStorage;
-    private readonly IDataStorage<List<UserSession>> _sessionStorage;
+    private readonly IOManager _ioManager;
     private readonly ILogger<AuthenticationService> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ICircuitManager _circuitManager;
+    private IDataStorage<List<User>>? _userStorage;
+    private IDataStorage<List<UserSession>>? _sessionStorage;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
 
     private const string DEFAULT_ADMIN_USERNAME = "Superfox";
     private const string DEFAULT_ADMIN_PASSWORD = "Admin75";
 
     public AuthenticationService(
-        EnhancedStorageFactory storageFactory,
+        IOManager ioManager,
         ILogger<AuthenticationService> logger,
         IHttpContextAccessor httpContextAccessor,
         ICircuitManager circuitManager)
     {
-        _userStorage = storageFactory.GetStorage<List<User>>("Users");
-        _sessionStorage = storageFactory.GetStorage<List<UserSession>>("Sessions");
+        _ioManager = ioManager;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
         _circuitManager = circuitManager;
+    }
+
+    private async Task EnsureStorageInitializedAsync()
+    {
+        if (_userStorage != null && _sessionStorage != null)
+            return;
+
+        await _initLock.WaitAsync();
+        try
+        {
+            if (_userStorage == null)
+                _userStorage = await _ioManager.GetStorageAsync<List<User>>("Users");
+
+            if (_sessionStorage == null)
+                _sessionStorage = await _ioManager.GetStorageAsync<List<UserSession>>("Sessions");
+        }
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     public async Task<(bool success, string? error)> LoginAsync(LoginModel model)
     {
         try
         {
-            var users = await _userStorage.LoadAsync("users-list") ?? new List<User>();
+            await EnsureStorageInitializedAsync();
+
+            var users = await _userStorage!.LoadAsync("users-list") ?? new List<User>();
             var user = users.FirstOrDefault(u =>
                 u.Username.Equals(model.Username, StringComparison.OrdinalIgnoreCase));
 
@@ -75,18 +98,18 @@ public class AuthenticationService : IAuthenticationService
             };
 
             // Get existing sessions and clean up old ones for this user
-            var sessions = await _sessionStorage.LoadAsync("active-sessions") ?? new List<UserSession>();
+            var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
             sessions = sessions.Where(s =>
                 s.Username != user.Username &&
                 (DateTime.UtcNow - s.LoginTime).TotalHours <= 48
             ).ToList();
 
             sessions.Add(session);
-            await _sessionStorage.SaveAsync("active-sessions", sessions);
+            await _sessionStorage!.SaveAsync("active-sessions", sessions);
 
             // Update user's last login
             user.LastLoginAt = DateTime.UtcNow;
-            await _userStorage.SaveAsync("users-list", users);
+            await _userStorage!.SaveAsync("users-list", users);
 
             // Notify the auth state provider
 
@@ -104,7 +127,9 @@ public class AuthenticationService : IAuthenticationService
     {
         try
         {
-            var sessions = await _sessionStorage.LoadAsync("active-sessions") ?? new List<UserSession>();
+            await EnsureStorageInitializedAsync();
+
+            var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
             var session = sessions.FirstOrDefault(s => s.SessionId == sessionId);
 
             if (session == null)
@@ -140,6 +165,8 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task LogoutAsync()
     {
+        await EnsureStorageInitializedAsync();
+
         var session = await GetCurrentSessionAsync();
         if (session != null)
         {
@@ -152,6 +179,8 @@ public class AuthenticationService : IAuthenticationService
     {
         try
         {
+            await EnsureStorageInitializedAsync();
+
             var circuitId = _circuitManager.GetCurrentCircuitId();
             var connectionId = _httpContextAccessor.HttpContext?.Connection.Id;
 
@@ -161,7 +190,7 @@ public class AuthenticationService : IAuthenticationService
                 return null;
             }
 
-            var sessions = await _sessionStorage.LoadAsync("active-sessions") ?? new List<UserSession>();
+            var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
 
             // Clean up expired sessions
             var now = DateTime.UtcNow;
@@ -171,7 +200,7 @@ public class AuthenticationService : IAuthenticationService
                 s.ConnectionId == connectionId           // Must match current connection
             ).ToList();
 
-            await _sessionStorage.SaveAsync("active-sessions", sessions);
+            await _sessionStorage!.SaveAsync("active-sessions", sessions);
 
             return sessions.FirstOrDefault();
         }
@@ -184,26 +213,31 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task<List<User>> GetAllUsersAsync()
     {
-        return await _userStorage.LoadAsync("users-list") ?? new List<User>();
+        await EnsureStorageInitializedAsync();
+        return await _userStorage!.LoadAsync("users-list") ?? new List<User>();
     }
 
     public async Task UpdateUserAsync(User user)
     {
+        await EnsureStorageInitializedAsync();
+
         var users = await GetAllUsersAsync();
         var index = users.FindIndex(u => u.Username == user.Username);
         if (index != -1)
         {
             users[index] = user;
-            await _userStorage.SaveAsync("users-list", users);
+            await _userStorage!.SaveAsync("users-list", users);
             _logger.LogInformation("User {Username} updated", user.Username);
         }
     }
 
     private async Task RemoveSessionAsync(string sessionId)
     {
-        var sessions = await _sessionStorage.LoadAsync("active-sessions") ?? new List<UserSession>();
+        await EnsureStorageInitializedAsync();
+
+        var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
         sessions = sessions.Where(s => s.SessionId != sessionId).ToList();
-        await _sessionStorage.SaveAsync("active-sessions", sessions);
+        await _sessionStorage!.SaveAsync("active-sessions", sessions);
     }
 
     private static string GenerateSessionId()
@@ -223,12 +257,15 @@ public class AuthenticationService : IAuthenticationService
 
         return hash == storedHash;
     }
+
     public async Task<User?> GetUserByNameAsync(string username)
     {
         try
         {
+            await EnsureStorageInitializedAsync();
+
             _logger.LogInformation("Loading users list for username: {Username}", username);
-            var users = await _userStorage.LoadAsync("users-list") ?? new List<User>();
+            var users = await _userStorage!.LoadAsync("users-list") ?? new List<User>();
             _logger.LogInformation("Found {Count} users in storage", users.Count);
 
             var user = users.FirstOrDefault(u => u.Username == username);
@@ -250,11 +287,14 @@ public class AuthenticationService : IAuthenticationService
             return null;
         }
     }
+
     public async Task InitializeDefaultAdminAsync()
     {
         try
         {
-            var users = await _userStorage.LoadAsync("users-list") ?? new List<User>();
+            await EnsureStorageInitializedAsync();
+
+            var users = await _userStorage!.LoadAsync("users-list") ?? new List<User>();
 
             if (!users.Any())
             {
@@ -282,7 +322,7 @@ public class AuthenticationService : IAuthenticationService
                 };
 
                 users.Add(adminUser);
-                await _userStorage.SaveAsync("users-list", users);
+                await _userStorage!.SaveAsync("users-list", users);
                 _logger.LogInformation("Default admin user created successfully.");
             }
         }
@@ -292,6 +332,7 @@ public class AuthenticationService : IAuthenticationService
             throw;
         }
     }
+
     private static byte[] GenerateSalt()
     {
         return RandomNumberGenerator.GetBytes(128 / 8);
@@ -306,23 +347,21 @@ public class AuthenticationService : IAuthenticationService
             iterationCount: 100000,
             numBytesRequested: 256 / 8));
     }
+
     public async Task<bool> CreateUserAsync(User user)
     {
         try
         {
-            var users = await _userStorage.LoadAsync("users-list"); // Use the same key as initialization
-            _logger.LogInformation($"Loaded {users?.Count ?? 0} existing users");
+            await EnsureStorageInitializedAsync();
 
-            if (users == null)
-            {
-                users = new List<User>();
-            }
+            var users = await _userStorage!.LoadAsync("users-list") ?? new List<User>();
+            _logger.LogInformation($"Loaded {users.Count} existing users");
 
             users.Add(user);
-            await _userStorage.SaveAsync("users-list", users);
+            await _userStorage!.SaveAsync("users-list", users);
 
             // Verify save
-            var verifyUsers = await _userStorage.LoadAsync("users-list");
+            var verifyUsers = await _userStorage!.LoadAsync("users-list");
             _logger.LogInformation($"After save: {verifyUsers?.Count ?? 0} users, including new user: {verifyUsers?.Any(u => u.Username == user.Username)}");
 
             return true;
@@ -338,6 +377,8 @@ public class AuthenticationService : IAuthenticationService
     {
         try
         {
+            await EnsureStorageInitializedAsync();
+
             // Can't delete admin
             if (username.Equals("admin", StringComparison.OrdinalIgnoreCase))
             {
@@ -356,8 +397,8 @@ public class AuthenticationService : IAuthenticationService
 
             users.Remove(userToRemove);
 
-            // Save back to storage
-            await _userStorage.SaveAsync("users", users);
+            // Save back to storage - note: fixed the key to be "users-list" to match other methods
+            await _userStorage!.SaveAsync("users-list", users);
 
             // Also remove any active sessions for this user
             await RemoveUserSessionsAsync(username);
@@ -375,9 +416,12 @@ public class AuthenticationService : IAuthenticationService
     {
         try
         {
-            var sessions = await _sessionStorage.LoadAsync("sessions") ?? new List<UserSession>();
+            await EnsureStorageInitializedAsync();
+
+            // Changed key from "sessions" to "active-sessions" to match other methods
+            var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
             sessions.RemoveAll(s => s.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
-            await _sessionStorage.SaveAsync("sessions", sessions);
+            await _sessionStorage!.SaveAsync("active-sessions", sessions);
         }
         catch (Exception ex)
         {
