@@ -43,23 +43,41 @@ public class Program
         services.AddHttpContextAccessor();
         services.AddAuthorizationCore();
 
-        // Add MachineConfigProvider
-        services.AddSingleton<MachineConfigProvider>();
-
-        // Add IOManager without redundant configuration
-        services.AddSingleton<IOManager>();
-        services.AddSingleton<ConfigSyncTracker>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<ConfigSyncTracker>>();
-            var ioManager = sp.GetRequiredService<IOManager>();
-            return new ConfigSyncTracker(ioManager.LocalBaseFolder, logger);
-        });
-
         // Add logging
         services.AddLogging(logging =>
         {
             logging.AddConsole();
             logging.AddDebug();
+        });
+
+        // IO Manager configuration
+        services.AddSingleton<IOConfigLoader>();
+        services.AddSingleton<MachineConfigProvider>();
+
+        // Add IOManagerOptions first because IOManager depends on it
+        services.AddSingleton<IOManagerOptions>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<IOConfigLoader>>();
+            var configLoader = new IOConfigLoader(logger);
+            var config = configLoader.LoadConfigAsync().GetAwaiter().GetResult();
+
+            return new IOManagerOptions
+            {
+                LocalBaseFolder = config.LocalBaseFolder ?? "C:/NewwaysData",
+                ServerDefinitionsPath = config.ServerDefinitionsPath ?? "X:/NewwaysAdmin/Definitions",
+                ApplicationName = "NewwaysAdmin.WebAdmin"
+            };
+        });
+
+        // Now register IOManager with its dependencies satisfied
+        services.AddSingleton<IOManager>();
+
+        // ConfigSyncTracker depends on IOManager
+        services.AddSingleton<ConfigSyncTracker>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<ConfigSyncTracker>>();
+            var ioManager = sp.GetRequiredService<IOManager>();
+            return new ConfigSyncTracker(ioManager.LocalBaseFolder, logger);
         });
 
         // Storage system
@@ -77,13 +95,13 @@ public class Program
         services.AddSingleton<StorageManager>();
         services.AddScoped<SalesDataProvider>();
 
-        // Add ConfigProvider - KEEP ONLY THIS ONE REGISTRATION
+        // Add ConfigProvider that uses IOManager
         services.AddSingleton<ConfigProvider>(sp =>
         {
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
             var logger = loggerFactory.CreateLogger<ConfigProvider>();
-            var ioManager = sp.GetRequiredService<IOManager>();  // Add this line
-            return new ConfigProvider(logger, ioManager);  // Add ioManager parameter
+            var ioManager = sp.GetRequiredService<IOManager>();  // Changed to use IOManager
+            return new ConfigProvider(logger, ioManager);  // Pass IOManager, not EnhancedStorageFactory
         });
 
         // Circuit handling
