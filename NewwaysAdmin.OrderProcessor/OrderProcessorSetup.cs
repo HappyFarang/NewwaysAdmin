@@ -108,7 +108,7 @@ namespace NewwaysAdmin.OrderProcessor
                     Description = "PDF Processor configuration storage",
                     Type = StorageType.Json,
                     Path = "Config/PdfProcessor",
-                    IsShared = false,
+                    IsShared = true,
                     CreateBackups = true,
                     MaxBackupCount = 5,
                     CreatedBy = APPLICATION_NAME

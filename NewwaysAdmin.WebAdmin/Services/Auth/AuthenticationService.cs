@@ -89,7 +89,7 @@ public class AuthenticationService : IAuthenticationService
             var session = new UserSession
             {
                 Username = user.Username,
-                PageAccess = user.PageAccess,  // Changed from AllowedNavigationIds
+                PageAccess = user.PageAccess,  
                 IsAdmin = user.IsAdmin,
                 LoginTime = DateTime.UtcNow,
                 SessionId = GenerateSessionId(),

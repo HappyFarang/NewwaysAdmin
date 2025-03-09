@@ -52,8 +52,8 @@ namespace NewwaysAdmin.OrderProcessor
             {
                 // Double-check after acquiring lock
                 if (_configStorage == null)
-                {
-                    _configStorage = await _ioManager.GetStorageAsync<PrinterConfig>("PDFProcessor_Config");
+                { 
+                    _configStorage = await _ioManager.GetStorageAsync<PrinterConfig>("PdfProcessor_Config");
                 }
 
                 if (_currentConfig == null)

@@ -133,8 +133,8 @@ namespace NewwaysAdmin.SharedModels.Config
             {
                 if (_configStorage == null)
                 {
-                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("PDFProcessor_Config");
-                    _logger.LogInformation("Initialized configuration storage with identifier 'PDFProcessor_Config'");
+                    _configStorage = await _ioManager.GetStorageAsync<ProcessorConfig>("PdfProcessor_Config");
+                    _logger.LogInformation("Initialized configuration storage with identifier 'PdfProcessor_Config'");
 
                     // Add diagnostic info about the storage path
                     try
