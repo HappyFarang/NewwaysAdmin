@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NewwaysAdmin.Shared.Configuration;
 
 namespace NewwaysAdmin.OrderProcessor
 {
@@ -21,8 +22,12 @@ namespace NewwaysAdmin.OrderProcessor
         {
             try
             {
+                // Check for test mode flags
+                bool isTestMode = args.Contains("--test", StringComparer.OrdinalIgnoreCase);
+                bool isTestServer = args.Contains("--testserver", StringComparer.OrdinalIgnoreCase);
+                bool isTestClient = args.Contains("--testclient", StringComparer.OrdinalIgnoreCase);
+
                 // Hide console window unless in debug/test mode
-                bool isTestMode = args.Length > 0 && args[0].ToLower() == "--test";
                 var handle = GetConsoleWindow();
                 ShowWindow(handle, isTestMode ? SW_SHOW : SW_HIDE);
 
@@ -32,6 +37,24 @@ namespace NewwaysAdmin.OrderProcessor
                     {
                         // Add logging
                         services.AddLogging(builder => builder.AddConsole());
+
+                        // Add MachineConfigProvider with args for test config paths
+                        services.AddSingleton<MachineConfigProvider>(sp => {
+                            var logger = sp.GetRequiredService<ILogger<MachineConfigProvider>>();
+                            return new MachineConfigProvider(logger, args);
+                        });
+
+                        // Log which configuration we're using
+                        var serviceProvider = services.BuildServiceProvider();
+                        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+                        if (isTestServer)
+                        {
+                            logger.LogInformation("Running in TEST SERVER mode");
+                        }
+                        else if (isTestClient)
+                        {
+                            logger.LogInformation("Running in TEST CLIENT mode");
+                        }
 
                         // Add all OrderProcessor services
                         services.AddOrderProcessor();
@@ -44,7 +67,11 @@ namespace NewwaysAdmin.OrderProcessor
                 {
                     await OrderProcessorSetup.InitializeServicesAsync(scope.ServiceProvider);
                     var processLogger = scope.ServiceProvider.GetRequiredService<OrderProcessorLogger>();
-                    await processLogger.LogAsync("Application started. Press Ctrl+C to exit.");
+
+                    // Log startup with mode information
+                    string modeInfo = isTestServer ? "TEST SERVER" :
+                                      isTestClient ? "TEST CLIENT" : "PRODUCTION";
+                    await processLogger.LogAsync($"Application started in {modeInfo} mode. Press Ctrl+C to exit.");
 
                     // Handle shutdown
                     Console.CancelKeyPress += (s, e) =>

@@ -21,28 +21,48 @@ namespace NewwaysAdmin.Shared.Configuration
 
     public class MachineConfigProvider
     {
-        private const string DEFAULT_CONFIG_PATH = @"C:\MachineConfig\machine.json";
         private readonly ILogger<MachineConfigProvider> _logger;
-        private readonly string _configPath;
+        private readonly string[] _args;
+        private const string DEFAULT_CONFIG_PATH = @"C:\MachineConfig\machine.json";
+        private const string TEST_SERVER_CONFIG_PATH = @"C:\TestServer\machine.json";
+        private const string TEST_CLIENT_CONFIG_PATH = @"C:\TestClient\machine.json";
 
-        public MachineConfigProvider(ILogger<MachineConfigProvider> logger, string? providedPath = null)
+        public MachineConfigProvider(ILogger<MachineConfigProvider> logger, string[]? args = null)
         {
             _logger = logger;
-            _configPath = providedPath ?? DEFAULT_CONFIG_PATH;
+            _args = args ?? Array.Empty<string>();
         }
 
         public async Task<MachineConfig> LoadConfigAsync()
         {
             try
             {
-                if (!File.Exists(_configPath))
+                // Determine which config file to use based on arguments
+                string configPath;
+
+                if (_args.Contains("--testserver"))
                 {
-                    _logger.LogError("Machine configuration file not found at {Path}", _configPath);
-                    throw new FileNotFoundException($"Machine configuration file not found at {_configPath}");
+                    configPath = TEST_SERVER_CONFIG_PATH;
+                    _logger.LogInformation("Using test server configuration: {Path}", configPath);
+                }
+                else if (_args.Contains("--testclient"))
+                {
+                    configPath = TEST_CLIENT_CONFIG_PATH;
+                    _logger.LogInformation("Using test client configuration: {Path}", configPath);
+                }
+                else
+                {
+                    configPath = DEFAULT_CONFIG_PATH;
                 }
 
-                var json = await File.ReadAllTextAsync(_configPath);
-                var loadedConfig = Newtonsoft.Json.JsonConvert.DeserializeObject<MachineConfig>(json);
+                if (!File.Exists(configPath))
+                {
+                    _logger.LogError("Machine configuration file not found at {Path}", configPath);
+                    throw new FileNotFoundException($"Machine configuration file not found at {configPath}");
+                }
+
+                var json = await File.ReadAllTextAsync(configPath);
+                var loadedConfig = JsonConvert.DeserializeObject<MachineConfig>(json);
 
                 if (loadedConfig == null)
                 {
@@ -55,7 +75,7 @@ namespace NewwaysAdmin.Shared.Configuration
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to load machine configuration");
-                throw; // Let the caller handle this - it's a critical configuration
+                throw;
             }
         }
     }

@@ -1,8 +1,16 @@
 {
   "profiles": {
-    "NewwaysAdmin.OrderProcessor": {
+    "OrderProcessor.TestServer": {
       "commandName": "Project",
-      "commandLineArgs": "--Test"
+      "commandLineArgs": "--testserver --test --client"
+    },
+    "OrderProcessor.TestClient": {
+      "commandName": "Project",
+      "commandLineArgs": "--testclient --test"
+    },
+    "OrderProcessor": {
+      "commandName": "Project",
+      "commandLineArgs": "--test"
     }
   }
 }
