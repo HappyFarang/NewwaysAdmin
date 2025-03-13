@@ -409,10 +409,13 @@ namespace NewwaysAdmin.IO.Manager
                 foreach (var file in Directory.GetFiles(outgoingFolder, "*.*", SearchOption.AllDirectories))
                 {
                     if (cancellationToken.IsCancellationRequested) break;
-                    var relativePath = GetRelativePath(file, LocalBaseFolder);
+
+                    var relativePath = GetRelativePath(file, outgoingFolder);
+
+                    // Modified to put files directly in Data/ on the server without hardcoding paths
                     var targetPath = _isServer ?
                         Path.Combine(LocalBaseFolder, "Processed", relativePath) :
-                        Path.Combine(NetworkBaseFolder, "Incoming", relativePath);
+                        Path.Combine(NetworkBaseFolder, "Data", relativePath);  // Add to Data folder directly
 
                     await MoveFileAsync(file, targetPath);
                     _logger.LogInformation("Processed file transfer: {File}", relativePath);

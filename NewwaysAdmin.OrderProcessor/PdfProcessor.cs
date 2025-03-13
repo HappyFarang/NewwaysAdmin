@@ -100,10 +100,10 @@ namespace NewwaysAdmin.OrderProcessor
                     {
                         // Check in X:/NewwaysAdmin/Definitions/PdfProcessor
                         string[] possibleServerPaths = {
-                            Path.Combine("X:/NewwaysAdmin/Definitions/PdfProcessor", configFileName),
-                            Path.Combine("X:/NewwaysAdmin/Config/PdfProcessor", configFileName),
-                            Path.Combine("X:/NewwaysAdmin/PdfProcessor", configFileName)
-                        };
+                    Path.Combine("X:/NewwaysAdmin/Definitions/PdfProcessor", configFileName),
+                    Path.Combine("X:/NewwaysAdmin/Config/PdfProcessor", configFileName),
+                    Path.Combine("X:/NewwaysAdmin/PdfProcessor", configFileName)
+                };
 
                         string serverFilePath = null;
                         DateTime newestModTime = DateTime.MinValue;
@@ -302,13 +302,21 @@ namespace NewwaysAdmin.OrderProcessor
                     return;
                 }
 
-                // Replace this section in the ProcessPdfAsync method
-                // After creating the scanResult object:
+                // Format: [Date][Time][Platform]
+                string date = DateTime.Now.ToString("yyyyMMdd");
+                string time = DateTime.Now.ToString("HHmmss");
+                string platformName = platform.Value.platformId ?? "Unknown";
+
+                // Sanitize platform name for file naming (remove invalid characters)
+                platformName = string.Join("_", platformName.Split(Path.GetInvalidFileNameChars()));
+
+                // Create the ID using our desired format
+                string scanId = $"[{date}][{time}][{platformName}]";
 
                 // Save scan result using the IO system
                 var scanResult = new ScanResult
                 {
-                    Id = Guid.NewGuid().ToString(),
+                    Id = scanId,
                     ScanTime = DateTime.UtcNow,
                     Platform = platform.Value.platformId,
                     OrderNumber = orderNumber,
@@ -318,16 +326,16 @@ namespace NewwaysAdmin.OrderProcessor
                 };
 
                 // First save locally through storage
-                await _scanStorage.SaveAsync(scanResult.Id, scanResult);
-                _logger.LogInformation("Saved scan result locally with ID: {ScanId}", scanResult.Id);
+                await _scanStorage.SaveAsync(scanId, scanResult);
+                _logger.LogInformation("Saved scan result locally with ID: {ScanId}", scanId);
 
                 // Queue for transfer to server 
                 try
                 {
                     // The path where scan results are stored
-                    string scanFolderPath = "Data/PdfProcessor/Scans";
-                    await _ioManager.QueueForServerTransferAsync(scanFolderPath, scanResult.Id, scanResult);
-                    _logger.LogInformation("Queued scan result for server transfer: {ScanId}", scanResult.Id);
+                    string scanFolderPath = "PdfProcessor/Scans";
+                    await _ioManager.QueueForServerTransferAsync(scanFolderPath, scanId, scanResult);
+                    _logger.LogInformation("Queued scan result for server transfer: {ScanId}", scanId);
                 }
                 catch (Exception ex)
                 {

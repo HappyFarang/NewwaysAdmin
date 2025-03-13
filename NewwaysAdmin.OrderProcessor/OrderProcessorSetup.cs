@@ -166,17 +166,20 @@ namespace NewwaysAdmin.OrderProcessor
 
         private static async Task EnsureDirectoriesExistAsync(string baseFolder)
         {
-            // Create standard directories
+            // Create standard directories without hardcoding server paths
             var directories = new[]
             {
-            Path.Combine(baseFolder, "Data", "PdfProcessor", "Scans"),
-            Path.Combine(baseFolder, "Data", "PdfProcessor", "Backup"),
-            Path.Combine(baseFolder, "Config", "PdfProcessor"),
-            Path.Combine(baseFolder, "Logs"),
-            Path.Combine(baseFolder, "Outgoing"),
-            "C:/PDFtemp",
-            "C:/PDFtemp/PDFbackup"
-        };
+        // Local folders
+        Path.Combine(baseFolder, "Data", "PdfProcessor", "Scans"),
+        Path.Combine(baseFolder, "Data", "PdfProcessor", "Backup"),
+        Path.Combine(baseFolder, "Config", "PdfProcessor"),
+        Path.Combine(baseFolder, "Logs"),
+        Path.Combine(baseFolder, "Outgoing", "PdfProcessor", "Scans"),  // Simplified outgoing path
+        
+        // Direct paths for PDF temp folders
+        "C:/PDFtemp",
+        "C:/PDFtemp/PDFbackup"
+    };
 
             foreach (var dir in directories)
             {

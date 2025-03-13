@@ -2,7 +2,7 @@
   "profiles": {
     "OrderProcessor.TestServer": {
       "commandName": "Project",
-      "commandLineArgs": "--testserver --test --client"
+      "commandLineArgs": "--testserver --test"
     },
     "OrderProcessor.TestClient": {
       "commandName": "Project",
