@@ -313,11 +313,14 @@ namespace NewwaysAdmin.OrderProcessor
                 // Create the ID using our desired format
                 string scanId = $"[{date}][{time}][{platformName}]";
 
-                // Save scan result using the IO system
+                // Get current local time and truncate it to seconds
+                var scanTimeLocal = new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day,
+                              DateTime.Now.Hour, DateTime.Now.Minute, DateTime.Now.Second);
+
                 var scanResult = new ScanResult
                 {
                     Id = scanId,
-                    ScanTime = DateTime.UtcNow,
+                    ScanTime = scanTimeLocal,  // Now using local time with seconds precision
                     Platform = platform.Value.platformId,
                     OrderNumber = orderNumber,
                     SkuCounts = skuCounts,

@@ -1,4 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
+using Newtonsoft.Json.Converters;
+using Newtonsoft.Json;
 using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.IO;
 using System;
@@ -12,7 +14,10 @@ namespace NewwaysAdmin.OrderProcessor
     public class ScanResult
     {
         public string Id { get; set; } = string.Empty;
+
+        [JsonConverter(typeof(CustomDateTimeConverter))]
         public DateTime ScanTime { get; set; }
+
         public string Platform { get; set; } = string.Empty;
         public string? OrderNumber { get; set; }
         public Dictionary<string, int> SkuCounts { get; set; } = new();
@@ -20,7 +25,15 @@ namespace NewwaysAdmin.OrderProcessor
         public string? Courier { get; set; }
     }
 
-    public class PrinterConfig
+    public class CustomDateTimeConverter : IsoDateTimeConverter
+    {
+        public CustomDateTimeConverter()
+        {
+            DateTimeFormat = "yyyy-MM-ddTHH:mm:ss";
+        }
+    }
+
+public class PrinterConfig
     {
         public bool EnablePrinting { get; set; }
         public string DefaultPrinterName { get; set; } = string.Empty;
