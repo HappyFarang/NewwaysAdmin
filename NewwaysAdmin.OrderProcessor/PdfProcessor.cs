@@ -12,6 +12,8 @@ namespace NewwaysAdmin.OrderProcessor
 {
     public class PdfProcessor
     {
+        // need to update the way we process the PDF files. Each page is 1 order. But we need to keep each PDF file resoult in one scan resoult
+        // so scan resoults can contain multiple orders but with collective summary of all orders in the PDF file.
         private readonly IOManager _ioManager;
         private readonly ILogger<PdfProcessor> _logger;
         private readonly PrinterManager _printerManager;
