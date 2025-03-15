@@ -23,6 +23,12 @@ namespace NewwaysAdmin.OrderProcessor
         public Dictionary<string, int> SkuCounts { get; set; } = new();
         public string OriginalFileName { get; set; } = string.Empty;
         public string? Courier { get; set; }
+        public int OrderCount { get; set; } = 1;
+
+        // New fields for enhanced analysis
+        public List<OrderData> OrderDetails { get; set; } = new();
+        public Dictionary<string, int> CourierCounts { get; set; } = new();
+        public List<UnusualSkuOrder> UnusualOrders { get; set; } = new();
     }
 
     public class CustomDateTimeConverter : IsoDateTimeConverter
