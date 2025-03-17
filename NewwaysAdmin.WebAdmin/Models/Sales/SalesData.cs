@@ -1,4 +1,5 @@
-﻿using NewwaysAdmin.Shared.IO;
+﻿using Microsoft.Extensions.Logging.Abstractions;
+using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.SharedModels.Config;
 using NewwaysAdmin.WebAdmin.Infrastructure.Storage;
 using System;
@@ -25,11 +26,16 @@ namespace NewwaysAdmin.WebAdmin.Models.Sales
     {
         private readonly IDataStorage<Dictionary<DateTime, Dictionary<string, Dictionary<string, int>>>> _storage;
         private readonly ProcessorConfig _config;
+        private readonly ILogger<SalesDataProvider> _logger;
 
-        public SalesDataProvider(StorageManager storageManager, ProcessorConfig config)
+        public SalesDataProvider(
+            StorageManager storageManager,
+            ProcessorConfig config,
+            ILogger<SalesDataProvider>? logger = null)
         {
-            _storage = storageManager.GetStorage<Dictionary<DateTime, Dictionary<string, Dictionary<string, int>>>>("Sales");
+            _storage = storageManager.GetStorageSync<Dictionary<DateTime, Dictionary<string, Dictionary<string, int>>>>("Sales");
             _config = config;
+            _logger = logger ?? NullLogger<SalesDataProvider>.Instance;
         }
 
         public async Task<List<SalesData>> GetSalesDataAsync(DateTime startDate, DateTime endDate)

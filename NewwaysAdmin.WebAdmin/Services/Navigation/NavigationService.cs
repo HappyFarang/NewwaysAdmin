@@ -1,5 +1,6 @@
 ﻿using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
+using NewwaysAdmin.WebAdmin.Infrastructure.Storage;
 using NewwaysAdmin.WebAdmin.Models.Auth;
 using NewwaysAdmin.WebAdmin.Models.Navigation;
 
@@ -19,10 +20,10 @@ public class NavigationService : INavigationService
     private readonly ILogger<NavigationService> _logger;
 
     public NavigationService(
-        EnhancedStorageFactory storageFactory,
+        StorageManager storageManager,
         ILogger<NavigationService> logger)
     {
-        _navigationStorage = storageFactory.GetStorage<List<NavigationItem>>("Navigation");
+        _navigationStorage = storageManager.GetStorageSync<List<NavigationItem>>("Navigation");
         _logger = logger;
     }
 
@@ -40,6 +41,7 @@ public class NavigationService : INavigationService
                 access.AccessLevel != AccessLevel.None))
             .ToList();
     }
+
     public async Task<List<NavigationItem>> GetAllNavigationItemsAsync()
     {
         try

@@ -4,6 +4,7 @@ using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.WebAdmin.Services.Auth;
 using System.Collections.Immutable;
+using NewwaysAdmin.IO.Manager;
 
 namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
 {
@@ -89,59 +90,112 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
     // Enhanced storage factory that manages folder registration
     public class StorageManager
     {
-        private readonly EnhancedStorageFactory _factory;
+        private readonly IOManager _ioManager;
         private readonly ILogger<StorageManager> _logger;
+        private readonly Dictionary<string, IDataStorageBase> _storageCache = new();
+        private readonly SemaphoreSlim _initLock = new(1, 1);
+        private bool _isInitialized = false;
 
-        public StorageManager(ILogger<StorageManager> logger)
+        public StorageManager(
+            IOManager ioManager,
+            ILogger<StorageManager> logger)
         {
-            _factory = new EnhancedStorageFactory(logger);
-            _logger = logger;
+            _ioManager = ioManager ?? throw new ArgumentNullException(nameof(ioManager));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public Task InitializeAsync()
+        public async Task InitializeAsync()
         {
+            if (_isInitialized)
+                return;
+
+            await _initLock.WaitAsync();
             try
             {
-                // Register all our folders
+                if (_isInitialized)
+                    return;
+
+                // Register all folders defined in StorageFolderDefinitions
                 var folders = StorageFolderDefinitions.GetAllFolders();
 
                 foreach (var folder in folders)
                 {
                     try
                     {
-                        _factory.RegisterFolder(folder);
+                        // For initialization, use the EnhancedStorageFactory directly
+                        // to register folders - this only happens once at startup
+                        var factory = new EnhancedStorageFactory(_logger);
+                        factory.RegisterFolder(folder, "NewwaysAdmin.WebAdmin");
+
                         _logger.LogInformation("Registered folder: {FolderName} at {Path}",
                             folder.Name,
                             string.IsNullOrEmpty(folder.Path) ? folder.Name : $"{folder.Path}/{folder.Name}");
                     }
+                    catch (StorageException ex) when (ex.Operation == StorageOperation.Validate)
+                    {
+                        // Folder already exists, this is fine
+                        _logger.LogDebug("Folder {FolderName} already registered", folder.Name);
+                    }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to register folder: {FolderName}, continuing...", folder.Name);
-                        // Log but continue - allow partial success
+                        _logger.LogWarning(ex, "Error registering folder {FolderName}, continuing...", folder.Name);
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize storage system");
-                throw;
-            }
 
-            return Task.CompletedTask;
+                _isInitialized = true;
+                _logger.LogInformation("StorageManager initialized successfully");
+            }
+            finally
+            {
+                _initLock.Release();
+            }
         }
 
-        public IDataStorage<T> GetStorage<T>(string folderName) where T : class, new()
+        public async Task<IDataStorage<T>> GetStorage<T>(string folderName) where T : class, new()
         {
+            // Ensure storage is initialized
+            if (!_isInitialized)
+            {
+                await InitializeAsync();
+            }
+
+            // Check if the folder is defined
             var folder = StorageFolderDefinitions.GetFolder(folderName);
             if (folder == null)
             {
                 throw new ArgumentException($"Folder '{folderName}' is not defined in StorageFolderDefinitions");
             }
 
-            return _factory.GetStorage<T>(folderName);
+            // Check for cached storage instance
+            string cacheKey = $"{folderName}_{typeof(T).Name}";
+
+            if (_storageCache.TryGetValue(cacheKey, out var cachedStorage))
+            {
+                return (IDataStorage<T>)cachedStorage;
+            }
+
+            // Get from IOManager
+            try
+            {
+                var storage = await _ioManager.GetStorageAsync<T>(folderName);
+
+                // Cache for future use
+                _storageCache[cacheKey] = storage;
+
+                return storage;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting storage for folder {Folder}", folderName);
+                throw;
+            }
         }
 
-        public string GetDirectoryStructure() => _factory.GetDirectoryStructure();
+        // Synchronous wrapper for use in constructors
+        public IDataStorage<T> GetStorageSync<T>(string folderName) where T : class, new()
+        {            
+            return _ioManager.GetStorageAsync<T>(folderName).GetAwaiter().GetResult();
+        }
     }
 
     // Extension method for service registration

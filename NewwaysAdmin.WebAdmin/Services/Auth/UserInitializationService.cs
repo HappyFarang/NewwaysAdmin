@@ -9,7 +9,7 @@ using NewwaysAdmin.WebAdmin.Services.Modules;
 
 namespace NewwaysAdmin.WebAdmin.Services.Auth;
 
-public class UserInitializationService 
+public class UserInitializationService
 {
     private readonly IDataStorage<List<User>> _userStorage;
     private readonly ILogger<UserInitializationService> _logger;
@@ -20,7 +20,8 @@ public class UserInitializationService
         StorageManager storageManager,
         ILogger<UserInitializationService> logger)
     {
-        _userStorage = storageManager.GetStorage<List<User>>("Users");
+        // Use GetStorageSync instead of GetStorage to properly unwrap the Task
+        _userStorage = storageManager.GetStorageSync<List<User>>("Users");
         _logger = logger;
     }
     public async Task EnsureAdminUserExistsAsync()
