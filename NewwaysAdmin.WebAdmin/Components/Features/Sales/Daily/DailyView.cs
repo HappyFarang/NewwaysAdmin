@@ -7,6 +7,9 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using NewwaysAdmin.IO.Manager;
+using NewwaysAdmin.OrderProcessor;
+using NewwaysAdmin.Shared.IO;
 
 namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily;
 
@@ -15,6 +18,7 @@ public partial class DailyView : ComponentBase
     [Parameter] public ProcessorConfig Config { get; set; } = null!;
     [Inject] private SalesDataProvider SalesProvider { get; set; } = null!;
     [Inject] private ILogger<DailyView> Logger { get; set; } = null!;
+    [Inject] private IOManager IOManager { get; set; } = null!;
 
     private DailySalesData? _salesData;
     private DateTime _selectedDate = DateTime.Today;
@@ -27,6 +31,9 @@ public partial class DailyView : ComponentBase
     private int _unusualOrderCount = 0;
     private Dictionary<string, int> _standardOrderSkus = new();
     private List<UnusualOrder> _unusualOrders = new();
+
+    // To store the latest scan result for display
+    private ScanResult? _latestScan;
 
     // Courier tracking with carryover
     private Dictionary<string, CourierTrackingData> _courierTracking = new();
@@ -61,15 +68,71 @@ public partial class DailyView : ComponentBase
         try
         {
             _isLoading = true;
-            _salesData = await SalesProvider.GetDailySalesAsync(_selectedDate);
+            Logger.LogInformation("Loading sales data for {Date}", _selectedDate);
 
-            if (_salesData?.Sales == null || _salesData.Sales.Count == 0)
+            // Get storage for scan results
+            var scanStorage = await IOManager.GetStorageAsync<ScanResult>("PdfProcessor_Scans");
+
+            // Initialize sales data
+            _salesData = new DailySalesData { Sales = new List<SaleEntry>() };
+
+            // List all scan identifiers
+            var scanIds = await scanStorage.ListIdentifiersAsync();
+            Logger.LogInformation("Found {Count} scan identifiers", scanIds.Count());
+
+            // Process scans for the selected date
+            List<ScanResult> todayScans = new();
+            foreach (var id in scanIds)
+            {
+                try
+                {
+                    var scan = await scanStorage.LoadAsync(id);
+                    if (scan != null && scan.ScanTime.Date == _selectedDate.Date)
+                    {
+                        Logger.LogInformation("Found scan for today: {Id} with {Count} SKUs",
+                            id, scan.SkuCounts.Count);
+                        todayScans.Add(scan);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Error loading scan {Id}", id);
+                }
+            }
+
+            // Sort scans by time, most recent first
+            todayScans = todayScans.OrderByDescending(s => s.ScanTime).ToList();
+
+            // Save the latest scan for display in the UI
+            _latestScan = todayScans.FirstOrDefault();
+
+            // Convert scan data to sale entries
+            foreach (var scan in todayScans)
+            {
+                foreach (var skuEntry in scan.SkuCounts)
+                {
+                    _salesData.Sales.Add(new SaleEntry
+                    {
+                        Platform = scan.Platform,
+                        Sku = skuEntry.Key,
+                        Quantity = skuEntry.Value,
+                        Timestamp = scan.ScanTime
+                    });
+                }
+            }
+
+            Logger.LogInformation("Converted {Count} scan entries to sales data", _salesData.Sales.Count);
+
+            // Get platform totals
+            if (_salesData.Sales.Count == 0)
             {
                 _platformTotals = new Dictionary<string, Dictionary<string, int>>();
             }
             else
             {
                 _platformTotals = _salesData.GetPlatformTotals();
+                Logger.LogInformation("Generated platform totals: {Platforms}",
+                    string.Join(", ", _platformTotals.Keys));
             }
 
             ProcessSalesData();
@@ -78,6 +141,7 @@ public partial class DailyView : ComponentBase
         {
             Logger.LogError(ex, "Error loading sales data for {Date}", _selectedDate);
             _platformTotals = new Dictionary<string, Dictionary<string, int>>();
+            _salesData = new DailySalesData { Sales = new List<SaleEntry>() };
         }
         finally
         {
@@ -90,7 +154,6 @@ public partial class DailyView : ComponentBase
     {
         // In a real implementation, this would load from persistent storage
         // For now, we'll set up some sample data
-
         _courierTracking = new Dictionary<string, CourierTrackingData>
         {
             { "Flash", new CourierTrackingData { TodayCount = 15, CarryoverCount = 12, LastReset = DateTime.Now.AddDays(-1) } },
@@ -110,46 +173,37 @@ public partial class DailyView : ComponentBase
         _standardOrderCount = 0;
         _unusualOrderCount = 0;
 
-        // Group sales by order number to identify orders with multiple items
-        var orderGroups = _salesData.Sales
-            .GroupBy(s => new { s.Platform, s.OrderNumber })
-            .Select(g => new
-            {
-                Platform = g.Key.Platform,
-                OrderNumber = g.Key.OrderNumber,
-                Items = g.ToList(),
-                TotalQuantity = g.Sum(s => s.Quantity)
-            })
-            .ToList();
-
-        foreach (var order in orderGroups)
+        // Group sales by platform and SKU since SaleEntry doesn't have OrderNumber
+        // We'll consider each entry as its own "order" for simplicity
+        foreach (var sale in _salesData.Sales)
         {
-            // Check if this is an unusual order:
-            // 1. More than one item type in the order, or
-            // 2. Any item has quantity > 1
-            bool isUnusual = order.Items.Count > 1 || order.Items.Any(i => i.Quantity > 1);
+            // Check if this is an unusual order (quantity > 1)
+            bool isUnusual = sale.Quantity > 1;
 
             if (isUnusual)
             {
-                // This is an unusual order
-                var skuCounts = order.Items
-                    .GroupBy(i => i.Sku)
-                    .ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
+                // This is an unusual order (quantity > 1)
+                var skuCounts = new Dictionary<string, int>
+                {
+                    { sale.Sku, sale.Quantity }
+                };
 
                 _unusualOrders.Add(new UnusualOrder
                 {
-                    OrderNumber = order.OrderNumber,
-                    Platform = order.Platform,
+                    // We don't have an order number, so use timestamp as a substitute identifier
+                    OrderNumber = sale.Timestamp.ToString("yyyyMMdd-HHmmss"),
+                    Platform = sale.Platform,
                     SkuCounts = skuCounts,
-                    Courier = order.Items.FirstOrDefault()?.Courier
+                    // There's no Courier property in SaleEntry
+                    Courier = "Unknown"
                 });
 
                 _unusualOrderCount++;
             }
             else
             {
-                // This is a standard order with exactly one item with quantity 1
-                string sku = order.Items.First().Sku;
+                // This is a standard order with quantity = 1
+                string sku = sale.Sku;
 
                 if (!_standardOrderSkus.ContainsKey(sku))
                     _standardOrderSkus[sku] = 0;
@@ -256,27 +310,32 @@ public partial class DailyView : ComponentBase
 
     private string CreateScanId()
     {
-        if (_salesData == null || _salesData.Sales == null || _salesData.Sales.Count == 0)
-            return "[No Data]";
+        if (_latestScan is not null)
+        {
+            return _latestScan.Id;
+        }
 
-        string date = _selectedDate.ToString("yyyyMMdd");
-        string time = DateTime.Now.ToString("HHmmss");
-        string platform = GetPlatformName();
-
-        return $"[{date}][{time}][{platform}]";
+        return "[No Data]";
     }
 
     private string GetPlatformName()
     {
-        if (_salesData == null || _salesData.Sales == null || _salesData.Sales.Count == 0)
-            return "UNKNOWN";
+        if (_latestScan is not null)
+        {
+            return _latestScan.Platform;
+        }
 
-        // Get most common platform
-        return _salesData.Sales
-            .GroupBy(s => s.Platform)
-            .OrderByDescending(g => g.Count())
-            .First()
-            .Key;
+        if (_salesData?.Sales != null && _salesData.Sales.Count > 0)
+        {
+            // Get most common platform
+            return _salesData.Sales
+                .GroupBy(s => s.Platform)
+                .OrderByDescending(g => g.Count())
+                .First()
+                .Key;
+        }
+
+        return "UNKNOWN";
     }
 
     private void ResetCourierCount(string courier)

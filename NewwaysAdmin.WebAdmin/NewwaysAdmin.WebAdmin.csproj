@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.1" />
 <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
 <ProjectReference Include="..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
+<ProjectReference Include="..\NewwaysAdmin.OrderProcessor\NewwaysAdmin.OrderProcessor.csproj" />
 <ProjectReference Include="..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />    
     <ProjectReference Include="..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
     <PackageReference Include="itext7" Version="9.0.0" />
