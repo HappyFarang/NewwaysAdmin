@@ -1,34 +1,92 @@
 ﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
 
 <div class="daily-view">
-    <div class="controls mb-4">
-        <input type="date" class="form-control w-auto"
-               value="@_selectedDate.ToString("yyyy-MM-dd")"
-               @onchange="@(e => OnDateChanged(DateTime.Parse(e.Value?.ToString() ?? string.Empty)))" />
-    </div>
-
     <div class="dashboard-content">
         <!-- Last Print Report Section -->
         <div class="dashboard-panel print-report-panel">
             <div class="panel-header">
                 <h4>Last Print Report</h4>
             </div>
-            @if (_isLoading)
-            {
-                <div class="loading-spinner"></div>
-            }
-            else if (_salesData?.Sales.Count == 0)
-            {
-                <div class="panel-body empty-state">
-                    <p>No print jobs found for today.</p>
-                </div>
-            }
-            else
-            {
-                <div class="panel-body">
-                    <!-- Print report content will go here -->
-                </div>
-            }
+            <div class="panel-body">
+                @if (_isLoading)
+                {
+                    <div class="loading-spinner"></div>
+                }
+                else if (_latestScan == null)
+                {
+                    <div class="empty-state">
+                        <p>No print jobs found for today.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="print-info">
+                        <div class="info-row">
+                            <div class="info-item">
+                                <span class="info-label">Platform:</span>
+                                <span>@_latestScan.Platform</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Total Orders:</span>
+                                <span>@_latestScan.OrderCount</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="orders-section">
+                        <div class="sku-summary">
+                            <h5>SKU SUMMARY:</h5>
+                            <div class="sku-table">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            @foreach (var skuEntry in _latestScan.SkuCounts)
+                                            {
+                                                <th>@skuEntry.Key</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            @foreach (var skuEntry in _latestScan.SkuCounts)
+                                            {
+                                                <td>@skuEntry.Value packs</td>
+                                            }
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (_latestScan.UnusualOrders != null && _latestScan.UnusualOrders.Count > 0)
+                    {
+                        <div class="unusual-orders-section">
+                            <h5>UNUSUAL ORDERS: @_latestScan.UnusualOrders.Count TOTAL</h5>
+                            <div class="warning-label">CHECK THESE ORDERS CAREFULLY:</div>
+                            <table class="table table-sm unusual-orders-table">
+                                <thead>
+                                    <tr>
+                                        <th>Order#</th>
+                                        <th>Contents</th>
+                                        <th>Page</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var unusualOrder in _latestScan.UnusualOrders)
+                                    {
+                                        <tr>
+                                            <td class="order-number">@unusualOrder.OrderNumber</td>
+                                            <td class="content-item">@unusualOrder.Sku | @unusualOrder.Quantity units</td>
+                                            <td>@unusualOrder.PageNumber</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+            </div>
         </div>
 
         <!-- Daily Summary Section -->
@@ -37,7 +95,89 @@
                 <h4>Daily Summary</h4>
             </div>
             <div class="panel-body">
-                <!-- Daily summary content will go here -->
+                @if (_isLoading)
+                {
+                    <div class="loading-spinner"></div>
+                }
+                else if (_latestScan == null)
+                {
+                    <div class="empty-state">
+                        <p>No sales data available for today.</p>
+                    </div>
+                }
+                else
+                {
+                    <p><strong>Total Orders: @_latestScan.OrderCount</strong></p>
+
+                    <h5>PRODUCTS BY SKU:</h5>
+
+                    @foreach (var product in GetUniqueProducts())
+                    {
+                        <div class="product-section">
+                            <h6>@product</h6>
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        @foreach (var sku in GetUniqueSkusForProduct(product))
+                                        {
+                                            <th>@sku.SkuId</th>
+                                        }
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        @foreach (var sku in GetUniqueSkusForProduct(product))
+                                        {
+                                            <td>@(_latestScan.SkuCounts.TryGetValue(sku.SkuId, out var count) ? count : 0) units</td>
+                                        }
+                                        <td><strong>@GetTotalItemsSold(product) units</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <div class="couriers-section">
+                        <h5>COURIERS:</h5>
+                        @if (_latestScan.CourierCounts != null && _latestScan.CourierCounts.Count > 0)
+                        {
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        @foreach (var courier in _latestScan.CourierCounts)
+                                        {
+                                            <th>@courier.Key</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        @foreach (var courier in _latestScan.CourierCounts)
+                                        {
+                                            <td>
+                                                @courier.Value
+                                                @if (_courierTracking.TryGetValue(courier.Key, out var trackingData) && trackingData.CarryoverCount > 0)
+                                                {
+                                                    <span class="carryover"> + [@trackingData.CarryoverCount]</span>
+                                                    <span class="total-count"> = @(courier.Value + trackingData.CarryoverCount)</span>
+                                                }
+                                                <button class="btn btn-sm btn-outline-secondary reset-button ms-2"
+                                                        @onclick="() => ResetCourierCount(courier.Key)">
+                                                    Reset
+                                                </button>
+                                            </td>
+                                        }
+                                    </tr>
+                                </tbody>
+                            </table>
+                        }
+                        else
+                        {
+                            <p class="text-muted">No courier data available.</p>
+                        }
+                    </div>
+                }
             </div>
         </div>
     </div>

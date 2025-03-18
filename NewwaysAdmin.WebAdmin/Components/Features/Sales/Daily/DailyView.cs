@@ -73,9 +73,6 @@ public partial class DailyView : ComponentBase
             // Get storage for scan results
             var scanStorage = await IOManager.GetStorageAsync<ScanResult>("PdfProcessor_Scans");
 
-            // Initialize sales data
-            _salesData = new DailySalesData { Sales = new List<SaleEntry>() };
-
             // List all scan identifiers
             var scanIds = await scanStorage.ListIdentifiersAsync();
             Logger.LogInformation("Found {Count} scan identifiers", scanIds.Count());
@@ -106,42 +103,34 @@ public partial class DailyView : ComponentBase
             // Save the latest scan for display in the UI
             _latestScan = todayScans.FirstOrDefault();
 
-            // Convert scan data to sale entries
-            foreach (var scan in todayScans)
+            // No need to process sales data further - we'll use the scan data directly
+            // The courier data is already in _latestScan.CourierCounts
+            // Unusual orders are in _latestScan.UnusualOrders
+
+            // Update courier tracking based on scan data
+            if (_latestScan?.CourierCounts != null)
             {
-                foreach (var skuEntry in scan.SkuCounts)
+                foreach (var courier in _latestScan.CourierCounts)
                 {
-                    _salesData.Sales.Add(new SaleEntry
+                    if (!_courierTracking.ContainsKey(courier.Key))
                     {
-                        Platform = scan.Platform,
-                        Sku = skuEntry.Key,
-                        Quantity = skuEntry.Value,
-                        Timestamp = scan.ScanTime
-                    });
+                        _courierTracking[courier.Key] = new CourierTrackingData
+                        {
+                            TodayCount = courier.Value,
+                            CarryoverCount = 0,
+                            LastReset = DateTime.Now
+                        };
+                    }
+                    else
+                    {
+                        _courierTracking[courier.Key].TodayCount = courier.Value;
+                    }
                 }
             }
-
-            Logger.LogInformation("Converted {Count} scan entries to sales data", _salesData.Sales.Count);
-
-            // Get platform totals
-            if (_salesData.Sales.Count == 0)
-            {
-                _platformTotals = new Dictionary<string, Dictionary<string, int>>();
-            }
-            else
-            {
-                _platformTotals = _salesData.GetPlatformTotals();
-                Logger.LogInformation("Generated platform totals: {Platforms}",
-                    string.Join(", ", _platformTotals.Keys));
-            }
-
-            ProcessSalesData();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading sales data for {Date}", _selectedDate);
-            _platformTotals = new Dictionary<string, Dictionary<string, int>>();
-            _salesData = new DailySalesData { Sales = new List<SaleEntry>() };
         }
         finally
         {
@@ -149,6 +138,7 @@ public partial class DailyView : ComponentBase
             StateHasChanged();
         }
     }
+
 
     private async Task LoadCourierTrackingAsync()
     {
@@ -256,15 +246,10 @@ public partial class DailyView : ComponentBase
 
     private int GetTotalForSku(string sku)
     {
-        var total = 0;
-        foreach (var platform in _platformTotals.Values)
-        {
-            if (platform.TryGetValue(sku, out var quantity))
-            {
-                total += quantity;
-            }
-        }
-        return total;
+        if (_latestScan?.SkuCounts == null)
+            return 0;
+
+        return _latestScan.SkuCounts.TryGetValue(sku, out var count) ? count : 0;
     }
 
     private int GetTotalOrders(string product)
@@ -278,13 +263,18 @@ public partial class DailyView : ComponentBase
 
     private int GetTotalItemsSold(string product)
     {
+        if (_latestScan?.SkuCounts == null)
+            return 0;
+
         var total = 0;
         var skus = GetUniqueSkusForProduct(product);
 
         foreach (var sku in skus)
         {
-            var quantity = GetTotalForSku(sku.SkuId);
-            total += quantity * sku.Config.PackSize;
+            if (_latestScan.SkuCounts.TryGetValue(sku.SkuId, out var count))
+            {
+                total += count * sku.Config.PackSize;
+            }
         }
 
         return total;
