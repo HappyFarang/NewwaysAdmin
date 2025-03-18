@@ -63,7 +63,7 @@ public partial class DailyView : ComponentBase
             _isLoading = true;
             _salesData = await SalesProvider.GetDailySalesAsync(_selectedDate);
 
-            if (_salesData.Sales.Count == 0)
+            if (_salesData?.Sales == null || _salesData.Sales.Count == 0)
             {
                 _platformTotals = new Dictionary<string, Dictionary<string, int>>();
             }
@@ -73,6 +73,11 @@ public partial class DailyView : ComponentBase
             }
 
             ProcessSalesData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading sales data for {Date}", _selectedDate);
+            _platformTotals = new Dictionary<string, Dictionary<string, int>>();
         }
         finally
         {
@@ -98,7 +103,7 @@ public partial class DailyView : ComponentBase
 
     private void ProcessSalesData()
     {
-        if (_salesData == null) return;
+        if (_salesData == null || _salesData.Sales == null) return;
 
         _standardOrderSkus.Clear();
         _unusualOrders.Clear();
@@ -208,10 +213,6 @@ public partial class DailyView : ComponentBase
         return total;
     }
 
-    private int GetSampleQuantity(string platform, string product) => 0; // Implementation pending
-
-    private int GetTotalSamples(string product) => 0; // Implementation pending
-
     private int GetTotalOrders(string product)
     {
         if (_salesData?.Sales == null) return 0;
@@ -250,12 +251,12 @@ public partial class DailyView : ComponentBase
 
     private int GetTotalOrders()
     {
-        return _salesData?.Sales.Count ?? 0;
+        return _salesData?.Sales?.Count ?? 0;
     }
 
     private string CreateScanId()
     {
-        if (_salesData == null || _salesData.Sales.Count == 0)
+        if (_salesData == null || _salesData.Sales == null || _salesData.Sales.Count == 0)
             return "[No Data]";
 
         string date = _selectedDate.ToString("yyyyMMdd");
@@ -267,7 +268,7 @@ public partial class DailyView : ComponentBase
 
     private string GetPlatformName()
     {
-        if (_salesData == null || _salesData.Sales.Count == 0)
+        if (_salesData == null || _salesData.Sales == null || _salesData.Sales.Count == 0)
             return "UNKNOWN";
 
         // Get most common platform

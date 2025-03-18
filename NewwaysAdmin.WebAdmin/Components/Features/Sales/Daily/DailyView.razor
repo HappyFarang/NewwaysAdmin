@@ -15,108 +15,19 @@
             </div>
             @if (_isLoading)
             {
-                    <div class="loading-spinner"></div>
+                <div class="loading-spinner"></div>
             }
             else if (_salesData?.Sales.Count == 0)
             {
-                    <div class="panel-body empty-state">
-                        <p>No print jobs found for today.</p>
-                    </div>
+                <div class="panel-body empty-state">
+                    <p>No print jobs found for today.</p>
+                </div>
             }
             else
             {
-                    <div class="panel-body">
-                        <div class="print-info">
-                            <div class="info-row">
-                                <div class="info-item">
-                                    <span class="info-label">ID:</span>
-                                    <span class="info-value">@CreateScanId()</span>
-                                </div>
-                                <div class="info-item">
-                                    <span class="info-label">Platform:</span>
-                                    <span class="info-value">@GetPlatformName()</span>
-                                </div>
-                            </div>
-                            <div class="info-row">
-                                <div class="info-item">
-                                    <span class="info-label">Total Orders:</span>
-                                    <span class="info-value">@(_standardOrderCount + _unusualOrderCount)</span>
-                                </div>
-                                <div class="info-item">
-                                    <span class="info-label">Date:</span>
-                                    <span class="info-value">@_selectedDate.ToString("yyyy-MM-dd")</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="orders-section">
-                            <div class="standard-orders">
-                                <h5>Standard Orders (1 SKU, 1 Unit): @_standardOrderCount Total</h5>
-                                <div class="sku-list">
-                                @foreach (var skuEntry in _standardOrderSkus)
-                                {
-                                            <div class="sku-item">
-                                                <span class="sku-label">@skuEntry.Key:</span>
-                                                <span class="sku-value">@skuEntry.Value packs</span>
-                                            </div>
-                                }
-                                </div>
-                            </div>
-
-                            <div class="courier-summary">
-                                <h5>Couriers:</h5>
-                                <div class="courier-list">
-                                @foreach (var platform in _platformTotals)
-                                {
-                                            <div class="courier-item">
-                                                <span class="courier-name">@platform.Key:</span>
-                                                <span class="courier-value">@platform.Value.Count</span>
-                                            </div>
-                                }
-                                </div>
-                            </div>
-                        </div>
-
-                    @if (_unusualOrders.Count > 0)
-                    {
-                                <div class="unusual-orders-section">
-                                    <h5>Unusual Orders: @_unusualOrderCount Total</h5>
-                                    <div class="warning-label">CHECK THESE ORDERS CAREFULLY:</div>
-                                    <div class="table-responsive">
-                                        <table class="table table-bordered unusual-orders-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Order #</th>
-                                                    <th>Platform</th>
-                                                    <th>Contents</th>
-                                                    <th>Courier</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                        @foreach (var order in _unusualOrders)
-                                        {
-                                                        <tr>
-                                                            <td>@order.OrderNumber</td>
-                                                            <td>@order.Platform</td>
-                                                            <td>
-                                                    @{
-                                                        var contents = new List<string>();
-                                                        foreach (var sku in order.SkuCounts)
-                                                        {
-                                                            contents.Add($"{sku.Key} ({sku.Value} units)");
-                                                        }
-                                                        @(string.Join(" + ", contents))
-                                                    }
-                                                            </td>
-                                                            <td>@order.Courier</td>
-                                                        </tr>
-                                        }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                    }
-                    </div>
+                <div class="panel-body">
+                    <!-- Print report content will go here -->
+                </div>
             }
         </div>
 
@@ -126,73 +37,7 @@
                 <h4>Daily Summary</h4>
             </div>
             <div class="panel-body">
-                <div class="summary-info">
-                    <div class="info-row">
-                        <div class="info-item">
-                            <span class="info-label">Date:</span>
-                            <span class="info-value">@_selectedDate.ToString("yyyy-MM-dd")</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Total Orders:</span>
-                            <span class="info-value">@GetTotalOrders()</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="products-section">
-                    <h5>Products:</h5>
-                    <div class="product-grid">
-                        @foreach (var product in GetUniqueProducts())
-                        {
-                                <div class="product-card">
-                                    <div class="product-header">
-                                        <h6>@product</h6>
-                                    </div>
-                                    <div class="product-skus">
-                                    @foreach (var sku in GetSkusForProduct(product))
-                                    {
-                                                <div class="sku-row">
-                                                    <span class="sku-name">@sku.SkuId:</span>
-                                                    <span class="sku-count">@GetTotalForSku(sku.SkuId) units</span>
-                                                </div>
-                                    }
-                                    </div>
-                                    <div class="product-total">
-                                        <span class="total-label">Total:</span>
-                                        <span class="total-value">@GetTotalItemsSold(product) units</span>
-                                    </div>
-                                </div>
-                        }
-                    </div>
-                </div>
-
-                <div class="couriers-section">
-                    <h5>Couriers:</h5>
-                    <div class="courier-grid">
-                        @foreach (var courier in _courierTracking)
-                        {
-                                <div class="courier-row">
-                                    <div class="courier-info">
-                                        <span class="courier-name">@courier.Key:</span>
-                                        <span class="courier-count">@courier.Value.TodayCount</span>
-                                    @if (courier.Value.CarryoverCount > 0)
-                                    {
-                                                <span class="carryover">+ [@courier.Value.CarryoverCount] =</span>
-                                                <span class="total-count">@(courier.Value.TotalCount) TOTAL</span>
-                                    }
-                                    else
-                                    {
-                                                <span class="total-count">= @courier.Value.TodayCount TOTAL</span>
-                                    }
-                                    </div>
-                                    <button class="btn btn-sm btn-outline-primary reset-button" 
-                                            @onclick="() => ResetCourierCount(courier.Key)">
-                                        Reset
-                                    </button>
-                                </div>
-                        }
-                    </div>
-                </div>
+                <!-- Daily summary content will go here -->
             </div>
         </div>
     </div>
