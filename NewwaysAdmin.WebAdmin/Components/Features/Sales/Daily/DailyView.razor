@@ -30,6 +30,10 @@
                                 <span class="info-label">Total Orders:</span>
                                 <span>@_latestScan.OrderCount</span>
                             </div>
+                            <div class="info-item">
+                                <span class="info-label">Total Items:</span>
+                                <span>@_latestScan.TotalItems</span>
+                            </div>
                         </div>
                     </div>
 
@@ -44,6 +48,7 @@
                                             {
                                                 <th>@skuEntry.Key</th>
                                             }
+                                            <th>Total Packs</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -52,12 +57,42 @@
                                             {
                                                 <td>@skuEntry.Value packs</td>
                                             }
+                                            <td>@_latestScan.SkuCounts.Values.Sum() packs</td>
                                         </tr>
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     </div>
+
+                    @if (_latestScan.ProductCount.Count > 0)
+                    {
+                        <div class="products-section">
+                            <h5>PRODUCT TOTALS:</h5>
+                            <div class="product-table">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            @foreach (var product in _latestScan.ProductCount)
+                                            {
+                                                <th>@product.Key</th>
+                                            }
+                                            <th>Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            @foreach (var product in _latestScan.ProductCount)
+                                            {
+                                                <td>@product.Value items</td>
+                                            }
+                                            <td>@_latestScan.TotalItems items</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
 
                     @if (_latestScan.UnusualOrders != null && _latestScan.UnusualOrders.Count > 0)
                     {
@@ -107,31 +142,44 @@
                 }
                 else
                 {
-                    <p><strong>Total Orders: @_latestScan.OrderCount</strong></p>
+                    <div class="summary-stats">
+                        <div class="stat-item">
+                            <div class="stat-label">Total Orders</div>
+                            <div class="stat-value">@_latestScan.OrderCount</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Total Packs</div>
+                            <div class="stat-value">@_latestScan.SkuCounts.Values.Sum()</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">Total Items</div>
+                            <div class="stat-value">@_latestScan.TotalItems</div>
+                        </div>
+                    </div>
 
-                    <h5>PRODUCTS BY SKU:</h5>
-
-                    @foreach (var product in GetUniqueProducts())
+                    <!-- Product breakdown -->
+                    @if (_latestScan.ProductCount.Count > 0)
                     {
-                        <div class="product-section">
-                            <h6>@product</h6>
+                        <div class="product-breakdown">
+                            <h5>PRODUCT BREAKDOWN:</h5>
                             <table class="table table-sm">
                                 <thead>
                                     <tr>
-                                        @foreach (var sku in GetUniqueSkusForProduct(product))
-                                        {
-                                            <th>@sku.SkuId</th>
-                                        }
-                                        <th>Total</th>
+                                        <th>Product</th>
+                                        <th>Items</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr>
-                                        @foreach (var sku in GetUniqueSkusForProduct(product))
-                                        {
-                                            <td>@(_latestScan.SkuCounts.TryGetValue(sku.SkuId, out var count) ? count : 0) units</td>
-                                        }
-                                        <td><strong>@GetTotalItemsSold(product) units</strong></td>
+                                    @foreach (var product in _latestScan.ProductCount)
+                                    {
+                                        <tr>
+                                            <td>@product.Key</td>
+                                            <td>@product.Value</td>
+                                        </tr>
+                                    }
+                                    <tr class="table-active">
+                                        <td><strong>Total</strong></td>
+                                        <td><strong>@_latestScan.TotalItems</strong></td>
                                     </tr>
                                 </tbody>
                             </table>

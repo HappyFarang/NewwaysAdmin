@@ -650,18 +650,14 @@ namespace NewwaysAdmin.OrderProcessor
             result.SkuCounts = new Dictionary<string, int>();
             result.CourierCounts = new Dictionary<string, int>();
             result.UnusualOrders = new List<UnusualSkuOrder>();
+            result.TotalItems = 0;
+            result.ProductCount = new Dictionary<string, int>();
 
-            // Aggregate SKU counts across all orders
+            // First identify unusual orders
             foreach (var order in result.OrderDetails)
             {
-                // Aggregate SKU counts
                 foreach (var skuCount in order.SkuCounts)
                 {
-                    if (!result.SkuCounts.ContainsKey(skuCount.Key))
-                        result.SkuCounts[skuCount.Key] = 0;
-
-                    result.SkuCounts[skuCount.Key] += skuCount.Value;
-
                     // Check for unusual orders (quantity > 1)
                     if (skuCount.Value > 1)
                     {
@@ -674,6 +670,25 @@ namespace NewwaysAdmin.OrderProcessor
                         });
                     }
                 }
+            }
+
+            // Then aggregate SKU counts - only counting standard orders (qty=1)
+            // and excluding unusual orders which are tracked separately
+            foreach (var order in result.OrderDetails)
+            {
+                // Aggregate SKU counts - for each SKU where quantity is 1
+                foreach (var skuCount in order.SkuCounts)
+                {
+                    // Skip unusual orders (they're already in the UnusualOrders list)
+                    if (skuCount.Value > 1)
+                        continue;
+
+                    // Add standard orders (quantity = 1) to the standard counts
+                    if (!result.SkuCounts.ContainsKey(skuCount.Key))
+                        result.SkuCounts[skuCount.Key] = 0;
+
+                    result.SkuCounts[skuCount.Key] += skuCount.Value;
+                }
 
                 // Aggregate courier counts
                 if (!string.IsNullOrEmpty(order.Courier))
@@ -684,6 +699,98 @@ namespace NewwaysAdmin.OrderProcessor
                     result.CourierCounts[order.Courier]++;
                 }
             }
+
+            // Calculate total items and product counts
+            CalculateTotalItems(result);
+        }
+        private void CalculateTotalItems(ScanResult result)
+        {
+            int totalItems = 0;
+            var productCount = new Dictionary<string, int>();
+
+            // Function to get the SKU configuration for a given SKU ID
+            SkuConfig? GetSkuConfig(string sku)
+            {
+                if (platformConfig?.Platforms == null)
+                    return null;
+
+                foreach (var platform in platformConfig.Platforms)
+                {
+                    if (platform.Value.Skus.TryGetValue(sku, out var skuConfig))
+                        return skuConfig;
+                }
+                return null;
+            }
+
+            // Process standard orders
+            foreach (var skuCount in result.SkuCounts)
+            {
+                var skuConfig = GetSkuConfig(skuCount.Key);
+                if (skuConfig != null)
+                {
+                    var productName = skuConfig.ProductName;
+                    var packSize = skuConfig.PackSize;
+                    var packCount = skuCount.Value;
+                    var itemsInThisSku = packCount * packSize;
+
+                    // Update total items
+                    totalItems += itemsInThisSku;
+
+                    // Track items by product name
+                    if (!productCount.ContainsKey(productName))
+                        productCount[productName] = 0;
+
+                    productCount[productName] += itemsInThisSku;
+                }
+                else
+                {
+                    // If we can't find config, assume 1 item per SKU as fallback
+                    totalItems += skuCount.Value;
+
+                    // Use SKU ID as fallback product name
+                    if (!productCount.ContainsKey(skuCount.Key))
+                        productCount[skuCount.Key] = 0;
+
+                    productCount[skuCount.Key] += skuCount.Value;
+                }
+            }
+
+            // Process unusual orders (they're tracked separately)
+            foreach (var unusual in result.UnusualOrders)
+            {
+                var skuConfig = GetSkuConfig(unusual.Sku);
+                if (skuConfig != null)
+                {
+                    var productName = skuConfig.ProductName;
+                    var packSize = skuConfig.PackSize;
+                    var packCount = unusual.Quantity;
+                    var itemsInThisUnusual = packCount * packSize;
+
+                    // Update total items
+                    totalItems += itemsInThisUnusual;
+
+                    // Track by product name from config
+                    if (!productCount.ContainsKey(productName))
+                        productCount[productName] = 0;
+
+                    productCount[productName] += itemsInThisUnusual;
+                }
+                else
+                {
+                    // If we can't find config, assume 1 item per SKU as fallback
+                    totalItems += unusual.Quantity;
+
+                    // Use SKU ID as fallback product name
+                    if (!productCount.ContainsKey(unusual.Sku))
+                        productCount[unusual.Sku] = 0;
+
+                    productCount[unusual.Sku] += unusual.Quantity;
+                }
+            }
+
+            // Update the scan result
+            result.TotalItems = totalItems;
+            result.ProductCount = productCount;
         }
     }
     // Main analysis result class

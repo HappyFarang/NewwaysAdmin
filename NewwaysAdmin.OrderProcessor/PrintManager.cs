@@ -25,7 +25,11 @@ namespace NewwaysAdmin.OrderProcessor
         public string? Courier { get; set; }
         public int OrderCount { get; set; } = 1;
 
-        // New fields for enhanced analysis
+        // Product tracking fields - using more generic terminology
+        public int TotalItems { get; set; } = 0;
+        public Dictionary<string, int> ProductCount { get; set; } = new();
+
+        // Existing fields for enhanced analysis
         public List<OrderData> OrderDetails { get; set; } = new();
         public Dictionary<string, int> CourierCounts { get; set; } = new();
         public List<UnusualSkuOrder> UnusualOrders { get; set; } = new();

@@ -20,6 +20,46 @@
     flex-direction: column;
     overflow: hidden;
 }
+.summary-stats {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+}
+
+.stat-item {
+    flex: 1;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 0.75rem;
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    margin-bottom: 0.25rem;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #212529;
+}
+
+.products-section, .product-breakdown {
+    margin-top: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+    .product-breakdown h5 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin: 0.5rem 0;
+        color: #495057;
+    }
 
 .print-report-panel {
     flex: 3; /* Make the left panel a bit wider */
