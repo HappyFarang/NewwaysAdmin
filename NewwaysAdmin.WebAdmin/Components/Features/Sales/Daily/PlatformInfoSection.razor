@@ -1,0 +1,21 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+@using NewwaysAdmin.OrderProcessor
+
+<div class="print-info d-flex justify-content-between">
+    <div class="info-item">
+        <span class="info-label">Platform:</span>
+        <span>@ScanResult.Platform</span>
+    </div>
+    <div class="info-item">
+        <span class="info-label">Total Orders:</span>
+        <span>@ScanResult.OrderCount</span>
+    </div>
+    <div class="info-item">
+        <span class="info-label">Total Items:</span>
+        <span>@ScanResult.TotalItems</span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public ScanResult ScanResult { get; set; } = null!;
+}

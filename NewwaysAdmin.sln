@@ -17,7 +17,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WebAdmin", "Ne
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.IO.Manager", "NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj", "{4DADEC96-C11E-44B6-8FB1-629388547242}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.DevTools", "NewwaysAdmin.DevTools\NewwaysAdmin.DevTools.csproj", "{F1218011-EC95-462E-8D50-AA2A68B6E4FF}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.DevTools", "NewwaysAdmin.DevTools\NewwaysAdmin.DevTools.csproj", "{F1218011-EC95-462E-8D50-AA2A68B6E4FF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

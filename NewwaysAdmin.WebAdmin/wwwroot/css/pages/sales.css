@@ -1,72 +1,8 @@
-﻿/* Daily View Dashboard Styles - Optimized for 1920x1080 screens */
-.daily-view {
-    height: calc(100vh - 60px); /* Subtract header height */
-    overflow: hidden;
-    padding: 0.5rem;
-}
-
-/* Dashboard content layout */
-.dashboard-content {
-    display: flex;
-    gap: 1rem;
-    height: 100%;
-}
-
-.dashboard-panel {
-    background-color: white;
-    border-radius: 4px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+﻿.dashboard-panel {
+    width: 100%;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-}
-.summary-stats {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 1.5rem;
-    gap: 1rem;
-}
-
-.stat-item {
-    flex: 1;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    padding: 0.75rem;
-    text-align: center;
-}
-
-.stat-label {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    color: #6c757d;
-    margin-bottom: 0.25rem;
-}
-
-.stat-value {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: #212529;
-}
-
-.products-section, .product-breakdown {
-    margin-top: 0.75rem;
-    margin-bottom: 1.5rem;
-}
-
-    .product-breakdown h5 {
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        font-weight: 600;
-        margin: 0.5rem 0;
-        color: #495057;
-    }
-
-.print-report-panel {
-    flex: 3; /* Make the left panel a bit wider */
-}
-
-.daily-summary-panel {
-    flex: 2;
 }
 
 .panel-header {
@@ -84,39 +20,9 @@
 .panel-body {
     padding: 0.5rem 1rem;
     flex: 1;
-    overflow-y: auto; /* Allow scrolling within panels if needed */
+    overflow-y: auto;
 }
 
-/* Loading state */
-.loading-spinner {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100px;
-}
-
-    .loading-spinner:after {
-        content: " ";
-        display: block;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        border: 4px solid #4AC0AD;
-        border-color: #4AC0AD transparent #4AC0AD transparent;
-        animation: spinner 1.2s linear infinite;
-    }
-
-@keyframes spinner {
-    0% {
-        transform: rotate(0deg);
-    }
-
-    100% {
-        transform: rotate(360deg);
-    }
-}
-
-/* Empty state */
 .empty-state {
     display: flex;
     align-items: center;
@@ -126,12 +32,12 @@
     font-style: italic;
 }
 
-/* Print report styles */
+/* Styling for PlatformInfoSection */
 .print-info {
-    margin-bottom: 0.5rem;
     padding: 0.5rem;
     background-color: #f8f9fa;
     border-radius: 4px;
+    margin-bottom: 1rem;
 }
 
 .info-row {
@@ -151,14 +57,7 @@
     color: #495057;
 }
 
-/* Orders section */
-.orders-section {
-    margin: 0.5rem 0;
-}
-
-.standard-orders h5,
-.unusual-orders-section h5,
-.couriers-section h5,
+/* Styling for SkuSummarySection */
 .sku-summary h5 {
     font-size: 0.85rem;
     text-transform: uppercase;
@@ -167,105 +66,13 @@
     color: #495057;
 }
 
-.product-section h6 {
-    font-size: 0.9rem;
-    font-weight: 600;
-    margin: 0.75rem 0 0.25rem 0;
-    color: #212529;
-}
-
-.sku-table table,
-.unusual-orders-table,
-.product-section table,
-.couriers-section table {
-    font-size: 0.8rem;
+.sku-table table {
+    font-size: 0.85rem;
     margin-bottom: 0.5rem;
+    width: 100%;
 }
 
-.table-sm th,
-.table-sm td {
-    padding: 0.25rem 0.5rem;
-}
-
-/* Unusual orders */
-.unusual-orders-section {
-    margin-top: 0.75rem;
-}
-
-.warning-label {
-    background-color: #dc3545;
-    color: white;
-    padding: 0.25rem;
+.sku-table th, .sku-table td {
+    padding: 0.5rem;
     text-align: center;
-    border-radius: 4px;
-    margin-bottom: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: bold;
-}
-
-.unusual-orders-table th {
-    background-color: #f8f9fa;
-    font-size: 0.75rem;
-}
-
-.unusual-orders-table td {
-    font-size: 0.75rem;
-    vertical-align: middle;
-    white-space: nowrap;
-}
-
-.order-number {
-    white-space: nowrap;
-    font-family: monospace;
-    font-size: 0.75rem;
-}
-
-.content-item {
-    display: inline-block;
-    white-space: nowrap;
-}
-
-/* Couriers section */
-.couriers-section {
-    margin-top: 0.75rem;
-}
-
-.carryover {
-    color: #6c757d;
-    font-size: 0.75rem;
-}
-
-.total-count {
-    font-weight: 600;
-    color: #212529;
-}
-
-.reset-button {
-    padding: 0.1rem 0.25rem;
-    font-size: 0.7rem;
-}
-
-/* Responsive adjustments - though this is primarily designed for 1920x1080 */
-@media (max-width: 1400px) {
-    .dashboard-content {
-        gap: 0.5rem;
-    }
-
-    .panel-body {
-        padding: 0.25rem 0.5rem;
-    }
-}
-
-@media (max-height: 900px) {
-    .daily-view {
-        height: calc(100vh - 50px);
-    }
-
-    .panel-header {
-        padding: 0.25rem 0.5rem;
-    }
-
-        .panel-header h4 {
-            font-size: 1rem;
-        }
 }

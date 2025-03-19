@@ -1,0 +1,37 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+@using NewwaysAdmin.OrderProcessor
+@using System.Collections.Generic
+
+<div class="dashboard-panel daily-summary-panel">
+    <div class="panel-header">
+        <h4>Daily Summary</h4>
+    </div>
+    <div class="panel-body">
+        @if (IsLoading)
+        {
+            <div class="loading-spinner"></div>
+        }
+        else if (ScanResult is null)
+        {
+            <div class="empty-state">
+                <p>No sales data available for today.</p>
+            </div>
+        }
+        else
+        {
+            <SummaryStatsSection ScanResult="@ScanResult" />
+            <ProductBreakdownSection ScanResult="@ScanResult" />
+            <CouriersSection 
+                ScanResult="@ScanResult" 
+                CourierTracking="@CourierTracking"
+                OnResetCourier="@OnResetCourier" />
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public ScanResult? ScanResult { get; set; }
+    [Parameter] public Dictionary<string, CourierTrackingData> CourierTracking { get; set; } = new();
+    [Parameter] public EventCallback<string> OnResetCourier { get; set; }
+}

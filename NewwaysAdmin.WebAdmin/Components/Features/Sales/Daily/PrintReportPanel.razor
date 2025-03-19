@@ -1,0 +1,40 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+@using NewwaysAdmin.OrderProcessor
+
+<div class="dashboard-panel print-report-panel">
+    <div class="panel-header">
+        <h4>Last Print Report</h4>
+    </div>
+    <div class="panel-body">
+        @if (IsLoading)
+        {
+            <div class="loading-spinner"></div>
+        }
+        else if (ScanResult is null)
+        {
+            <div class="empty-state">
+                <p>No print jobs found for today.</p>
+            </div>
+        }
+        else
+        {
+            <div class="mb-3">
+                <PlatformInfoSection ScanResult="@ScanResult" />
+            </div>
+            <div class="mb-3">
+                <SkuSummarySection ScanResult="@ScanResult" />
+            </div>
+            <div class="mb-3">
+                <ProductTotalsSection ScanResult="@ScanResult" />
+            </div>
+            <div class="mb-3">
+                <UnusualOrdersSection ScanResult="@ScanResult" />
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public ScanResult? ScanResult { get; set; }
+}

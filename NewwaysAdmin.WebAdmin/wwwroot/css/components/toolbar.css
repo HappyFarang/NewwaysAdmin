@@ -69,7 +69,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 1rem;
-    max-width: 1200px;
+    max-width: none /*1200px;*/
     margin: 0 auto;
 }
 .page-container {

@@ -20,6 +20,7 @@ public partial class DailyView : ComponentBase
     [Inject] private ILogger<DailyView> Logger { get; set; } = null!;
     [Inject] private IOManager IOManager { get; set; } = null!;
 
+
     private DailySalesData? _salesData;
     private DateTime _selectedDate = DateTime.Today;
     private Dictionary<string, Dictionary<string, int>> _platformTotals = new();
@@ -48,14 +49,14 @@ public partial class DailyView : ComponentBase
     }
 
     // Class to track courier data
-    private class CourierTrackingData
+   /* private class CourierTrackingData
     {
         public int TodayCount { get; set; }
         public int CarryoverCount { get; set; }
         public int TotalCount => TodayCount + CarryoverCount;
         public DateTime LastReset { get; set; }
     }
-
+   */
     protected override async Task OnInitializedAsync()
     {
         _productGroups = GroupSkusByProduct();
@@ -103,10 +104,6 @@ public partial class DailyView : ComponentBase
             // Save the latest scan for display in the UI
             _latestScan = todayScans.FirstOrDefault();
 
-            // No need to process sales data further - we'll use the scan data directly
-            // The courier data is already in _latestScan.CourierCounts
-            // Unusual orders are in _latestScan.UnusualOrders
-
             // Update courier tracking based on scan data
             if (_latestScan?.CourierCounts != null)
             {
@@ -127,6 +124,9 @@ public partial class DailyView : ComponentBase
                     }
                 }
             }
+
+            Logger.LogInformation("Loaded scan data: {OrderCount} orders, {UnusualCount} unusual orders",
+                _latestScan?.OrderCount ?? 0, _latestScan?.UnusualOrders?.Count ?? 0);
         }
         catch (Exception ex)
         {
@@ -332,16 +332,11 @@ public partial class DailyView : ComponentBase
     {
         if (_courierTracking.TryGetValue(courier, out var data))
         {
-            // Add today's count to carryover and reset today's count
             data.CarryoverCount += data.TodayCount;
             data.TodayCount = 0;
             data.LastReset = DateTime.Now;
-
             Logger.LogInformation("Reset courier count for {Courier}. New carryover: {Carryover}",
                 courier, data.CarryoverCount);
-
-            // In real implementation, save this data to persistent storage
-
             StateHasChanged();
         }
     }
