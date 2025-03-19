@@ -321,15 +321,42 @@ namespace NewwaysAdmin.OrderProcessor
                     continue;
 
                 var matches = Regex.Matches(text, sku.Value.Pattern);
+
+                // If we have any matches at all, we assume by default it's ONE item
+                // unless a quantity is explicitly specified in the pattern
                 if (matches.Count > 0)
                 {
-                    int totalQuantity = matches.Sum(m =>
-                        int.TryParse(m.Groups[1].Value, out int qty) ? qty : 0);
+                    _logger.LogDebug($"Found {matches.Count} matches for pattern '{sku.Value.Pattern}' for SKU '{sku.Key}'");
 
-                    if (totalQuantity > 0)
+                    // Check if the pattern has a quantity capture group
+                    bool hasQuantityCapture = false;
+                    int totalQuantity = 0;
+
+                    foreach (Match m in matches)
                     {
-                        skuCounts[sku.Key] = totalQuantity * sku.Value.PackSize;
+                        // Check if this match has a quantity group (Group 1)
+                        if (m.Groups.Count > 1 && !string.IsNullOrEmpty(m.Groups[1].Value))
+                        {
+                            hasQuantityCapture = true;
+                            if (int.TryParse(m.Groups[1].Value, out int qty))
+                            {
+                                totalQuantity += qty;
+                                _logger.LogDebug($"Captured quantity {qty} for SKU '{sku.Key}'");
+                            }
+                        }
                     }
+
+                    // If no quantity was captured in any match, use match count = 1
+                    // We're treating multiple pattern matches as still just ONE item unless 
+                    // specifically captured in the regex
+                    if (!hasQuantityCapture)
+                    {
+                        _logger.LogDebug($"No quantity captured for SKU '{sku.Key}', assuming quantity 1");
+                        totalQuantity = 1; // Default to ONE item only, regardless of match count
+                    }
+
+                    skuCounts[sku.Key] = totalQuantity;
+                    _logger.LogInformation($"Extracted SKU '{sku.Key}' with quantity {totalQuantity}");
                 }
             }
 
@@ -660,9 +687,10 @@ namespace NewwaysAdmin.OrderProcessor
             result.TotalItems = 0;
             result.ProductCount = new Dictionary<string, int>();
 
-            // First identify unusual orders
+            // First pass: identify unusual orders and track couriers
             foreach (var order in result.OrderDetails)
             {
+                // Check for unusual orders (quantity > 1)
                 foreach (var skuCount in order.SkuCounts)
                 {
                     if (skuCount.Value > 1)
@@ -676,28 +704,31 @@ namespace NewwaysAdmin.OrderProcessor
                         });
                     }
                 }
-            }
 
-            // Aggregate SKU counts
-            foreach (var order in result.OrderDetails)
-            {
-                foreach (var skuCount in order.SkuCounts)
-                {
-                    if (skuCount.Value > 1)
-                        continue;
-
-                    if (!result.SkuCounts.ContainsKey(skuCount.Key))
-                        result.SkuCounts[skuCount.Key] = 0;
-
-                    result.SkuCounts[skuCount.Key] += skuCount.Value;
-                }
-
+                // Track couriers
                 if (!string.IsNullOrEmpty(order.Courier))
                 {
                     if (!result.CourierCounts.ContainsKey(order.Courier))
                         result.CourierCounts[order.Courier] = 0;
 
                     result.CourierCounts[order.Courier]++;
+                }
+            }
+
+            // Second pass: aggregate regular SKU counts (excluding unusual orders)
+            foreach (var order in result.OrderDetails)
+            {
+                foreach (var skuCount in order.SkuCounts)
+                {
+                    // Skip unusual orders (they're tracked separately)
+                    if (skuCount.Value > 1)
+                        continue;
+
+                    // Add regular orders to SKU counts
+                    if (!result.SkuCounts.ContainsKey(skuCount.Key))
+                        result.SkuCounts[skuCount.Key] = 0;
+
+                    result.SkuCounts[skuCount.Key] += skuCount.Value;
                 }
             }
 
@@ -709,7 +740,7 @@ namespace NewwaysAdmin.OrderProcessor
             // Reset total items counter
             int totalItems = 0;
 
-            // For regular SKUs
+            // Process regular SKUs
             foreach (var skuEntry in result.SkuCounts)
             {
                 string skuId = skuEntry.Key;
@@ -734,7 +765,7 @@ namespace NewwaysAdmin.OrderProcessor
                     // Add to total items
                     totalItems += itemsForThisSku;
 
-                    _logger.LogDebug($"SKU {skuId}: {packCount} packages × {packSize} items/package = {itemsForThisSku} items");
+                    _logger.LogDebug($"Regular SKU {skuId}: {packCount} packages × {packSize} items/package = {itemsForThisSku} items");
                 }
                 else
                 {
@@ -747,7 +778,7 @@ namespace NewwaysAdmin.OrderProcessor
                 }
             }
 
-            // For unusual orders
+            // Process unusual orders separately
             foreach (var unusual in result.UnusualOrders)
             {
                 string skuId = unusual.Sku;
@@ -785,10 +816,10 @@ namespace NewwaysAdmin.OrderProcessor
                 }
             }
 
-            // THE CRITICAL LINE: Set the total items to our calculated value
+            // Set the total items to our calculated value
             result.TotalItems = totalItems;
 
-            _logger.LogInformation($"Calculated TotalItems: {totalItems} (from {result.SkuCounts.Count} SKUs and {result.UnusualOrders.Count} unusual orders)");
+            _logger.LogInformation($"Calculated TotalItems: {totalItems} (from {result.SkuCounts.Count} regular SKUs and {result.UnusualOrders.Count} unusual orders)");
 
             // Log product breakdown
             foreach (var product in result.ProductCount)
