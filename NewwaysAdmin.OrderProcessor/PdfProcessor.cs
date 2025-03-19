@@ -706,82 +706,95 @@ namespace NewwaysAdmin.OrderProcessor
         }
         private void CalculateTotalItems(ScanResult result, PlatformConfig platformConfig)
         {
+            // Reset total items counter
             int totalItems = 0;
-            var productCount = new Dictionary<string, int>();
 
-            // Function to get the SKU configuration for a given SKU ID
-            SkuConfig? GetSkuConfig(string sku)
+            // For regular SKUs
+            foreach (var skuEntry in result.SkuCounts)
             {
-                if (platformConfig == null || platformConfig.Skus == null)
-                    return null;
+                string skuId = skuEntry.Key;
+                int packCount = skuEntry.Value;
 
-                if (platformConfig.Skus.TryGetValue(sku, out var skuConfig))
-                    return skuConfig;
-
-                return null;
-            }
-
-            // Process standard orders
-            foreach (var skuCount in result.SkuCounts)
-            {
-                var skuConfig = GetSkuConfig(skuCount.Key);
-                if (skuConfig != null)
+                // Look up the SKU configuration
+                if (platformConfig?.Skus != null && platformConfig.Skus.TryGetValue(skuId, out var skuConfig))
                 {
-                    var productName = skuConfig.ProductName;
-                    var packSize = skuConfig.PackSize;
-                    var packCount = skuCount.Value;
-                    var itemsInThisSku = packCount * packSize;
+                    // Get product name and pack size
+                    string productName = skuConfig.ProductName;
+                    int packSize = skuConfig.PackSize > 0 ? skuConfig.PackSize : 1;
 
-                    totalItems += itemsInThisSku;
+                    // Calculate items for this SKU
+                    int itemsForThisSku = packCount * packSize;
 
-                    if (!productCount.ContainsKey(productName))
-                        productCount[productName] = 0;
+                    // Add to product count dictionary
+                    if (!result.ProductCount.ContainsKey(productName))
+                        result.ProductCount[productName] = 0;
 
-                    productCount[productName] += itemsInThisSku;
+                    result.ProductCount[productName] += itemsForThisSku;
+
+                    // Add to total items
+                    totalItems += itemsForThisSku;
+
+                    _logger.LogDebug($"SKU {skuId}: {packCount} packages × {packSize} items/package = {itemsForThisSku} items");
                 }
                 else
                 {
-                    totalItems += skuCount.Value;
+                    // If no config found, assume 1 item per package
+                    if (!result.ProductCount.ContainsKey(skuId))
+                        result.ProductCount[skuId] = 0;
 
-                    if (!productCount.ContainsKey(skuCount.Key))
-                        productCount[skuCount.Key] = 0;
-
-                    productCount[skuCount.Key] += skuCount.Value;
+                    result.ProductCount[skuId] += packCount;
+                    totalItems += packCount;
                 }
             }
 
-            // Process unusual orders
+            // For unusual orders
             foreach (var unusual in result.UnusualOrders)
             {
-                var skuConfig = GetSkuConfig(unusual.Sku);
-                if (skuConfig != null)
+                string skuId = unusual.Sku;
+                int packCount = unusual.Quantity;
+
+                // Look up the SKU configuration
+                if (platformConfig?.Skus != null && platformConfig.Skus.TryGetValue(skuId, out var skuConfig))
                 {
-                    var productName = skuConfig.ProductName;
-                    var packSize = skuConfig.PackSize;
-                    var packCount = unusual.Quantity;
-                    var itemsInThisUnusual = packCount * packSize;
+                    // Get product name and pack size
+                    string productName = skuConfig.ProductName;
+                    int packSize = skuConfig.PackSize > 0 ? skuConfig.PackSize : 1;
 
-                    totalItems += itemsInThisUnusual;
+                    // Calculate items for this unusual order
+                    int itemsForThisUnusual = packCount * packSize;
 
-                    if (!productCount.ContainsKey(productName))
-                        productCount[productName] = 0;
+                    // Add to product count dictionary
+                    if (!result.ProductCount.ContainsKey(productName))
+                        result.ProductCount[productName] = 0;
 
-                    productCount[productName] += itemsInThisUnusual;
+                    result.ProductCount[productName] += itemsForThisUnusual;
+
+                    // Add to total items
+                    totalItems += itemsForThisUnusual;
+
+                    _logger.LogDebug($"Unusual SKU {skuId}: {packCount} packages × {packSize} items/package = {itemsForThisUnusual} items");
                 }
                 else
                 {
-                    totalItems += unusual.Quantity;
+                    // If no config found, assume 1 item per package
+                    if (!result.ProductCount.ContainsKey(skuId))
+                        result.ProductCount[skuId] = 0;
 
-                    if (!productCount.ContainsKey(unusual.Sku))
-                        productCount[unusual.Sku] = 0;
-
-                    productCount[unusual.Sku] += unusual.Quantity;
+                    result.ProductCount[skuId] += packCount;
+                    totalItems += packCount;
                 }
             }
 
-            // Update the scan result
+            // THE CRITICAL LINE: Set the total items to our calculated value
             result.TotalItems = totalItems;
-            result.ProductCount = productCount;
+
+            _logger.LogInformation($"Calculated TotalItems: {totalItems} (from {result.SkuCounts.Count} SKUs and {result.UnusualOrders.Count} unusual orders)");
+
+            // Log product breakdown
+            foreach (var product in result.ProductCount)
+            {
+                _logger.LogInformation($"Product: {product.Key}, Items: {product.Value}");
+            }
         }
     }
     // Main analysis result class
