@@ -2,8 +2,11 @@
 @using NewwaysAdmin.OrderProcessor
 
 <div class="dashboard-panel print-report-panel">
-    <div class="panel-header">
+    <div class="panel-header d-flex justify-content-between align-items-center">
         <h4>Last Print Report</h4>
+        <div class="small text-muted">
+            @(ScanResult?.ScanTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "No data")
+        </div>
     </div>
     <div class="panel-body">
         @if (IsLoading)
@@ -21,18 +24,78 @@
             <div class="mb-3">
                 <PlatformInfoSection ScanResult="@ScanResult" />
             </div>
-            <div class="mb-3">
-                <SkuSummarySection ScanResult="@ScanResult" />
+            
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <div class="print-data-card">
+                        <SkuSummarySection ScanResult="@ScanResult" />
+                    </div>
+                </div>
             </div>
-            <div class="mb-3">
-                <ProductTotalsSection ScanResult="@ScanResult" />
+            
+           @* <div class="row mb-3">
+                <div class="col-md-6">
+                    <div class="print-data-card">
+                        <SummaryStatsSection ScanResult="@ScanResult" />
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="print-data-card">
+                        <ProductTotalsSection ScanResult="@ScanResult" />
+                    </div>
+                </div>
             </div>
+            *@
+            <div class="mb-3">
+                <div class="print-data-card">
+                    <PrintCourierSection ScanResult="@ScanResult" />
+                </div>
+            </div>
+            
             <div class="mb-3">
                 <UnusualOrdersSection ScanResult="@ScanResult" />
             </div>
         }
     </div>
 </div>
+
+<style>
+    .print-report-panel {
+        height: 100%;
+        overflow-y: auto;
+    }
+    
+    .print-data-card {
+        background-color: #f9f9f9;
+        border-radius: 6px;
+        border: 1px solid #e9ecef;
+        padding: 0.75rem;
+    }
+    
+    .loading-spinner {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100px;
+    }
+    
+    .loading-spinner:after {
+        content: " ";
+        display: block;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 6px solid #4AC0AD;
+        border-color: #4AC0AD transparent #4AC0AD transparent;
+        animation: spinner 1.2s linear infinite;
+    }
+}
+
+@@keyframes spinner {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
 
 @code {
     [Parameter] public bool IsLoading { get; set; }

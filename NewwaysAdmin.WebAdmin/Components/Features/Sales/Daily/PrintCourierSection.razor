@@ -1,0 +1,74 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+@using NewwaysAdmin.OrderProcessor
+@using System.Collections.Generic
+
+<div class="print-courier-section">
+    <h5>COURIER BREAKDOWN:</h5>
+
+    @if (ScanResult.CourierCounts?.Any() != true)
+    {
+        <div class="alert alert-info py-2 small">No courier data available</div>
+    }
+    else
+    {
+        <div class="courier-table">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Courier</th>
+                        <th>Count</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{
+                        var totalOrders = ScanResult.CourierCounts.Values.Sum();
+
+                        foreach (var courier in ScanResult.CourierCounts.OrderByDescending(c => c.Value))
+                        {
+                            var percentage = totalOrders > 0 ? Math.Round((double)courier.Value / totalOrders * 100, 1) : 0;
+                            var isUnknown = courier.Key.Contains("unknown", StringComparison.OrdinalIgnoreCase);
+
+                            <tr class="@(isUnknown ? "table-warning" : "")">
+                                <td class="@(isUnknown ? "fw-bold" : "")">
+                                    @if (isUnknown)
+                                    {
+                                        <i class="bi bi-question-circle-fill text-warning me-1" title="Unknown courier needs regex pattern update"></i>
+                                    }
+                                    @courier.Key
+                                </td>
+                                <td>@courier.Value</td>
+                                <td>@percentage%</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+                <tfoot>
+                    <tr class="table-active">
+                        <td><strong>Total</strong></td>
+                        <td><strong>@totalOrders</strong></td>
+                        <td><strong>100%</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    }
+</div>
+
+<style>
+    .print-courier-section h5 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        color: #495057;
+    }
+
+    .courier-table table {
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    [Parameter] public ScanResult ScanResult { get; set; } = null!;
+}

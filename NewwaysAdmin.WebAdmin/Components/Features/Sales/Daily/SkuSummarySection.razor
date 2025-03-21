@@ -1,5 +1,6 @@
 ﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
 @using NewwaysAdmin.OrderProcessor
+@using System.Text.RegularExpressions
 
 <div class="sku-summary">
     <h5>SKU SUMMARY:</h5>
@@ -7,7 +8,7 @@
         <table class="table table-sm">
             <thead>
                 <tr>
-                    @foreach (var skuEntry in ScanResult.SkuCounts)
+                    @foreach (var skuEntry in GetSortedSkus())
                     {
                         <th>@skuEntry.Key</th>
                     }
@@ -16,7 +17,7 @@
             </thead>
             <tbody>
                 <tr>
-                    @foreach (var skuEntry in ScanResult.SkuCounts)
+                    @foreach (var skuEntry in GetSortedSkus())
                     {
                         <td>@skuEntry.Value packs</td>
                     }
@@ -29,4 +30,26 @@
 
 @code {
     [Parameter] public ScanResult ScanResult { get; set; } = null!;
+
+    /// <summary>
+    /// Returns the SKU counts dictionary sorted numerically by SKU number
+    /// </summary>
+    private IEnumerable<KeyValuePair<string, int>> GetSortedSkus()
+    {
+        if (ScanResult?.SkuCounts == null)
+            return Enumerable.Empty<KeyValuePair<string, int>>();
+
+        // Extract numeric part of SKU for sorting
+        return ScanResult.SkuCounts
+            .OrderBy(kv =>
+            {
+                // Extract numeric part from the SKU
+                var match = Regex.Match(kv.Key, @"\d+");
+                if (match.Success && int.TryParse(match.Value, out var skuNumber))
+                    return skuNumber;
+
+                // If no number found or parsing fails, return int.MaxValue to sort these last
+                return int.MaxValue;
+            });
+    }
 }

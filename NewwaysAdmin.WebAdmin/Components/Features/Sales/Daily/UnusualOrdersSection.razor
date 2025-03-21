@@ -1,0 +1,60 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Features.Sales.Daily
+@using NewwaysAdmin.OrderProcessor
+@using System.Text.RegularExpressions
+
+@if (ScanResult.UnusualOrders?.Any() == true)
+{
+    <div class="unusual-orders alert alert-danger">
+        <h5 class="text-danger fw-bold mb-3">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            UNUSUAL ORDERS (QTY > 1):
+        </h5>
+        
+        <div class="unusual-table">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Order #</th>
+                        <th>Page</th>
+                        <th>SKU</th>
+                        <th>Quantity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var unusualOrder in GetSortedUnusualOrders())
+                    {
+                        <tr>
+                            <td>@(unusualOrder.OrderNumber ?? "-")</td>
+                            <td>@unusualOrder.PageNumber</td>
+                            <td>@unusualOrder.Sku</td>
+                            <td class="text-danger fw-bold">@unusualOrder.Quantity</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public ScanResult ScanResult { get; set; } = null!;
+    
+    private IEnumerable<UnusualSkuOrder> GetSortedUnusualOrders()
+    {
+        if (ScanResult?.UnusualOrders == null)
+            return Enumerable.Empty<UnusualSkuOrder>();
+            
+        // Sort by page number first, then by SKU number
+        return ScanResult.UnusualOrders
+            .OrderBy(o => o.PageNumber)
+            .ThenBy(o => {
+                // Extract numeric part from the SKU
+                var match = Regex.Match(o.Sku, @"\d+");
+                if (match.Success && int.TryParse(match.Value, out var skuNumber))
+                    return skuNumber;
+                    
+                // If no number found or parsing fails, return int.MaxValue to sort these last
+                return int.MaxValue;
+            });
+    }
+}
