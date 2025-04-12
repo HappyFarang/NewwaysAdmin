@@ -5,6 +5,7 @@ using NewwaysAdmin.IO.Manager;
 using Microsoft.Extensions.Logging;
 using NetEscapades.AspNetCore.SecurityHeaders;
 using NewwaysAdmin.Shared.Configuration;
+using NewwaysAdmin.Shared.IO.Structure;
 
 namespace NewwaysAdmin.Web
 {
@@ -42,6 +43,13 @@ namespace NewwaysAdmin.Web
                         ServerDefinitionsPath = config.ServerDefinitionsPath,
                         ApplicationName = "NewwaysAdmin"
                     };
+                });
+
+                // IMPORTANT: Register EnhancedStorageFactory before IOManager
+                builder.Services.AddSingleton<EnhancedStorageFactory>(sp =>
+                {
+                    var logger = sp.GetRequiredService<ILogger<EnhancedStorageFactory>>();
+                    return new EnhancedStorageFactory(logger);
                 });
 
                 builder.Services.AddSingleton<IOManager>();

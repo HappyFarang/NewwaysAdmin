@@ -146,6 +146,7 @@ public class Program
         services.AddModuleRegistry();
     }
 
+    /*
     private static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
     {
         // Basic Blazor services
@@ -227,7 +228,7 @@ public class Program
         // Module system
         services.AddModuleRegistry();
     }
-
+    */
     private static async Task ConfigureApplication(WebApplication app)
     {
         // Initialize core systems
