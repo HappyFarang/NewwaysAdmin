@@ -1,0 +1,201 @@
+﻿@page "/debug-auth"
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Services.Circuit
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Authentication
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@inject IAuthenticationService AuthService
+@inject ICircuitManager CircuitManager
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IHttpContextAccessor HttpContextAccessor
+@inject ILogger<DebugAuth> Logger
+
+<PageTitle>Debug Authentication</PageTitle>
+
+<div class="container mt-4">
+    <h2>Authentication Debug Information</h2>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Authentication State</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Is Authenticated:</strong> @_isAuthenticated</p>
+                    <p><strong>Username from Claims:</strong> @_usernameFromClaims</p>
+                    <p><strong>Authentication Type:</strong> @_authenticationType</p>
+
+                    <h6>All Claims:</h6>
+                    <ul>
+                        @if (_claims?.Any() == true)
+                        {
+                            @foreach (var claim in _claims)
+                            {
+                                <li><strong>@claim.Type:</strong> @claim.Value</li>
+                            }
+                        }
+                        else
+                        {
+                            <li>No claims found</li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Circuit & Connection Info</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Circuit ID:</strong> @_circuitId</p>
+                    <p><strong>Connection ID:</strong> @_connectionId</p>
+                    <p><strong>Current Session:</strong> @(_currentSession?.Username ?? "None")</p>
+                    @if (_currentSession != null)
+                    {
+                        <p><strong>Session Circuit:</strong> @_currentSession.CircuitId</p>
+                        <p><strong>Session Connection:</strong> @_currentSession.ConnectionId</p>
+                        <p><strong>Login Time:</strong> @_currentSession.LoginTime</p>
+                        <p><strong>Is Admin:</strong> @_currentSession.IsAdmin</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>User Database Info</h5>
+                </div>
+                <div class="card-body">
+                    @if (_userFromDb != null)
+                    {
+                        <p><strong>Username:</strong> @_userFromDb.Username</p>
+                        <p><strong>Is Admin:</strong> @_userFromDb.IsAdmin</p>
+                        <p><strong>Is Active:</strong> @_userFromDb.IsActive</p>
+                        <p><strong>Page Access Count:</strong> @_userFromDb.PageAccess.Count</p>
+
+                        <h6>Page Access:</h6>
+                        <ul>
+                            @foreach (var access in _userFromDb.PageAccess)
+                            {
+                                <li>@access.NavigationId: @access.AccessLevel</li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <p>No user found in database</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <button class="btn btn-primary" @onclick="RefreshData">Refresh Data</button>
+            <button class="btn btn-secondary" @onclick="TestLogin">Test Re-Login</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _isAuthenticated;
+    private string? _usernameFromClaims;
+    private string? _authenticationType;
+    private List<Claim>? _claims;
+    private string? _circuitId;
+    private string? _connectionId;
+    private UserSession? _currentSession;
+    private User? _userFromDb;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        try
+        {
+            // Get authentication state
+            if (AuthState != null)
+            {
+                var authState = await AuthState;
+                _isAuthenticated = authState.User.Identity?.IsAuthenticated ?? false;
+                _usernameFromClaims = authState.User.Identity?.Name;
+                _authenticationType = authState.User.Identity?.AuthenticationType;
+                _claims = authState.User.Claims.ToList();
+
+                Logger.LogInformation("Auth state - IsAuth: {IsAuth}, Username: {Username}",
+                    _isAuthenticated, _usernameFromClaims);
+            }
+
+            // Get circuit and connection info
+            _circuitId = CircuitManager.GetCurrentCircuitId();
+            _connectionId = HttpContextAccessor.HttpContext?.Connection.Id;
+
+            Logger.LogInformation("Circuit ID: {CircuitId}, Connection ID: {ConnectionId}",
+                _circuitId, _connectionId);
+
+            // Get current session
+            _currentSession = await AuthService.GetCurrentSessionAsync();
+            Logger.LogInformation("Current session: {Session}",
+                _currentSession?.Username ?? "None");
+
+            // Get user from database
+            if (!string.IsNullOrEmpty(_usernameFromClaims))
+            {
+                _userFromDb = await AuthService.GetUserByNameAsync(_usernameFromClaims);
+                Logger.LogInformation("User from DB: {User}", _userFromDb?.Username ?? "None");
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error refreshing debug data");
+        }
+    }
+
+    private async Task TestLogin()
+    {
+        try
+        {
+            // This is a hack to test - you should use proper credentials
+            var loginResult = await AuthService.LoginAsync(new LoginModel
+                {
+                    Username = "Superfox",
+                    Password = "Admin75"
+                });
+
+            Logger.LogInformation("Login result: {Success}, Error: {Error}",
+                loginResult.success, loginResult.error);
+
+            if (loginResult.success)
+            {
+                // Refresh the authentication state
+                if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                {
+                    var session = await AuthService.GetCurrentSessionAsync();
+                    await customProvider.NotifyUserAuthenticationAsync(session);
+                }
+            }
+
+            await RefreshData();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during test login");
+        }
+    }
+}

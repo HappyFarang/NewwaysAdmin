@@ -109,6 +109,9 @@
             var authState = await AuthState;
             var user = authState.User;
 
+            Logger.LogInformation("RefreshNavigationItems - User authenticated: {IsAuth}, Name: {Name}",
+                user.Identity?.IsAuthenticated, user.Identity?.Name);
+
             if (user.Identity?.IsAuthenticated ?? false)
             {
                 var identity = user.Identity as System.Security.Claims.ClaimsIdentity;
@@ -117,28 +120,40 @@
                 if (username != null)
                 {
                     var currentUser = await AuthService.GetUserByNameAsync(username);
+                    Logger.LogInformation("Found user: {Username}, IsAdmin: {IsAdmin}",
+                        currentUser?.Username, currentUser?.IsAdmin);
 
                     if (currentUser != null)
                     {
-                        _navigationItems = await NavigationService.GetUserNavigationItemsAsync(currentUser);
+                        // Get user navigation items and filter out sub-modules for main nav
+                        var allNavItems = await NavigationService.GetUserNavigationItemsAsync(currentUser);
+
+                        // Only show main modules in the side navigation (exclude sub-modules)
+                        _navigationItems = allNavItems
+                            .Where(item => !item.Id.Contains('.')) // Filter out sub-modules (they contain dots)
+                            .ToList();
+
+                        Logger.LogInformation("Filtered navigation items: {Count} main modules", _navigationItems.Count);
                     }
                     else
                     {
+                        Logger.LogWarning("User not found in database: {Username}", username);
                         _navigationItems.Clear();
                     }
                 }
                 else
                 {
+                    Logger.LogWarning("No username found in claims");
                     _navigationItems.Clear();
                 }
             }
             else
             {
+                Logger.LogInformation("User not authenticated");
                 _navigationItems.Clear();
             }
 
             StateHasChanged();
-            // NavigationManager.NavigateTo("/login");
         }
         catch (Exception ex)
         {

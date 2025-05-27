@@ -1,0 +1,173 @@
+﻿@page "/debug-nav"
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Services.Navigation
+@using NewwaysAdmin.WebAdmin.Services.Modules
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Models.Navigation
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IAuthenticationService AuthService
+@inject INavigationService NavigationService
+@inject IModuleRegistry ModuleRegistry
+@inject ILogger<DebugNav> Logger
+
+<PageTitle>Debug Navigation</PageTitle>
+
+<div class="container mt-4">
+    <h2>Navigation Debug Information</h2>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Current User Info</h5>
+                </div>
+                <div class="card-body">
+                    @if (_currentUser != null)
+                    {
+                        <p><strong>Username:</strong> @_currentUser.Username</p>
+                        <p><strong>Is Admin:</strong> @_currentUser.IsAdmin</p>
+                        <p><strong>Is Active:</strong> @_currentUser.IsActive</p>
+                        <p><strong>Page Access Count:</strong> @_currentUser.PageAccess.Count</p>
+
+                        <h6>Page Access Details:</h6>
+                        <ul>
+                            @foreach (var access in _currentUser.PageAccess)
+                            {
+                                <li>@access.NavigationId: @access.AccessLevel</li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <p>No current user found</p>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>All Registered Modules</h5>
+                </div>
+                <div class="card-body">
+                    @if (_allModules?.Any() == true)
+                    {
+                        <ul>
+                            @foreach (var module in _allModules)
+                            {
+                                <li>
+                                    <strong>@module.Id</strong> - @module.Name
+                                    <br><small>Path: @module.Path, Active: @module.IsActive</small>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <p>No modules found</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>User's Available Navigation Items</h5>
+                </div>
+                <div class="card-body">
+                    @if (_userNavigationItems?.Any() == true)
+                    {
+                        <ul>
+                            @foreach (var item in _userNavigationItems)
+                            {
+                                <li>
+                                    <strong>@item.Id</strong> - @item.Name
+                                    <br><small>Path: @item.Path, Icon: @item.Icon</small>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <p>No navigation items available for current user</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Module Definitions</h5>
+                </div>
+                <div class="card-body">
+                    <h6>Main Modules:</h6>
+                    <ul>
+                        @foreach (var module in ModuleDefinitions.GetModules())
+                        {
+                            <li>@module.Id - @module.Name (@module.Path)</li>
+                        }
+                    </ul>
+
+                    <h6>Accounting Sub-modules:</h6>
+                    <ul>
+                        @foreach (var module in ModuleDefinitions.GetAccountingSubModules())
+                        {
+                            <li>@module.Id - @module.Name (@module.Path)</li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private User? _currentUser;
+    private List<NavigationItem>? _allModules;
+    private List<NavigationItem>? _userNavigationItems;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Get current user
+            if (AuthState != null)
+            {
+                var authState = await AuthState;
+                var username = authState.User.Identity?.Name;
+
+                if (!string.IsNullOrEmpty(username))
+                {
+                    _currentUser = await AuthService.GetUserByNameAsync(username);
+                    Logger.LogInformation("Current user: {Username}, IsAdmin: {IsAdmin}",
+                        _currentUser?.Username, _currentUser?.IsAdmin);
+                }
+            }
+
+            // Get all registered modules
+            _allModules = await ModuleRegistry.GetRegisteredModulesAsync();
+            Logger.LogInformation("Found {Count} registered modules", _allModules?.Count ?? 0);
+
+            // Get user's navigation items
+            if (_currentUser != null)
+            {
+                _userNavigationItems = await NavigationService.GetUserNavigationItemsAsync(_currentUser);
+                Logger.LogInformation("User has access to {Count} navigation items", _userNavigationItems?.Count ?? 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in debug navigation");
+        }
+    }
+}

@@ -1,21 +1,47 @@
 ﻿@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@inject IAuthenticationService AuthService
+@inject ILogger<AuthorizePage> Logger
 
-<AuthorizeView Policy="@Policy">
+<AuthorizeView>
     <Authorized>
-        @ChildContent
+        @if (_hasAccess)
+        {
+            @ChildContent
+        }
+        else
+        {
+            <div class="container mt-5">
+                <div class="row justify-content-center">
+                    <div class="col-md-6">
+                        <div class="card border-warning">
+                            <div class="card-body text-center">
+                                <i class="bi bi-shield-exclamation display-1 text-warning"></i>
+                                <h2 class="mt-3 text-warning">Access Denied</h2>
+                                <p class="text-muted">You don't have permission to access this page.</p>
+                                <p class="text-muted">Page ID: @PageId, Required Level: @MinimumLevel</p>
+                                <p class="text-muted">Please contact your administrator if you believe this is an error.</p>
+                                <a href="/home" class="btn btn-primary">Return to Home</a>
+                                <a href="/debug-auth" class="btn btn-secondary">Debug Auth</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
     </Authorized>
     <NotAuthorized>
         <div class="container mt-5">
             <div class="row justify-content-center">
                 <div class="col-md-6">
-                    <div class="card border-warning">
+                    <div class="card border-danger">
                         <div class="card-body text-center">
-                            <i class="bi bi-shield-exclamation display-1 text-warning"></i>
-                            <h2 class="mt-3 text-warning">Access Denied</h2>
-                            <p class="text-muted">You don't have permission to access this page.</p>
-                            <p class="text-muted">Please contact your administrator if you believe this is an error.</p>
-                            <a href="/home" class="btn btn-primary">Return to Home</a>
+                            <i class="bi bi-person-x display-1 text-danger"></i>
+                            <h2 class="mt-3 text-danger">Not Authenticated</h2>
+                            <p class="text-muted">You must be logged in to access this page.</p>
+                            <a href="/login" class="btn btn-primary">Login</a>
                         </div>
                     </div>
                 </div>
@@ -29,5 +55,79 @@
     [Parameter] public AccessLevel MinimumLevel { get; set; } = AccessLevel.Read;
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
-    private string Policy => !string.IsNullOrEmpty(PageId) ? $"Page_{PageId}_{MinimumLevel}" : "";
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _hasAccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckAccess();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await CheckAccess();
+    }
+
+    private async Task CheckAccess()
+    {
+        try
+        {
+            if (AuthState == null || string.IsNullOrEmpty(PageId))
+            {
+                _hasAccess = false;
+                return;
+            }
+
+            var authState = await AuthState;
+            if (!(authState.User.Identity?.IsAuthenticated ?? false))
+            {
+                _hasAccess = false;
+                return;
+            }
+
+            var username = authState.User.Identity.Name;
+            if (string.IsNullOrEmpty(username))
+            {
+                _hasAccess = false;
+                return;
+            }
+
+            var user = await AuthService.GetUserByNameAsync(username);
+            if (user == null || !user.IsActive)
+            {
+                Logger.LogWarning("User not found or inactive: {Username}", username);
+                _hasAccess = false;
+                return;
+            }
+
+            // Admin users have access to everything
+            if (user.IsAdmin)
+            {
+                Logger.LogInformation("Admin user {Username} granted access to page {PageId}", username, PageId);
+                _hasAccess = true;
+                return;
+            }
+
+            // Check specific page access
+            var pageAccess = user.PageAccess.FirstOrDefault(p => p.NavigationId == PageId);
+            if (pageAccess != null && pageAccess.AccessLevel >= MinimumLevel)
+            {
+                Logger.LogInformation("User {Username} has access to page {PageId} with level {Level}",
+                    username, PageId, pageAccess.AccessLevel);
+                _hasAccess = true;
+                return;
+            }
+
+            Logger.LogWarning("User {Username} denied access to page {PageId}. Required: {Required}, Has: {Has}",
+                username, PageId, MinimumLevel, pageAccess?.AccessLevel ?? AccessLevel.None);
+            _hasAccess = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error checking access for page {PageId}", PageId);
+            _hasAccess = false;
+        }
+    }
 }
