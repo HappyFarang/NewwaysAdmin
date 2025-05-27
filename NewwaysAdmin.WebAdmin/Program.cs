@@ -139,7 +139,7 @@ public class Program
         services.AddAuthorizationCore(options =>
         {
             // Create policies for each module and access level combination
-            var modules = new[] { "home", "test", "settings", "sales", "bankslip" };
+            var modules = new[] { "home", "test", "settings", "sales", "bankslip" }; // Added bankslip
             var accessLevels = new[] { AccessLevel.Read, AccessLevel.ReadWrite };
 
             foreach (var module in modules)

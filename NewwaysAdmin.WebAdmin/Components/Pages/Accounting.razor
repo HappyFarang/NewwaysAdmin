@@ -1,0 +1,211 @@
+﻿@page "/accounting"
+@page "/accounting/{SubModule?}"
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Services.Modules
+@using NewwaysAdmin.WebAdmin.Components.Security
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IAuthenticationService AuthService
+@inject NavigationManager Navigation
+@inject ILogger<Accounting> Logger
+
+<AuthorizePage PageId="accounting" MinimumLevel="AccessLevel.Read">
+    <PageTitle>Accounting</PageTitle>
+
+    <div class="page-container">
+        <div class="toolbar-wrapper">
+            <div class="toolbar">
+                <div class="toolbar-buttons">
+                    @foreach (var subModule in _availableSubModules)
+                    {
+                        var isActive = string.Equals(_currentSubModule, subModule.Id.Split('.').Last(), StringComparison.OrdinalIgnoreCase);
+                        <button class="btn @(isActive ? "active" : "")"
+                                @onclick="() => NavigateToSubModule(subModule.Id.Split('.').Last())">
+                            <i class="@subModule.Icon me-1"></i>
+                            @subModule.Name
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <div class="content-wrapper">
+            @if (string.IsNullOrEmpty(_currentSubModule))
+            {
+                <!-- Accounting Dashboard/Overview -->
+                <div class="row">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body">
+                                <h4>Accounting Dashboard</h4>
+                                <p class="text-muted">Welcome to the accounting module. Select a tool from the toolbar above to get started.</p>
+                                
+                                <div class="row mt-4">
+                                    @foreach (var subModule in _availableSubModules)
+                                    {
+                                        <div class="col-md-4 mb-3">
+                                            <div class="card h-100" style="cursor: pointer;" @onclick="() => NavigateToSubModule(subModule.Id.Split('.').Last())">
+                                                <div class="card-body text-center">
+                                                    <i class="@subModule.Icon display-4 text-primary mb-3"></i>
+                                                    <h5 class="card-title">@subModule.Name</h5>
+                                                    <p class="card-text text-muted">@subModule.Description</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* Render the appropriate sub-module component *@
+                @switch (_currentSubModule.ToLower())
+                {
+                    case "bankslips":
+                        @if (HasSubModuleAccess("accounting.bankslips"))
+                        {
+                            <BankSlipsView Config="_bankSlipsConfig" />
+                        }
+                        else
+                        {
+                            <AccessDeniedMessage ModuleName="Bank Slips" />
+                        }
+                        break;
+                        
+                    case "reports":
+                        @if (HasSubModuleAccess("accounting.reports"))
+                        {
+                            <AccountingReportsView />
+                        }
+                        else
+                        {
+                            <AccessDeniedMessage ModuleName="Reports" />
+                        }
+                        break;
+                        
+                    case "reconcile":
+                        @if (HasSubModuleAccess("accounting.reconcile"))
+                        {
+                            <ReconciliationView />
+                        }
+                        else
+                        {
+                            <AccessDeniedMessage ModuleName="Reconciliation" />
+                        }
+                        break;
+                        
+                    default:
+                        <div class="alert alert-warning">
+                            <h4>Module Not Found</h4>
+                            <p>The requested accounting module was not found.</p>
+                            <button class="btn btn-primary" @onclick="() => NavigateToSubModule(null)">
+                                Return to Accounting Dashboard
+                            </button>
+                        </div>
+                        break;
+                }
+            }
+        </div>
+    </div>
+</AuthorizePage>
+
+@* Access Denied Component *@
+<div style="display: none;">
+@code {
+    private static RenderFragment<string> AccessDeniedMessage = (moduleName) => __builder =>
+    {
+        <div class="alert alert-warning">
+            <h4>Access Denied</h4>
+            <p>You don't have permission to access the @moduleName module.</p>
+            <p>Please contact your administrator to request access.</p>
+        </div>
+    };
+}
+</div>
+
+@code {
+    [Parameter] public string? SubModule { get; set; }
+    
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string? _currentSubModule;
+    private List<NavigationItem> _availableSubModules = new();
+    private User? _currentUser;
+    private UserModuleConfig? _bankSlipsConfig;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadUserAndPermissions();
+            _currentSubModule = SubModule;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error initializing Accounting page");
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _currentSubModule = SubModule;
+        StateHasChanged();
+    }
+
+    private async Task LoadUserAndPermissions()
+    {
+        if (AuthState == null) return;
+
+        var authState = await AuthState;
+        var username = authState.User.Identity?.Name;
+        
+        if (!string.IsNullOrEmpty(username))
+        {
+            _currentUser = await AuthService.GetUserByNameAsync(username);
+            if (_currentUser != null)
+            {
+                // Load available sub-modules based on user permissions
+                _availableSubModules = ModuleDefinitions.GetAccountingSubModules()
+                    .Where(subModule => HasSubModuleAccess(subModule.Id))
+                    .ToList();
+
+                // Load module-specific configurations
+                _currentUser.ModuleConfigs.TryGetValue("accounting.bankslips", out _bankSlipsConfig);
+            }
+        }
+    }
+
+    private bool HasSubModuleAccess(string subModuleId)
+    {
+        if (_currentUser == null) return false;
+        
+        // Admin has access to everything
+        if (_currentUser.IsAdmin) return true;
+        
+        return ModuleDefinitions.HasAccountingSubModuleAccess(_currentUser, subModuleId);
+    }
+
+    private void NavigateToSubModule(string? subModuleId)
+    {
+        if (string.IsNullOrEmpty(subModuleId))
+        {
+            Navigation.NavigateTo("/accounting");
+        }
+        else
+        {
+            Navigation.NavigateTo($"/accounting/{subModuleId}");
+        }
+    }
+}
+
+@* Placeholder components - you'll create these separately *@
+<div style="display: none;">
+    @* These will be separate components you'll create *@
+    @* <BankSlipsView /> *@
+    @* <AccountingReportsView /> *@
+    @* <ReconciliationView /> *@
+</div>

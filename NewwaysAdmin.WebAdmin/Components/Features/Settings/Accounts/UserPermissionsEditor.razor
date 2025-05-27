@@ -1,4 +1,5 @@
 ﻿@using NewwaysAdmin.WebAdmin.Models.Auth
+@using NewwaysAdmin.WebAdmin.Models.Navigation
 @using NewwaysAdmin.WebAdmin.Services.Modules
 @using NewwaysAdmin.WebAdmin.Services.Auth
 @namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.Accounts
@@ -15,12 +16,45 @@
                     <DataAnnotationsValidator />
                     <ValidationSummary />
 
-                    @if (!string.IsNullOrEmpty(_validationMessage))
-                    {
-                        <div class="alert alert-danger">
-                            @_validationMessage
-                        </div>
-                    }
+                    
+@if
+ 
+(
+!
+string
+.
+IsNullOrEmpty
+(
+_validationMessage
+)
+)
+
+                    
+{
+
+                        
+<
+div
+ 
+class
+=
+"
+alert alert-danger
+"
+>
+
+                            
+@
+_validationMessage
+
+                        
+</
+div
+>
+
+                    
+}
+
 
                     <!-- Basic User Info -->
                     <div class="row mb-4">
@@ -36,15 +70,90 @@
                         </div>
                     </div>
 
-                    @if (IsNewUser)
-                    {
-                        <div class="row mb-4">
-                            <div class="col-md-6">
-                                <label class="form-label">Password</label>
-                                <InputText type="password" @bind-Value="Password" class="form-control" />
-                            </div>
-                        </div>
-                    }
+                    
+@if
+ 
+(
+IsNewUser
+)
+
+                    
+{
+
+                        
+<
+div
+ 
+class
+=
+"
+row mb-4
+"
+>
+
+                            
+<
+div
+ 
+class
+=
+"
+col-md-6
+"
+>
+
+                                
+<
+label
+ 
+class
+=
+"
+form-label
+"
+>
+Password
+</
+label
+>
+
+                                
+<
+InputText
+ 
+type
+=
+"
+password
+"
+ 
+@bind-Value
+=
+"
+Password
+"
+ 
+class
+=
+"
+form-control
+"
+ 
+/>
+
+                            
+</
+div
+>
+
+                        
+</
+div
+>
+
+                    
+}
+
 
                     <!-- Page Permissions -->
                     <div class="card mb-4">
@@ -55,34 +164,468 @@
                             <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Page</th>
+                                        <th>Module</th>
                                         <th>Access Level</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var module in ModuleDefinitions.GetModules())
-                                    {
-                                        var pageAccess = Model.PageAccess.FirstOrDefault(p => p.NavigationId == module.Id);
-                                        var currentLevel = pageAccess?.AccessLevel ?? AccessLevel.None;
+                                    @* Main modules *@
+                                    
+@foreach
+ 
+(
+var
+ module 
+in
+ ModuleDefinitions
+.
+GetModules
+(
+)
+)
 
-                                        <tr>
-                                            <td>
-                                                <div class="d-flex align-items-center">
-                                                    <i class="@module.Icon me-2"></i>
-                                                    @module.Name
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <select class="form-select"
-                                                        value="@currentLevel"
-                                                        @onchange="@(e => UpdatePageAccess(module.Id, Enum.Parse<AccessLevel>(e.Value?.ToString() ?? "None")))">
-                                                    <option value="@AccessLevel.None">No Access</option>
-                                                    <option value="@AccessLevel.Read">Read Only</option>
-                                                    <option value="@AccessLevel.ReadWrite">Read & Write</option>
-                                                </select>
-                                            </td>
-                                        </tr>
-                                    }
+                                    
+{
+
+                                        
+var
+ pageAccess 
+=
+ Model
+.
+PageAccess
+.
+FirstOrDefault
+(
+p 
+=>
+ p
+.
+NavigationId 
+==
+ module
+.
+Id
+)
+;
+
+                                        
+var
+ currentLevel 
+=
+ pageAccess
+?.
+AccessLevel 
+??
+ AccessLevel
+.
+None
+;
+
+
+                                        
+<
+tr
+>
+
+                                            
+<
+td
+>
+
+                                                
+<
+div
+ 
+class
+=
+"
+d-flex align-items-center
+"
+>
+
+                                                    
+<
+i
+ 
+class
+=
+"
+@module.Icon me-2
+"
+>
+</
+i
+>
+
+                                                    
+<
+strong
+>
+@
+module
+.
+Name
+</
+strong
+>
+
+                                                
+</
+div
+>
+
+                                            
+</
+td
+>
+
+                                            
+<
+td
+>
+
+                                                
+<
+select
+ 
+class
+=
+"
+form-select
+"
+
+                                                        
+value
+=
+"
+@currentLevel
+"
+
+                                                        
+@onchange
+=
+"
+@(e => UpdatePageAccess(module.Id, Enum.Parse<AccessLevel>(e.Value?.ToString() ?? 
+"
+None")))"
+>
+
+                                                    
+<
+option
+ 
+value
+=
+"
+@AccessLevel.None
+"
+>
+No Access
+</
+option
+>
+
+                                                    
+<
+option
+ 
+value
+=
+"
+@AccessLevel.Read
+"
+>
+Read Only
+</
+option
+>
+
+                                                    
+<
+option
+ 
+value
+=
+"
+@AccessLevel.ReadWrite
+"
+>
+Read & Write
+</
+option
+>
+
+                                                
+</
+select
+>
+
+                                            
+</
+td
+>
+
+                                        
+</
+tr
+>
+
+                                        
+                                        @
+*
+ Show accounting sub
+-
+modules 
+if
+ user has accounting access 
+*
+@
+                                        @
+if
+ 
+(
+module
+.
+Id 
+==
+ 
+"accounting"
+ 
+&&
+ currentLevel 
+!=
+ AccessLevel
+.
+None
+)
+
+                                        
+{
+
+                                            @
+foreach
+ 
+(
+var
+ subModule 
+in
+ ModuleDefinitions
+.
+GetAccountingSubModules
+(
+)
+)
+
+                                            
+{
+
+                                                
+var
+ subPageAccess 
+=
+ Model
+.
+PageAccess
+.
+FirstOrDefault
+(
+p 
+=>
+ p
+.
+NavigationId 
+==
+ subModule
+.
+Id
+)
+;
+
+                                                
+var
+ subCurrentLevel 
+=
+ subPageAccess
+?.
+AccessLevel 
+??
+ AccessLevel
+.
+None
+;
+
+
+                                                
+<
+tr
+ 
+class
+=
+"
+table-light
+"
+>
+
+                                                    
+<
+td
+>
+
+                                                        
+<
+div
+ 
+class
+=
+"
+d-flex align-items-center ps-4
+"
+>
+
+                                                            
+<
+i
+ 
+class
+=
+"
+@subModule.Icon me-2 text-muted
+"
+>
+</
+i
+>
+
+                                                            
+<
+span
+ 
+class
+=
+"
+text-muted
+"
+>
+↳ 
+@
+subModule
+.
+Name
+</
+span
+>
+
+                                                        
+</
+div
+>
+
+                                                    
+</
+td
+>
+
+                                                    
+<
+td
+>
+
+                                                        
+<
+select
+ 
+class
+=
+"
+form-select form-select-sm
+"
+
+                                                                
+value
+=
+"
+@subCurrentLevel
+"
+
+                                                                
+@onchange
+=
+"
+@(e => UpdatePageAccess(subModule.Id, Enum.Parse<AccessLevel>(e.Value?.ToString() ?? 
+"
+None")))"
+>
+
+                                                            
+<
+option
+ 
+value
+=
+"
+@AccessLevel.None
+"
+>
+No Access
+</
+option
+>
+
+                                                            
+<
+option
+ 
+value
+=
+"
+@AccessLevel.Read
+"
+>
+Read Only
+</
+option
+>
+
+                                                            
+<
+option
+ 
+value
+=
+"
+@AccessLevel.ReadWrite
+"
+>
+Read & Write
+</
+option
+>
+
+                                                        
+</
+select
+>
+
+                                                    
+</
+td
+>
+
+                                                
+</
+tr
+>
+
+                                            
+}
+
+                                        
+}
+
+                                    
+}
+
                                 </tbody>
                             </table>
                         </div>
@@ -95,66 +638,765 @@
                             <small class="text-muted">Configure module-specific settings for this user</small>
                         </div>
                         <div class="card-body">
-                            @foreach (var module in GetModulesWithConfigs())
-                            {
-                                var hasAccess = Model.PageAccess.Any(p => p.NavigationId == module.Id && p.AccessLevel != AccessLevel.None);
-                                var moduleConfig = Model.ModuleConfigs.GetValueOrDefault(module.Id);
+                            
+@foreach
+ 
+(
+var
+ module 
+in
+ 
+GetModulesWithConfigs
+(
+)
+)
 
-                                <div class="module-config-section mb-4 p-3 border rounded @(hasAccess ? "" : "bg-light")">
-                                    <div class="d-flex justify-content-between align-items-center mb-3">
-                                        <div class="d-flex align-items-center">
-                                            <i class="@module.Icon me-2"></i>
-                                            <strong>@module.Name</strong>
-                                            @if (!hasAccess)
-                                            {
-                                                <span class="badge bg-warning ms-2">No Page Access</span>
-                                            }
-                                        </div>
-                                        @if (hasAccess)
-                                        {
-                                            <div class="form-check form-switch">
-                                                <input class="form-check-input" type="checkbox"
-                                                       checked="@(moduleConfig?.IsEnabled ?? false)"
-                                                       @onchange="@(e => ToggleModuleConfig(module.Id, (bool)e.Value!))" />
-                                                <label class="form-check-label">Enable Module</label>
-                                            </div>
-                                        }
-                                    </div>
+                            
+{
 
-                                    @if (hasAccess && (moduleConfig?.IsEnabled ?? false))
-                                    {
-                                        <div class="module-settings">
-                                            @if (module.Id == "bankslip")
-                                            {
-                                                <div class="row">
-                                                    <div class="col-md-6">
-                                                        <label class="form-label">Source Directory</label>
-                                                        <input type="text" class="form-control"
-                                                               value="@(moduleConfig?.Settings.GetValueOrDefault("SourceDirectory", ""))"
-                                                               @onchange="@(e => UpdateModuleSetting(module.Id, "SourceDirectory", e.Value?.ToString() ?? ""))"
-                                                               placeholder="e.g., /path/to/bank/slips" />
-                                                        <small class="form-text text-muted">Directory where bank slip images are stored</small>
-                                                    </div>
-                                                    <div class="col-md-6">
-                                                        <label class="form-label">Output Directory</label>
-                                                        <input type="text" class="form-control"
-                                                               value="@(moduleConfig?.Settings.GetValueOrDefault("OutputDirectory", ""))"
-                                                               @onchange="@(e => UpdateModuleSetting(module.Id, "OutputDirectory", e.Value?.ToString() ?? ""))"
-                                                               placeholder="e.g., /path/to/processed/output" />
-                                                        <small class="form-text text-muted">Directory for processed files and CSV outputs</small>
-                                                    </div>
-                                                </div>
-                                            }
-                                            @* Add other module configurations here as needed *@
-                                        </div>
-                                    }
+                                
+var
+ hasAccess 
+=
+ Model
+.
+PageAccess
+.
+Any
+(
+p 
+=>
+ p
+.
+NavigationId 
+==
+ module
+.
+Id 
+&&
+ p
+.
+AccessLevel 
+!=
+ AccessLevel
+.
+None
+)
+;
 
-                                    @if (!hasAccess)
-                                    {
-                                        <p class="text-muted mb-0">Grant page access first to configure this module.</p>
-                                    }
-                                </div>
-                            }
+                                
+var
+ moduleConfig 
+=
+ Model
+.
+ModuleConfigs
+.
+GetValueOrDefault
+(
+module
+.
+Id
+)
+;
+
+
+                                
+<
+div
+ 
+class
+=
+"
+module-config-section mb-4 p-3 border rounded @(hasAccess ? 
+"
+"
+ 
+:
+ 
+"bg-light")"
+>
+
+                                    
+<
+div
+ 
+class
+=
+"
+d-flex justify-content-between align-items-center mb-3
+"
+>
+
+                                        
+<
+div
+ 
+class
+=
+"
+d-flex align-items-center
+"
+>
+
+                                            
+<
+i
+ 
+class
+=
+"
+@module.Icon me-2
+"
+>
+</
+i
+>
+
+                                            
+<
+strong
+>
+@
+module
+.
+Name
+</
+strong
+>
+
+                                            
+@if
+ 
+(
+!
+hasAccess
+)
+
+                                            
+{
+
+                                                
+<
+span
+ 
+class
+=
+"
+badge bg-warning ms-2
+"
+>
+No Page Access
+</
+span
+>
+
+                                            
+}
+
+                                        
+</
+div
+>
+
+                                        
+@if
+ 
+(
+hasAccess
+)
+
+                                        
+{
+
+                                            
+<
+div
+ 
+class
+=
+"
+form-check form-switch
+"
+>
+
+                                                
+<
+input
+ 
+class
+=
+"
+form-check-input
+"
+ 
+type
+=
+"
+checkbox
+"
+
+                                                       
+checked
+=
+"
+@(moduleConfig?.IsEnabled ?? false)
+"
+
+                                                       
+@onchange
+=
+"
+@(e => ToggleModuleConfig(module.Id, (bool)e.Value!))
+"
+ 
+/>
+
+                                                
+<
+label
+ 
+class
+=
+"
+form-check-label
+"
+>
+Enable Module
+</
+label
+>
+
+                                            
+</
+div
+>
+
+                                        
+}
+
+                                    
+</
+div
+>
+
+
+                                    
+@if
+ 
+(
+hasAccess 
+&&
+ 
+(
+moduleConfig
+?.
+IsEnabled 
+??
+ 
+false
+)
+)
+
+                                    
+{
+
+                                        
+<
+div
+ 
+class
+=
+"
+module-settings
+"
+>
+
+                                            
+@if
+ 
+(
+module
+.
+Id 
+==
+ 
+"accounting.bankslips"
+)
+
+                                            
+{
+
+                                                
+<
+div
+ 
+class
+=
+"
+row
+"
+>
+
+                                                    
+<
+div
+ 
+class
+=
+"
+col-md-6
+"
+>
+
+                                                        
+<
+label
+ 
+class
+=
+"
+form-label
+"
+>
+Source Directory
+</
+label
+>
+
+                                                        
+<
+input
+ 
+type
+=
+"
+text
+"
+ 
+class
+=
+"
+form-control
+"
+
+                                                               
+value
+=
+"
+@(moduleConfig?.Settings.GetValueOrDefault(
+"
+SourceDirectory",
+ 
+""))"
+
+                                                               
+@onchange
+=
+"
+@(e => UpdateModuleSetting(module.Id, 
+"
+SourceDirectory",
+ 
+e.Value?.ToString()
+ 
+??
+ 
+""))"
+
+                                                               
+placeholder
+=
+"
+e.g., G:\transfers\slips
+"
+ 
+/>
+
+                                                        
+<
+small
+ 
+class
+=
+"
+form-text text-muted
+"
+>
+Directory where bank slip images are stored
+</
+small
+>
+
+                                                    
+</
+div
+>
+
+                                                    
+<
+div
+ 
+class
+=
+"
+col-md-6
+"
+>
+
+                                                        
+<
+label
+ 
+class
+=
+"
+form-label
+"
+>
+Output Directory
+</
+label
+>
+
+                                                        
+<
+input
+ 
+type
+=
+"
+text
+"
+ 
+class
+=
+"
+form-control
+"
+
+                                                               
+value
+=
+"
+@(moduleConfig?.Settings.GetValueOrDefault(
+"
+OutputDirectory",
+ 
+""))"
+
+                                                               
+@onchange
+=
+"
+@(e => UpdateModuleSetting(module.Id, 
+"
+OutputDirectory",
+ 
+e.Value?.ToString()
+ 
+??
+ 
+""))"
+
+                                                               
+placeholder
+=
+"
+e.g., G:\transfers\processed
+"
+ 
+/>
+
+                                                        
+<
+small
+ 
+class
+=
+"
+form-text text-muted
+"
+>
+Directory for processed files and CSV outputs
+</
+small
+>
+
+                                                    
+</
+div
+>
+
+                                                
+</
+div
+>
+
+                                                
+<
+div
+ 
+class
+=
+"
+row mt-3
+"
+>
+
+                                                    
+<
+div
+ 
+class
+=
+"
+col-md-6
+"
+>
+
+                                                        
+<
+label
+ 
+class
+=
+"
+form-label
+"
+>
+Google Cloud Credentials Path
+</
+label
+>
+
+                                                        
+<
+input
+ 
+type
+=
+"
+text
+"
+ 
+class
+=
+"
+form-control
+"
+
+                                                               
+value
+=
+"
+@(moduleConfig?.Settings.GetValueOrDefault(
+"
+CredentialsPath",
+ 
+""))"
+
+                                                               
+@onchange
+=
+"
+@(e => UpdateModuleSetting(module.Id, 
+"
+CredentialsPath",
+ 
+e.Value?.ToString()
+ 
+??
+ 
+""))"
+
+                                                               
+placeholder
+=
+"
+e.g., C:\keys\vision-api-key.json
+"
+ 
+/>
+
+                                                        
+<
+small
+ 
+class
+=
+"
+form-text text-muted
+"
+>
+Path to Google Cloud Vision API credentials
+</
+small
+>
+
+                                                    
+</
+div
+>
+
+                                                    
+<
+div
+ 
+class
+=
+"
+col-md-6
+"
+>
+
+                                                        
+<
+label
+ 
+class
+=
+"
+form-label
+"
+>
+Date Range (Days Back)
+</
+label
+>
+
+                                                        
+<
+input
+ 
+type
+=
+"
+number
+"
+ 
+class
+=
+"
+form-control
+"
+
+                                                               
+value
+=
+"
+@(moduleConfig?.Settings.GetValueOrDefault(
+"
+DaysBack",
+ 
+"30"))"
+
+                                                               
+@onchange
+=
+"
+@(e => UpdateModuleSetting(module.Id, 
+"
+DaysBack",
+ 
+e.Value?.ToString()
+ 
+??
+ 
+"30"))"
+
+                                                               
+min
+=
+"
+1
+"
+ 
+max
+=
+"
+365
+"
+ 
+/>
+
+                                                        
+<
+small
+ 
+class
+=
+"
+form-text text-muted
+"
+>
+How many days back to process bank slips
+</
+small
+>
+
+                                                    
+</
+div
+>
+
+                                                
+</
+div
+>
+
+                                            
+}
+
+                                            
+@* Add other module configurations here as needed *@
+
+                                        
+</
+div
+>
+
+                                    
+}
+
+
+                                    
+@if
+ 
+(
+!
+hasAccess
+)
+
+                                    
+{
+
+                                        
+<
+p
+ 
+class
+=
+"
+text-muted mb-0
+"
+>
+Grant page access first to configure this module.
+</
+p
+>
+
+                                    
+}
+
+                                
+</
+div
+>
+
+                            
+}
+
                         </div>
                     </div>
                 </div>
@@ -167,126 +1409,1013 @@
     </div>
 </div>
 
-@code {
-    [Parameter] public User Model { get; set; } = null!;
-    [Parameter] public bool IsNewUser { get; set; }
-    [Parameter] public EventCallback<User> OnSave { get; set; }
-    [Parameter] public EventCallback OnCancel { get; set; }
+@code
+ 
+{
 
-    private string Password { get; set; } = string.Empty;
-    private string? _validationMessage;
+    
+[
+Parameter
+]
+ 
+public
+ 
+User
+ Model 
+{
+ 
+get
+;
+ 
+set
+;
+ 
+}
+ 
+=
+ 
+null
+!
+;
 
-    // Define which modules need specific configurations
-    private readonly HashSet<string> _modulesWithConfigs = new() { "bankslip" };
+    
+[
+Parameter
+]
+ 
+public
+ 
+bool
+ IsNewUser 
+{
+ 
+get
+;
+ 
+set
+;
+ 
+}
 
-    private IEnumerable<NavigationItem> GetModulesWithConfigs()
-    {
-        return ModuleDefinitions.GetModules().Where(m => _modulesWithConfigs.Contains(m.Id));
-    }
+    
+[
+Parameter
+]
+ 
+public
+ 
+EventCallback
+<
+User
+>
+ OnSave 
+{
+ 
+get
+;
+ 
+set
+;
+ 
+}
 
-    private void UpdatePageAccess(string navigationId, AccessLevel level)
-    {
-        var existingAccess = Model.PageAccess.FirstOrDefault(p => p.NavigationId == navigationId);
+    
+[
+Parameter
+]
+ 
+public
+ 
+EventCallback
+ OnCancel 
+{
+ 
+get
+;
+ 
+set
+;
+ 
+}
 
-        if (existingAccess != null)
-        {
-            existingAccess.AccessLevel = level;
-        }
-        else if (level != AccessLevel.None)
-        {
-            Model.PageAccess.Add(new UserPageAccess
-                {
-                    NavigationId = navigationId,
-                    AccessLevel = level
-                });
-        }
 
-        // If removing page access, also disable the module config
-        if (level == AccessLevel.None && Model.ModuleConfigs.ContainsKey(navigationId))
-        {
-            Model.ModuleConfigs[navigationId].IsEnabled = false;
-        }
+    
+private
+ 
+string
+ Password 
+{
+ 
+get
+;
+ 
+set
+;
+ 
+}
+ 
+=
+ 
+string
+.
+Empty
+;
 
-        StateHasChanged();
-    }
+    
+private
+ 
+string
+?
+ _validationMessage
+;
 
-    private void ToggleModuleConfig(string moduleId, bool isEnabled)
-    {
-        if (!Model.ModuleConfigs.ContainsKey(moduleId))
-        {
-            Model.ModuleConfigs[moduleId] = new UserModuleConfig
-                {
-                    ModuleId = moduleId,
-                    IsEnabled = isEnabled,
-                    ConfiguredAt = DateTime.UtcNow,
-                    ConfiguredBy = "Admin", // TODO: Get current user
-                    Settings = new Dictionary<string, string>()
-                };
-        }
-        else
-        {
-            Model.ModuleConfigs[moduleId].IsEnabled = isEnabled;
-        }
 
-        StateHasChanged();
-    }
+    
+// Define which modules need specific configurations
 
-    private void UpdateModuleSetting(string moduleId, string settingKey, string value)
-    {
-        if (!Model.ModuleConfigs.ContainsKey(moduleId))
-        {
-            Model.ModuleConfigs[moduleId] = new UserModuleConfig
-                {
-                    ModuleId = moduleId,
-                    IsEnabled = true,
-                    ConfiguredAt = DateTime.UtcNow,
-                    ConfiguredBy = "Admin", // TODO: Get current user
-                    Settings = new Dictionary<string, string>()
-                };
-        }
+    
+private
+ 
+readonly
+ 
+HashSet
+<
+string
+>
+ _modulesWithConfigs 
+=
+ 
+new
+(
+)
+ 
+{
+ 
+"accounting.bankslips"
+ 
+}
+;
 
-        Model.ModuleConfigs[moduleId].Settings[settingKey] = value;
-    }
 
-    private async Task HandleValidSubmit()
-    {
-        if (IsNewUser)
-        {
-            if (string.IsNullOrWhiteSpace(Password))
-            {
-                _validationMessage = "Password is required.";
-                return;
-            }
+    
+private
+ 
+IEnumerable
+<
+NavigationItem
+>
+ 
+GetModulesWithConfigs
+(
+)
 
-            if (Password.Length < 6)
-            {
-                _validationMessage = "Password must be at least 6 characters long.";
-                return;
-            }
+    
+{
 
-            var salt = PasswordHasher.GenerateSalt();
-            var hash = PasswordHasher.HashPassword(Password, salt);
+        
+return
+ ModuleDefinitions
+.
+GetAllModulesFlat
+(
+)
+.
+Where
+(
+m 
+=>
+ _modulesWithConfigs
+.
+Contains
+(
+m
+.
+Id
+)
+)
+;
 
-            Model.Salt = salt;
-            Model.PasswordHash = hash;
-        }
+    
+}
 
-        // Clean up module configs for modules without access
-        var accessibleModules = Model.PageAccess
-            .Where(p => p.AccessLevel != AccessLevel.None)
-            .Select(p => p.NavigationId)
-            .ToHashSet();
 
-        var configsToRemove = Model.ModuleConfigs.Keys
-            .Where(moduleId => !accessibleModules.Contains(moduleId))
-            .ToList();
+    
+private
+ 
+void
+ 
+UpdatePageAccess
+(
+string
+ navigationId
+,
+ 
+AccessLevel
+ level
+)
 
-        foreach (var moduleId in configsToRemove)
-        {
-            Model.ModuleConfigs.Remove(moduleId);
-        }
+    
+{
 
-        _validationMessage = null;
-        await OnSave.InvokeAsync(Model);
-    }
+        
+var
+ existingAccess 
+=
+ Model
+.
+PageAccess
+.
+FirstOrDefault
+(
+p 
+=>
+ p
+.
+NavigationId 
+==
+ navigationId
+)
+;
+
+
+        
+if
+ 
+(
+existingAccess 
+!=
+ 
+null
+)
+
+        
+{
+
+            existingAccess
+.
+AccessLevel 
+=
+ level
+;
+
+        
+}
+
+        
+else
+ 
+if
+ 
+(
+level 
+!=
+ AccessLevel
+.
+None
+)
+
+        
+{
+
+            Model
+.
+PageAccess
+.
+Add
+(
+new
+ 
+UserPageAccess
+
+                
+{
+
+                    NavigationId 
+=
+ navigationId
+,
+
+                    AccessLevel 
+=
+ level
+                
+}
+)
+;
+
+        
+}
+
+
+        
+// Special handling for accounting module
+
+        
+if
+ 
+(
+navigationId 
+==
+ 
+"accounting"
+ 
+&&
+ level 
+==
+ AccessLevel
+.
+None
+)
+
+        
+{
+
+            
+// If removing accounting access, also remove all sub-module access
+
+            
+var
+ subModulesToRemove 
+=
+ Model
+.
+PageAccess
+                
+.
+Where
+(
+p 
+=>
+ p
+.
+NavigationId
+.
+StartsWith
+(
+"accounting."
+)
+)
+
+                
+.
+ToList
+(
+)
+;
+
+            
+            
+foreach
+ 
+(
+var
+ subModule 
+in
+ subModulesToRemove
+)
+
+            
+{
+
+                Model
+.
+PageAccess
+.
+Remove
+(
+subModule
+)
+;
+
+            
+}
+
+            
+            
+// Also disable any related module configs
+
+            
+var
+ configsToDisable 
+=
+ Model
+.
+ModuleConfigs
+.
+Keys
+                
+.
+Where
+(
+k 
+=>
+ k
+.
+StartsWith
+(
+"accounting."
+)
+)
+
+                
+.
+ToList
+(
+)
+;
+
+                
+            
+foreach
+ 
+(
+var
+ configKey 
+in
+ configsToDisable
+)
+
+            
+{
+
+                Model
+.
+ModuleConfigs
+[
+configKey
+]
+.
+IsEnabled 
+=
+ 
+false
+;
+
+            
+}
+
+        
+}
+
+
+        
+// If removing page access, also disable the module config
+
+        
+if
+ 
+(
+level 
+==
+ AccessLevel
+.
+None 
+&&
+ Model
+.
+ModuleConfigs
+.
+ContainsKey
+(
+navigationId
+)
+)
+
+        
+{
+
+            Model
+.
+ModuleConfigs
+[
+navigationId
+]
+.
+IsEnabled 
+=
+ 
+false
+;
+
+        
+}
+
+
+        
+StateHasChanged
+(
+)
+;
+
+    
+}
+
+
+    
+private
+ 
+void
+ 
+ToggleModuleConfig
+(
+string
+ moduleId
+,
+ 
+bool
+ isEnabled
+)
+
+    
+{
+
+        
+if
+ 
+(
+!
+Model
+.
+ModuleConfigs
+.
+ContainsKey
+(
+moduleId
+)
+)
+
+        
+{
+
+            Model
+.
+ModuleConfigs
+[
+moduleId
+]
+ 
+=
+ 
+new
+ 
+UserModuleConfig
+
+                
+{
+
+                    ModuleId 
+=
+ moduleId
+,
+
+                    IsEnabled 
+=
+ isEnabled
+,
+
+                    ConfiguredAt 
+=
+ DateTime
+.
+UtcNow
+,
+
+                    ConfiguredBy 
+=
+ 
+"Admin"
+,
+ 
+// TODO: Get current user
+
+                    Settings 
+=
+ 
+new
+ 
+Dictionary
+<
+string
+,
+ 
+string
+>
+(
+)
+
+                
+}
+;
+
+        
+}
+
+        
+else
+
+        
+{
+
+            Model
+.
+ModuleConfigs
+[
+moduleId
+]
+.
+IsEnabled 
+=
+ isEnabled
+;
+
+        
+}
+
+
+        
+StateHasChanged
+(
+)
+;
+
+    
+}
+
+
+    
+private
+ 
+void
+ 
+UpdateModuleSetting
+(
+string
+ moduleId
+,
+ 
+string
+ settingKey
+,
+ 
+string
+ 
+value
+)
+
+    
+{
+
+        
+if
+ 
+(
+!
+Model
+.
+ModuleConfigs
+.
+ContainsKey
+(
+moduleId
+)
+)
+
+        
+{
+
+            Model
+.
+ModuleConfigs
+[
+moduleId
+]
+ 
+=
+ 
+new
+ 
+UserModuleConfig
+
+                
+{
+
+                    ModuleId 
+=
+ moduleId
+,
+
+                    IsEnabled 
+=
+ 
+true
+,
+
+                    ConfiguredAt 
+=
+ DateTime
+.
+UtcNow
+,
+
+                    ConfiguredBy 
+=
+ 
+"Admin"
+,
+ 
+// TODO: Get current user
+
+                    Settings 
+=
+ 
+new
+ 
+Dictionary
+<
+string
+,
+ 
+string
+>
+(
+)
+
+                
+}
+;
+
+        
+}
+
+
+        Model
+.
+ModuleConfigs
+[
+moduleId
+]
+.
+Settings
+[
+settingKey
+]
+ 
+=
+ 
+value
+;
+
+    
+}
+
+
+    
+private
+ 
+async
+ 
+Task
+ 
+HandleValidSubmit
+(
+)
+
+    
+{
+
+        
+if
+ 
+(
+IsNewUser
+)
+
+        
+{
+
+            
+if
+ 
+(
+string
+.
+IsNullOrWhiteSpace
+(
+Password
+)
+)
+
+            
+{
+
+                _validationMessage 
+=
+ 
+"Password is required."
+;
+
+                
+return
+;
+
+            
+}
+
+
+            
+if
+ 
+(
+Password
+.
+Length 
+<
+ 
+6
+)
+
+            
+{
+
+                _validationMessage 
+=
+ 
+"Password must be at least 6 characters long."
+;
+
+                
+return
+;
+
+            
+}
+
+
+            
+var
+ salt 
+=
+ PasswordHasher
+.
+GenerateSalt
+(
+)
+;
+
+            
+var
+ hash 
+=
+ PasswordHasher
+.
+HashPassword
+(
+Password
+,
+ salt
+)
+;
+
+
+            Model
+.
+Salt 
+=
+ salt
+;
+
+            Model
+.
+PasswordHash 
+=
+ hash
+;
+
+        
+}
+
+
+        
+// Clean up module configs for modules without access
+
+        
+var
+ accessibleModules 
+=
+ Model
+.
+PageAccess
+            
+.
+Where
+(
+p 
+=>
+ p
+.
+AccessLevel 
+!=
+ AccessLevel
+.
+None
+)
+
+            
+.
+Select
+(
+p 
+=>
+ p
+.
+NavigationId
+)
+
+            
+.
+ToHashSet
+(
+)
+;
+
+
+        
+var
+ configsToRemove 
+=
+ Model
+.
+ModuleConfigs
+.
+Keys
+            
+.
+Where
+(
+moduleId 
+=>
+ 
+!
+accessibleModules
+.
+Contains
+(
+moduleId
+)
+)
+
+            
+.
+ToList
+(
+)
+;
+
+
+        
+foreach
+ 
+(
+var
+ moduleId 
+in
+ configsToRemove
+)
+
+        
+{
+
+            Model
+.
+ModuleConfigs
+.
+Remove
+(
+moduleId
+)
+;
+
+        
+}
+
+
+        _validationMessage 
+=
+ 
+null
+;
+
+        
+await
+ OnSave
+.
+InvokeAsync
+(
+Model
+)
+;
+
+    
+}
+
 }

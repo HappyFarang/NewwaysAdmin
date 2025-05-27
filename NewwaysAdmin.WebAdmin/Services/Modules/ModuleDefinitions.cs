@@ -17,7 +17,17 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
             { "home", AccessLevel.Read },
             { "test", AccessLevel.ReadWrite },
             { "settings", AccessLevel.ReadWrite },
-            { "sales", AccessLevel.Read }
+            { "sales", AccessLevel.Read },
+            { "accounting", AccessLevel.ReadWrite },           // Main accounting module
+            { "accounting.bankslips", AccessLevel.ReadWrite }, // Bank slips sub-module
+            { "accounting.reports", AccessLevel.Read },        // Future reports sub-module
+            { "accounting.reconcile", AccessLevel.ReadWrite }  // Future reconciliation sub-module
+        };
+
+        // Define which modules require specific user configurations
+        private static readonly HashSet<string> ModulesRequiringConfig = new()
+        {
+            "accounting.bankslips"
         };
 
         public static List<NavigationItem> GetModules()
@@ -27,26 +37,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                 new NavigationItem
                 {
                     Id = "home",
-                    Name = "Blant home",
+                    Name = "Home",
                     Path = "/home",
-                    Icon = "bi bi-graph-up",
-                    Description = "Just a home with no function now. Might be removed later"
-                },
-                new NavigationItem
-                {
-                    Id = "test",
-                    Name = "Test page",
-                    Path = "/test",
-                    Icon = "bi bi-calculator",
-                    Description = "Test page that will be removed"
-                },
-                new NavigationItem
-                {
-                    Id = "settings",
-                    Name = "Settings",
-                    Path = "/settings",
-                    Icon = "bi bi-bank",
-                    Description = "Admin page for accounts and other settings"
+                    Icon = "bi bi-house",
+                    Description = "Dashboard and overview"
                 },
                 new NavigationItem
                 {
@@ -55,8 +49,72 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Path = "/sales",
                     Icon = "bi bi-graph-up-arrow",
                     Description = "Sales overview and statistics"
+                },
+                new NavigationItem
+                {
+                    Id = "accounting",
+                    Name = "Accounting",
+                    Path = "/accounting",
+                    Icon = "bi bi-calculator",
+                    Description = "Accounting tools and reports"
+                },
+                new NavigationItem
+                {
+                    Id = "settings",
+                    Name = "Settings",
+                    Path = "/settings",
+                    Icon = "bi bi-gear",
+                    Description = "Admin page for accounts and other settings"
+                },
+                new NavigationItem
+                {
+                    Id = "test",
+                    Name = "Test Page",
+                    Path = "/test",
+                    Icon = "bi bi-bug",
+                    Description = "Test page for development"
                 }
             };
+        }
+
+        // Get sub-modules for accounting
+        public static List<NavigationItem> GetAccountingSubModules()
+        {
+            return new List<NavigationItem>
+            {
+                new NavigationItem
+                {
+                    Id = "accounting.bankslips",
+                    Name = "Bank Slips",
+                    Path = "/accounting/bankslips",
+                    Icon = "bi bi-receipt",
+                    Description = "Process and manage bank slip OCR"
+                },
+                new NavigationItem
+                {
+                    Id = "accounting.reports",
+                    Name = "Reports",
+                    Path = "/accounting/reports",
+                    Icon = "bi bi-file-earmark-text",
+                    Description = "Financial reports and summaries"
+                },
+                new NavigationItem
+                {
+                    Id = "accounting.reconcile",
+                    Name = "Reconcile",
+                    Path = "/accounting/reconcile",
+                    Icon = "bi bi-check2-square",
+                    Description = "Bank reconciliation tools"
+                }
+            };
+        }
+
+        // Get all modules including sub-modules (for permission management)
+        public static List<NavigationItem> GetAllModulesFlat()
+        {
+            var allModules = GetModules().ToList();
+            allModules.AddRange(GetAccountingSubModules());
+            return allModules;
         }
 
         public static bool IsAdminOnly(string moduleId)
@@ -70,16 +128,42 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                 ? level
                 : AccessLevel.None;
         }
+
+        public static bool RequiresConfiguration(string moduleId)
+        {
+            return ModulesRequiringConfig.Contains(moduleId);
+        }
+
+        // Helper to check if user has access to accounting sub-module
+        public static bool HasAccountingSubModuleAccess(User user, string subModuleId)
+        {
+            // Must have access to main accounting module
+            var accountingAccess = user.PageAccess.FirstOrDefault(p => p.NavigationId == "accounting");
+            if (accountingAccess == null || accountingAccess.AccessLevel == AccessLevel.None)
+                return false;
+
+            // Check specific sub-module access
+            var subModuleAccess = user.PageAccess.FirstOrDefault(p => p.NavigationId == subModuleId);
+            return subModuleAccess != null && subModuleAccess.AccessLevel != AccessLevel.None;
+        }
     }
 
     public static class ModuleRegistryInitializationExtensions
     {
         public static async Task InitializeModulesAsync(this IModuleRegistry registry)
         {
+            // Register main modules
             foreach (var module in ModuleDefinitions.GetModules())
             {
                 registry.RegisterModule(module);
             }
+
+            // Register sub-modules for navigation service
+            foreach (var subModule in ModuleDefinitions.GetAccountingSubModules())
+            {
+                registry.RegisterModule(subModule);
+            }
+
             await registry.InitializeAsync();
         }
     }
