@@ -17,6 +17,9 @@ using NewwaysAdmin.SharedModels.Sales;
 using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Authorization;
+using NewwaysAdmin.WebAdmin.Authorization;
+using NewwaysAdmin.WebAdmin.Models.Auth;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -132,6 +135,35 @@ public class Program
             return new SalesDataProvider(factory);
         });
 
+        // Enhanced Authorization
+        services.AddAuthorizationCore(options =>
+        {
+            // Create policies for each module and access level combination
+            var modules = new[] { "home", "test", "settings", "sales", "bankslip" };
+            var accessLevels = new[] { AccessLevel.Read, AccessLevel.ReadWrite };
+
+            foreach (var module in modules)
+            {
+                foreach (var level in accessLevels)
+                {
+                    // Module policies
+                    options.AddPolicy($"Module_{module}_{level}", policy =>
+                        policy.Requirements.Add(new ModuleAccessRequirement(module, level)));
+
+                    // Page policies
+                    options.AddPolicy($"Page_{module}_{level}", policy =>
+                        policy.Requirements.Add(new PageAccessRequirement(module, level)));
+                }
+            }
+
+            // Admin only policy
+            options.AddPolicy("AdminOnly", policy =>
+                policy.RequireRole("Admin"));
+        });
+
+        // Register authorization handlers
+        services.AddScoped<IAuthorizationHandler, ModuleAccessHandler>();
+        services.AddScoped<IAuthorizationHandler, PageAccessHandler>();
 
         // Circuit handling
         services.AddScoped<CircuitHandler, CustomCircuitHandler>();
@@ -144,6 +176,7 @@ public class Program
 
         // Module system
         services.AddModuleRegistry();
+        
     }
 
     /*
