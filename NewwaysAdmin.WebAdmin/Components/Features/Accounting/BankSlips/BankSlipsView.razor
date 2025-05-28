@@ -1,0 +1,588 @@
+﻿// NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/BankSlipsView.razor
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Globalization
+@inject IBankSlipOcrService BankSlipService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JSRuntime
+@inject ILogger<BankSlipsView> Logger
+
+<div class="bankslips-container">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Slip Collections</h5>
+                    <button class="btn btn-primary btn-sm" @onclick="ShowAddCollectionModal">
+                        <i class="bi bi-plus-circle me-1"></i>Add Collection
+                    </button>
+                </div>
+                <div class="card-body">
+                    @if (_isLoadingCollections)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    }
+                    else if (_collections.Any())
+                    {
+                        <div class="list-group">
+                            @foreach (var collection in _collections)
+                            {
+                                <div class="list-group-item @(_selectedCollection?.Id == collection.Id ? "active" : "")"
+                                     style="cursor: pointer;" @onclick="() => SelectCollection(collection)">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <h6 class="mb-1">@collection.Name</h6>
+                                            <p class="mb-1 small text-muted">@collection.Description</p>
+                                            <small class="text-muted">@collection.SourceDirectory</small>
+                                        </div>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-secondary" @onclick:stopPropagation="true"
+                                                    @onclick="() => EditCollection(collection)">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger" @onclick:stopPropagation="true"
+                                                    @onclick="() => DeleteCollection(collection)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center text-muted">
+                            <i class="bi bi-folder2-open display-1"></i>
+                            <p>No collections configured</p>
+                            <button class="btn btn-primary" @onclick="ShowAddCollectionModal">
+                                Add Your First Collection
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            @if (_selectedCollection != null)
+            {
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Process Bank Slips - @_selectedCollection.Name</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <label class="form-label">Start Date</label>
+                                <input type="date" class="form-control" @bind="_startDate" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">End Date</label>
+                                <input type="date" class="form-control" @bind="_endDate" />
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-2 mb-4">
+                            <button class="btn btn-primary" @onclick="ProcessSlips" disabled="@_isProcessing">
+                                @if (_isProcessing)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-play-circle me-2"></i>
+                                    <span>Process Slips</span>
+                                }
+                            </button>
+
+                            <button class="btn btn-outline-secondary" @onclick="TestSingleFile" disabled="@_isProcessing">
+                                <i class="bi bi-file-earmark-check me-2"></i>Test Single File
+                            </button>
+
+                            @if (_lastProcessingResult?.ProcessedSlips.Any() == true)
+                            {
+                                <button class="btn btn-success" @onclick="ExportToCsv">
+                                    <i class="bi bi-download me-2"></i>Export CSV
+                                </button>
+                            }
+                        </div>
+
+                        @if (_processingProgress.Any())
+                        {
+                            <div class="card bg-light mb-4">
+                                <div class="card-body">
+                                    <h6>Processing Progress</h6>
+                                    <div class="progress mb-2">
+                                        <div class="progress-bar" role="progressbar"
+                                             style="width: @(_processingProgressPercent)%"
+                                             aria-valuenow="@_processingProgressPercent"
+                                             aria-valuemin="0" aria-valuemax="100">
+                                            @_processingProgressPercent%
+                                        </div>
+                                    </div>
+                                    <div class="small">
+                                        @foreach (var message in _processingProgress.TakeLast(5))
+                                        {
+                                            <div>@message</div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (_lastProcessingResult != null)
+                        {
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Processing Results</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row mb-3">
+                                        <div class="col-md-3">
+                                            <div class="text-center">
+                                                <div class="display-6 text-primary">@_lastProcessingResult.Summary.ProcessedFiles</div>
+                                                <small class="text-muted">Processed</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="text-center">
+                                                <div class="display-6 text-danger">@_lastProcessingResult.Summary.FailedFiles</div>
+                                                <small class="text-muted">Failed</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="text-center">
+                                                <div class="display-6 text-warning">@_lastProcessingResult.Summary.DateOutOfRangeFiles</div>
+                                                <small class="text-muted">Out of Range</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="text-center">
+                                                <div class="display-6 text-info">@_lastProcessingResult.Summary.TotalFiles</div>
+                                                <small class="text-muted">Total Files</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    @if (_lastProcessingResult.ProcessedSlips.Any())
+                                    {
+                                        <h6>Processed Bank Slips</h6>
+                                        <div class="table-responsive">
+                                            <table class="table table-sm">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Date</th>
+                                                        <th>Amount</th>
+                                                        <th>Account Name</th>
+                                                        <th>Account Number</th>
+                                                        <th>Note</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var slip in _lastProcessingResult.ProcessedSlips.OrderByDescending(s => s.TransactionDate))
+                                                    {
+                                                        <tr>
+                                                            <td>@slip.TransactionDate.AddYears(-543).ToString("dd/MM/yyyy")</td>
+                                                            <td>@slip.Amount.ToString("N2") บาท</td>
+                                                            <td>@slip.AccountName</td>
+                                                            <td>@slip.AccountNumber</td>
+                                                            <td>@slip.Note</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+
+                                    @if (_lastProcessingResult.Errors.Any())
+                                    {
+                                        <h6 class="mt-4">Processing Errors</h6>
+                                        <div class="accordion" id="errorsAccordion">
+                                            @for (int i = 0; i < _lastProcessingResult.Errors.Count; i++)
+                                            {
+                                                var error = _lastProcessingResult.Errors[i];
+                                                var collapseId = $"error-{i}";
+
+                                                <div class="accordion-item">
+                                                    <h2 class="accordion-header">
+                                                        <button class="accordion-button collapsed" type="button"
+                                                                data-bs-toggle="collapse" data-bs-target="#@collapseId">
+                                                            @Path.GetFileName(error.FilePath) - @error.Reason
+                                                        </button>
+                                                    </h2>
+                                                    <div id="@collapseId" class="accordion-collapse collapse">
+                                                        <div class="accordion-body">
+                                                            <strong>File:</strong> @error.FilePath<br />
+                                                            <strong>Reason:</strong> @error.Reason<br />
+                                                            <strong>Time:</strong> @error.ErrorTime.ToString("yyyy-MM-dd HH:mm:ss")
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card">
+                    <div class="card-body text-center text-muted">
+                        <i class="bi bi-arrow-left display-1"></i>
+                        <h5>Select a Collection</h5>
+                        <p>Choose a slip collection from the left panel to start processing bank slips.</p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@* Collection Modal *@
+@if (_showCollectionModal)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@(_editingCollection?.Id != null ? "Edit" : "Add") Collection</h5>
+                    <button type="button" class="btn-close" @onclick="HideCollectionModal"></button>
+                </div>
+                <EditForm Model="@_editingCollection" OnValidSubmit="SaveCollection">
+                    <div class="modal-body">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Collection Name</label>
+                                    <InputText @bind-Value="_editingCollection!.Name" class="form-control"
+                                               placeholder="e.g., Amy's Phone, John's Tablet" />
+                                    <div class="form-text">Give this collection a descriptive name</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Description</label>
+                                    <InputText @bind-Value="_editingCollection!.Description" class="form-control"
+                                               placeholder="Optional description" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Source Directory</label>
+                            <InputText @bind-Value="_editingCollection!.SourceDirectory" class="form-control"
+                                       placeholder="e.g., G:\transfers\amy-phone-slips" />
+                            <div class="form-text">Directory where bank slip images are stored</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Output Directory</label>
+                            <InputText @bind-Value="_editingCollection!.OutputDirectory" class="form-control"
+                                       placeholder="e.g., G:\transfers\processed" />
+                            <div class="form-text">Directory for processed files and CSV outputs</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Google Cloud Credentials Path</label>
+                            <InputText @bind-Value="_editingCollection!.CredentialsPath" class="form-control"
+                                       placeholder="e.g., C:\keys\vision-api-key.json" />
+                            <div class="form-text">Path to Google Cloud Vision API credentials file</div>
+                        </div>
+
+                        <div class="form-check">
+                            <InputCheckbox @bind-Value="_editingCollection!.IsActive" class="form-check-input" id="isActive" />
+                            <label class="form-check-label" for="isActive">Active</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="HideCollectionModal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Collection</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public UserModuleConfig? Config { get; set; }
+
+    private List<SlipCollection> _collections = new();
+    private SlipCollection? _selectedCollection;
+    private SlipCollection? _editingCollection;
+    private bool _showCollectionModal;
+    private bool _isLoadingCollections;
+    private bool _isProcessing;
+    private string _currentUsername = string.Empty;
+
+    // Processing parameters
+    private DateTime _startDate = DateTime.Today.AddMonths(-1);
+    private DateTime _endDate = DateTime.Today;
+    private BankSlipProcessingResult? _lastProcessingResult;
+    private List<string> _processingProgress = new();
+    private int _processingProgressPercent = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await LoadCollections();
+    }
+
+    private async Task LoadCurrentUser()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _currentUsername = authState.User.Identity?.Name ?? string.Empty;
+    }
+
+    private async Task LoadCollections()
+    {
+        try
+        {
+            _isLoadingCollections = true;
+            _collections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
+
+            if (_collections.Any() && _selectedCollection == null)
+            {
+                _selectedCollection = _collections.First();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading collections");
+        }
+        finally
+        {
+            _isLoadingCollections = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SelectCollection(SlipCollection collection)
+    {
+        _selectedCollection = collection;
+        _lastProcessingResult = null;
+        _processingProgress.Clear();
+        StateHasChanged();
+    }
+
+    private void ShowAddCollectionModal()
+    {
+        _editingCollection = new SlipCollection
+            {
+                IsActive = true,
+                ProcessingSettings = new ProcessingParameters()
+            };
+        _showCollectionModal = true;
+    }
+
+    private void EditCollection(SlipCollection collection)
+    {
+        _editingCollection = new SlipCollection
+            {
+                Id = collection.Id,
+                Name = collection.Name,
+                Description = collection.Description,
+                SourceDirectory = collection.SourceDirectory,
+                OutputDirectory = collection.OutputDirectory,
+                CredentialsPath = collection.CredentialsPath,
+                IsActive = collection.IsActive,
+                ProcessingSettings = collection.ProcessingSettings
+            };
+        _showCollectionModal = true;
+    }
+
+    private void HideCollectionModal()
+    {
+        _showCollectionModal = false;
+        _editingCollection = null;
+    }
+
+    private async Task SaveCollection()
+    {
+        try
+        {
+            if (_editingCollection != null)
+            {
+                await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
+                await LoadCollections();
+                HideCollectionModal();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving collection");
+        }
+    }
+
+    private async Task DeleteCollection(SlipCollection collection)
+    {
+        try
+        {
+            if (await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{collection.Name}'?"))
+            {
+                await BankSlipService.DeleteCollectionAsync(collection.Id, _currentUsername);
+                await LoadCollections();
+
+                if (_selectedCollection?.Id == collection.Id)
+                {
+                    _selectedCollection = _collections.FirstOrDefault();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting collection");
+        }
+    }
+
+    private async Task ProcessSlips()
+    {
+        if (_selectedCollection == null) return;
+
+        try
+        {
+            _isProcessing = true;
+            _processingProgress.Clear();
+            _processingProgressPercent = 0;
+            _lastProcessingResult = null;
+            StateHasChanged();
+
+            _processingProgress.Add($"Starting processing for {_selectedCollection.Name}...");
+            StateHasChanged();
+
+            _lastProcessingResult = await BankSlipService.ProcessSlipCollectionAsync(
+                _selectedCollection.Id, _startDate, _endDate, _currentUsername);
+
+            _processingProgress.Add($"Processing completed! Processed {_lastProcessingResult.Summary.ProcessedFiles} files.");
+            _processingProgressPercent = 100;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error processing slips");
+            _processingProgress.Add($"Error: {ex.Message}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestSingleFile()
+    {
+        if (_selectedCollection == null) return;
+
+        try
+        {
+            // For demo purposes - in real implementation, you'd have a file picker
+            var testFile = @"G:\transfers\test.jpg";
+            if (File.Exists(testFile))
+            {
+                var result = await BankSlipService.TestProcessSingleFileAsync(testFile, _selectedCollection);
+                if (result != null)
+                {
+                    _processingProgress.Add($"Test successful: Amount {result.Amount:N2}, Date {result.TransactionDate.AddYears(-543):dd/MM/yyyy}");
+                }
+                else
+                {
+                    _processingProgress.Add("Test failed: Could not extract data from test file");
+                }
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error testing single file");
+            _processingProgress.Add($"Test error: {ex.Message}");
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportToCsv()
+    {
+        if (_lastProcessingResult?.ProcessedSlips.Any() != true) return;
+
+        try
+        {
+            var csvContent = GenerateCsvContent(_lastProcessingResult.ProcessedSlips);
+            var fileName = $"bankslips_{_selectedCollection!.Name}_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+
+            await JSRuntime.InvokeVoidAsync("downloadFile", fileName, csvContent, "text/csv");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error exporting CSV");
+        }
+    }
+
+    private string GenerateCsvContent(List<BankSlipData> slips)
+    {
+        var csv = new StringBuilder();
+        csv.AppendLine("TransactionDate,AccountName,AccountNumber,ReceiverName,ReceiverAccount,Amount,Note,OriginalFilePath");
+
+        foreach (var slip in slips.OrderBy(s => s.TransactionDate))
+        {
+            var ceDate = slip.TransactionDate.AddYears(-543);
+            csv.AppendLine($"{ceDate:yyyy-MM-dd},{EscapeCsv(slip.AccountName)},{EscapeCsv(slip.AccountNumber)}," +
+                          $"{EscapeCsv(slip.ReceiverName)},{EscapeCsv(slip.ReceiverAccount)},{slip.Amount:F2}," +
+                          $"{EscapeCsv(slip.Note)},{EscapeCsv(slip.OriginalFilePath)}");
+        }
+
+        return csv.ToString();
+    }
+
+    private string EscapeCsv(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+        {
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        }
+        return value;
+}
+}
+
+<script>
+    window.downloadFile = (filename, content, contentType) => {
+        const blob = new Blob([content], { type: contentType });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    };
+</script>
+
+<style>
+    .bankslips-container {
+        padding: 1rem;
+    }
+
+    .list-group-item.active {
+        background-color: var(--bs-primary);
+        border-color: var(--bs-primary);
+    }
+
+    .processing-progress {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+</style>
