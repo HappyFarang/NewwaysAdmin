@@ -55,9 +55,8 @@ public static class StorageFolderConfiguration
             CreateBackups = true,
             MaxBackupCount = 3
         });
-
-        // Sales folder (from PDF processor)
-        RegisterFolderIfNotExists(new StorageFolder
+        // Register required folders
+        var salesFolder = new StorageFolder
         {
             Name = "Sales",
             Description = "Daily sales data storage",
@@ -67,47 +66,6 @@ public static class StorageFolderConfiguration
             CreatedBy = "OrderProcessor",
             CreateBackups = true,
             MaxBackupCount = 10
-        });
-
-        // ===== BANK SLIP OCR FOLDERS =====
-
-        // Bank Slip Collections (shared configuration)
-        RegisterFolderIfNotExists(new StorageFolder
-        {
-            Name = "BankSlip_Collections",
-            Description = "Bank slip collection configurations",
-            Type = StorageType.Json,
-            Path = "BankSlips",
-            IsShared = true, // Shared so admins can manage all collections
-            CreatedBy = "BankSlipOCR",
-            CreateBackups = true,
-            MaxBackupCount = 10
-        });
-
-        // Bank Slip Data (per-user processed data)
-        RegisterFolderIfNotExists(new StorageFolder
-        {
-            Name = "BankSlip_Data",
-            Description = "Processed bank slip data",
-            Type = StorageType.Binary, // Using binary for efficient storage
-            Path = "BankSlips",
-            IsShared = false, // Per-user storage
-            CreatedBy = "BankSlipOCR",
-            CreateBackups = true,
-            MaxBackupCount = 30 // Keep more backups for financial data
-        });
-
-        // Bank Slip Processing Logs
-        RegisterFolderIfNotExists(new StorageFolder
-        {
-            Name = "BankSlip_Logs",
-            Description = "Bank slip processing logs and audit trail",
-            Type = StorageType.Json,
-            Path = "BankSlips",
-            IsShared = true, // Shared for audit purposes
-            CreatedBy = "BankSlipOCR",
-            CreateBackups = true,
-            MaxBackupCount = 50
-        });
+        };
     }
 }

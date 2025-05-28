@@ -79,23 +79,49 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 
         public async Task SaveCollectionAsync(SlipCollection collection, string username)
         {
-            await EnsureStorageInitializedAsync();
-
-            var collections = await _collectionsStorage!.LoadAsync(username) ?? new List<SlipCollection>();
-
-            var existingIndex = collections.FindIndex(c => c.Id == collection.Id);
-            if (existingIndex >= 0)
+            try
             {
-                collections[existingIndex] = collection;
-            }
-            else
-            {
-                collection.CreatedBy = username;
-                collection.CreatedAt = DateTime.UtcNow;
-                collections.Add(collection);
-            }
+                await EnsureStorageInitializedAsync();
 
-            await _collectionsStorage.SaveAsync(username, collections);
+                _logger.LogInformation("Attempting to save collection {CollectionName} for user {Username}",
+                    collection.Name, username);
+
+                var collections = await _collectionsStorage!.LoadAsync(username) ?? new List<SlipCollection>();
+
+                _logger.LogInformation("Loaded {Count} existing collections for user {Username}",
+                    collections.Count, username);
+
+                var existingIndex = collections.FindIndex(c => c.Id == collection.Id);
+                if (existingIndex >= 0)
+                {
+                    // Update existing collection
+                    collections[existingIndex] = collection;
+                    _logger.LogInformation("Updated existing collection at index {Index}", existingIndex);
+                }
+                else
+                {
+                    // Add new collection
+                    if (string.IsNullOrEmpty(collection.CreatedBy))
+                    {
+                        collection.CreatedBy = username;
+                    }
+                    if (collection.CreatedAt == default)
+                    {
+                        collection.CreatedAt = DateTime.UtcNow;
+                    }
+                    collections.Add(collection);
+                    _logger.LogInformation("Added new collection. Total collections: {Count}", collections.Count);
+                }
+
+                await _collectionsStorage.SaveAsync(username, collections);
+                _logger.LogInformation("Successfully saved collections to storage for user {Username}", username);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving collection {CollectionName} for user {Username}: {Error}",
+                    collection?.Name ?? "Unknown", username, ex.Message);
+                throw new InvalidOperationException($"Failed to save collection: {ex.Message}", ex);
+            }
         }
 
         public async Task DeleteCollectionAsync(string collectionId, string username)
@@ -485,6 +511,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 .Where(f => !Path.GetFileName(f).StartsWith("processed_"))
                 .ToList();
         }
+
 
         private bool IsImageFile(string path)
         {

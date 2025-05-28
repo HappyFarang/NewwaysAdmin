@@ -1,8 +1,10 @@
 ﻿// NewwaysAdmin.SharedModels/Models/BankSlips/BankSlipModels.cs
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using Newtonsoft.Json;
 using MessagePack;
+using Key = MessagePack.KeyAttribute; // This resolves the ambiguous reference
 
 namespace NewwaysAdmin.SharedModels.BankSlips
 {
@@ -52,7 +54,6 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public string ErrorReason { get; set; } = string.Empty;
     }
 
-    // Remove MessagePackObject attribute from enum - enums are serialized automatically
     public enum BankSlipProcessingStatus
     {
         Pending = 0,
@@ -69,19 +70,27 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
         [Key(1)]
+        [Required(ErrorMessage = "Collection name is required")]
+        [StringLength(100, ErrorMessage = "Collection name cannot exceed 100 characters")]
         public string Name { get; set; } = string.Empty;
 
         [Key(2)]
+        [StringLength(500, ErrorMessage = "Description cannot exceed 500 characters")]
         public string Description { get; set; } = string.Empty;
 
         [Key(3)]
+        [Required(ErrorMessage = "Source directory is required")]
+        [StringLength(500, ErrorMessage = "Source directory path cannot exceed 500 characters")]
         public string SourceDirectory { get; set; } = string.Empty;
 
         [Key(4)]
+        [Required(ErrorMessage = "Output directory is required")]
+        [StringLength(500, ErrorMessage = "Output directory path cannot exceed 500 characters")]
         public string OutputDirectory { get; set; } = string.Empty;
 
         [Key(5)]
-        public string CredentialsPath { get; set; } = string.Empty;
+        [StringLength(500, ErrorMessage = "Credentials path cannot exceed 500 characters")]
+        public string CredentialsPath { get; set; } = @"C:\Keys\purrfectocr-db2d9d796b58.json";
 
         [Key(6)]
         public string CreatedBy { get; set; } = string.Empty;
@@ -123,7 +132,6 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         };
     }
 
-    // Remove MessagePackObject attribute from enum - enums are serialized automatically
     public enum ProcessingPass
     {
         Default = 0,
@@ -191,8 +199,6 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public TimeSpan ProcessingDuration { get; set; }
     }
 
-    // User configuration for bank slip collections - this doesn't need MessagePack attributes
-    // if it's only used for JSON configuration storage
     public class UserBankSlipConfig
     {
         public List<SlipCollection> Collections { get; set; } = new();

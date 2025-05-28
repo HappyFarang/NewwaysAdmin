@@ -4,6 +4,7 @@
 @using NewwaysAdmin.WebAdmin.Models.Auth
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Text
+@using System.ComponentModel.DataAnnotations
 @inject IBankSlipOcrService BankSlipService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
@@ -329,6 +330,25 @@
                 <EditForm Model="@_editingCollection" OnValidSubmit="SaveCollection">
                     <div class="modal-body">
                         <DataAnnotationsValidator />
+
+                        @if (!string.IsNullOrEmpty(_saveErrorMessage))
+                        {
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                @_saveErrorMessage
+                            </div>
+                        }
+
+                        @if (_isSaving)
+                        {
+                            <div class="alert alert-info">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                    <span>Saving collection...</span>
+                                </div>
+                            </div>
+                        }
+
                         <ValidationSummary class="alert alert-danger" />
 
                         <div class="row">
@@ -337,6 +357,7 @@
                                     <label class="form-label fw-bold">Collection Name *</label>
                                     <InputText @bind-Value="_editingCollection!.Name" class="form-control"
                                                placeholder="e.g., Amy's Phone, Office Scanner" />
+                                    <ValidationMessage For="@(() => _editingCollection.Name)" class="text-danger" />
                                     <div class="form-text">Give this collection a unique, descriptive name</div>
                                 </div>
                             </div>
@@ -352,7 +373,8 @@
                         <div class="mb-3">
                             <label class="form-label fw-bold">Source Directory *</label>
                             <InputText @bind-Value="_editingCollection!.SourceDirectory" class="form-control"
-                                       placeholder="\\NAS\BankSlips\AmyPhone" />
+                                       placeholder="G:\transfers\slips" />
+                            <ValidationMessage For="@(() => _editingCollection.SourceDirectory)" class="text-danger" />
                             <div class="form-text">Network path where bank slip images are stored</div>
                         </div>
 
@@ -360,14 +382,16 @@
                             <label class="form-label fw-bold">Output Directory *</label>
                             <InputText @bind-Value="_editingCollection!.OutputDirectory" class="form-control"
                                        placeholder="C:\Temp\BankSlipProcessing" />
+                            <ValidationMessage For="@(() => _editingCollection.OutputDirectory)" class="text-danger" />
                             <div class="form-text">Local directory for temporary processing files</div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label fw-bold">Google Cloud Credentials Path *</label>
+                            <label class="form-label fw-bold">Google Cloud Credentials Path</label>
                             <InputText @bind-Value="_editingCollection!.CredentialsPath" class="form-control"
-                                       placeholder="C:\Keys\google-vision-api.json" />
-                            <div class="form-text">Path to Google Cloud Vision API service account key file</div>
+                                       placeholder="C:\Keys\purrfectocr-db2d9d796b58.json" />
+                            <ValidationMessage For="@(() => _editingCollection.CredentialsPath)" class="text-danger" />
+                            <div class="form-text">Path to Google Cloud Vision API service account key file (uses default if empty)</div>
                         </div>
 
                         <div class="form-check">
@@ -376,11 +400,20 @@
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @onclick="HideCollectionModal">
+                        <button type="button" class="btn btn-secondary" @onclick="HideCollectionModal" disabled="@_isSaving">
                             <i class="bi bi-x-circle me-1"></i>Cancel
                         </button>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle me-1"></i>Save Collection
+                        <button type="submit" class="btn btn-primary" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                <span>Saving...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-circle me-1"></i>
+                                <span>Save Collection</span>
+                            }
                         </button>
                     </div>
                 </EditForm>
@@ -403,6 +436,8 @@
     // Collection modal
     private bool _showCollectionModal = false;
     private SlipCollection? _editingCollection;
+    private bool _isSaving = false;
+    private string _saveErrorMessage = string.Empty;
 
     // Processing
     private DateTime _startDate = DateTime.Today.AddMonths(-1);
@@ -483,10 +518,14 @@
     {
         _editingCollection = new SlipCollection
             {
+                Id = Guid.NewGuid().ToString(),
                 IsActive = true,
-                ProcessingSettings = new ProcessingParameters()
+                ProcessingSettings = new ProcessingParameters(),
+                CreatedAt = DateTime.UtcNow,
+                CreatedBy = _currentUsername
             };
         _showCollectionModal = true;
+        _saveErrorMessage = string.Empty;
     }
 
     private void EditCollection(SlipCollection collection)
@@ -500,33 +539,77 @@
                 OutputDirectory = collection.OutputDirectory,
                 CredentialsPath = collection.CredentialsPath,
                 IsActive = collection.IsActive,
-                ProcessingSettings = collection.ProcessingSettings
+                ProcessingSettings = collection.ProcessingSettings,
+                CreatedAt = collection.CreatedAt,
+                CreatedBy = collection.CreatedBy
             };
         _showCollectionModal = true;
+        _saveErrorMessage = string.Empty;
     }
 
     private void HideCollectionModal()
     {
         _showCollectionModal = false;
         _editingCollection = null;
+        _saveErrorMessage = string.Empty;
+        _isSaving = false;
     }
 
     private async Task SaveCollection()
     {
+        if (_editingCollection == null) return;
+
         try
         {
-            if (_editingCollection != null)
-            {
-                await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
-                await LoadAvailableCollections();
-                HideCollectionModal();
+            _isSaving = true;
+            _saveErrorMessage = string.Empty;
+            StateHasChanged();
 
-                Logger.LogInformation("Collection {Name} saved successfully", _editingCollection.Name);
+            // Basic validation
+            if (string.IsNullOrWhiteSpace(_editingCollection.Name))
+            {
+                _saveErrorMessage = "Collection name is required.";
+                return;
             }
+
+            if (string.IsNullOrWhiteSpace(_editingCollection.SourceDirectory))
+            {
+                _saveErrorMessage = "Source directory is required.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_editingCollection.OutputDirectory))
+            {
+                _saveErrorMessage = "Output directory is required.";
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_editingCollection.CredentialsPath))
+            {
+                // Set default if empty
+                _editingCollection.CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json";
+            }
+
+            Logger.LogInformation("Attempting to save collection: {Name} for user: {Username}",
+                _editingCollection.Name, _currentUsername);
+
+            await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
+
+            Logger.LogInformation("Collection {Name} saved successfully", _editingCollection.Name);
+
+            // Reload collections and close modal
+            await LoadAvailableCollections();
+            HideCollectionModal();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error saving collection");
+            Logger.LogError(ex, "Error saving collection: {Name}", _editingCollection?.Name ?? "Unknown");
+            _saveErrorMessage = $"Error saving collection: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
         }
     }
 

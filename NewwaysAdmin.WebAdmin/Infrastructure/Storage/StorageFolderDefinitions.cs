@@ -1,10 +1,9 @@
-﻿using Microsoft.Extensions.Logging;
-using NewwaysAdmin.WebAdmin.Infrastructure.Storage;
-using NewwaysAdmin.Shared.IO.Structure;
+﻿using System.Collections.Immutable;
+using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
-using NewwaysAdmin.WebAdmin.Services.Auth;
-using System.Collections.Immutable;
+using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.IO.Manager;
+using NewwaysAdmin.WebAdmin.Services.Auth;
 
 namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
 {
@@ -26,7 +25,31 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     MaxBackupCount = 5
                 },
 
-                // PDF Processor
+                // Navigation
+                new StorageFolder
+                {
+                    Name = "Navigation",
+                    Description = "Navigation and menu settings",
+                    Type = StorageType.Json,
+                    IsShared = false,
+                    Path = "System",
+                    CreateBackups = true,
+                    MaxBackupCount = 5
+                },
+
+                // Sessions
+                new StorageFolder
+                {
+                    Name = "Sessions",
+                    Description = "User session data",
+                    Type = StorageType.Json,
+                    IsShared = false,
+                    Path = "System",
+                    CreateBackups = false,  // Temporary data, no need for backups
+                    MaxBackupCount = 0
+                },
+
+                // PDF Processor - Sales
                 new StorageFolder
                 {
                     Name = "Sales",
@@ -37,6 +60,8 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     CreateBackups = true,
                     MaxBackupCount = 10
                 },
+
+                // PDF Processor - Returns
                 new StorageFolder
                 {
                     Name = "Returns",
@@ -47,33 +72,55 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     CreateBackups = true,
                     MaxBackupCount = 10
                 },
-                  new StorageFolder
-                  {
-                      Name = "Navigation",
-                      Description = "Navigation and menu settings",
-                      Type = StorageType.Json,
-                      IsShared = false,
-                      Path = "System",
-                      CreateBackups = true,
-                      MaxBackupCount = 5
-                  },
-                  new StorageFolder
-                  {
-                      Name = "Sessions",
-                      Description = "User session data",
-                      Type = StorageType.Json,
-                      IsShared = false,
-                      Path = "System",
-                      CreateBackups = false,  // Temporary data, no need for backups
-                      MaxBackupCount = 0
-                  },
+
+                // PDF Processor - Logs
                 new StorageFolder
                 {
                     Name = "Logs",
                     Description = "Operation logs",
                     Type = StorageType.Json,
                     IsShared = true,
-                    Path = "PDFProcessor"
+                    Path = "PDFProcessor",
+                    CreateBackups = true,
+                    MaxBackupCount = 20
+                },
+
+                // ===== BANK SLIP OCR FOLDERS =====
+
+                // Bank Slip Collections (per-user configuration)
+                new StorageFolder
+                {
+                    Name = "BankSlip_Collections",
+                    Description = "Bank slip collection configurations per user",
+                    Type = StorageType.Json,
+                    IsShared = false, // Each user has their own collections
+                    Path = "BankSlips",
+                    CreateBackups = true,
+                    MaxBackupCount = 10
+                },
+
+                // Bank Slip Data (per-user processed data)
+                new StorageFolder
+                {
+                    Name = "BankSlip_Data",
+                    Description = "Processed bank slip data per user",
+                    Type = StorageType.Binary, // Using binary for efficient storage
+                    Path = "BankSlips",
+                    IsShared = false, // Per-user storage
+                    CreateBackups = true,
+                    MaxBackupCount = 30 // Keep more backups for financial data
+                },
+
+                // Bank Slip Processing Logs (shared for audit)
+                new StorageFolder
+                {
+                    Name = "BankSlip_Logs",
+                    Description = "Bank slip processing logs and audit trail",
+                    Type = StorageType.Json,
+                    Path = "BankSlips",
+                    IsShared = true, // Shared for audit purposes
+                    CreateBackups = true,
+                    MaxBackupCount = 50
                 }
 
                 // Add new folders here as needed...
@@ -193,7 +240,7 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
 
         // Synchronous wrapper for use in constructors
         public IDataStorage<T> GetStorageSync<T>(string folderName) where T : class, new()
-        {            
+        {
             return _ioManager.GetStorageAsync<T>(folderName).GetAwaiter().GetResult();
         }
     }
