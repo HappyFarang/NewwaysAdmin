@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
 using NewwaysAdmin.WebAdmin.Authorization;
 using NewwaysAdmin.WebAdmin.Models.Auth;
+using NewwaysAdmin.WebAdmin.Services.BankSlips;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -176,7 +177,8 @@ public class Program
 
         // Module system
         services.AddModuleRegistry();
-        
+        services.AddScoped<IBankSlipOcrService, BankSlipOcrService>();
+
     }
 
     /*

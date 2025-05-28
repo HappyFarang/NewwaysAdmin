@@ -52,18 +52,13 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public string ErrorReason { get; set; } = string.Empty;
     }
 
-    [MessagePackObject]
+    // Remove MessagePackObject attribute from enum - enums are serialized automatically
     public enum BankSlipProcessingStatus
     {
-        [Key(0)]
         Pending = 0,
-        [Key(1)]
         Processing = 1,
-        [Key(2)]
         Completed = 2,
-        [Key(3)]
         Failed = 3,
-        [Key(4)]
         Skipped = 4
     }
 
@@ -128,14 +123,11 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         };
     }
 
-    [MessagePackObject]
+    // Remove MessagePackObject attribute from enum - enums are serialized automatically
     public enum ProcessingPass
     {
-        [Key(0)]
         Default = 0,
-        [Key(1)]
         Fallback = 1,
-        [Key(2)]
         Tablet = 2
     }
 
@@ -199,7 +191,8 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public TimeSpan ProcessingDuration { get; set; }
     }
 
-    // User configuration for bank slip collections
+    // User configuration for bank slip collections - this doesn't need MessagePack attributes
+    // if it's only used for JSON configuration storage
     public class UserBankSlipConfig
     {
         public List<SlipCollection> Collections { get; set; } = new();
