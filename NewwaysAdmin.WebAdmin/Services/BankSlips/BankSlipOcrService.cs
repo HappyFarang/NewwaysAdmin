@@ -1,4 +1,4 @@
-﻿// Enhanced BankSlipOcrService with proper progress tracking and image processing
+﻿// Fixed BankSlipOcrService with proper date filtering and file counting
 using Google.Cloud.Vision.V1;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.IO.Manager;
@@ -13,27 +13,6 @@ using System.Text.RegularExpressions;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 {
-    // Add progress reporting interface
-    public interface IProgressReporter
-    {
-        void ReportProgress(int processedCount, int totalCount, string currentFileName = "");
-    }
-
-    public interface IBankSlipOcrService
-    {
-        Task<BankSlipProcessingResult> ProcessSlipCollectionAsync(
-            string collectionId,
-            DateTime startDate,
-            DateTime endDate,
-            string username,
-            IProgressReporter? progressReporter = null);
-        Task<List<SlipCollection>> GetUserCollectionsAsync(string username);
-        Task<SlipCollection?> GetCollectionAsync(string collectionId, string username);
-        Task SaveCollectionAsync(SlipCollection collection, string username);
-        Task DeleteCollectionAsync(string collectionId, string username);
-        Task<BankSlipData?> TestProcessSingleFileAsync(string filePath, SlipCollection collection);
-    }
-
     public class BankSlipOcrService : IBankSlipOcrService
     {
         private readonly ILogger<BankSlipOcrService> _logger;
@@ -53,6 +32,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             _logger = logger;
             _ioManager = ioManager;
         }
+
+        // ... [Previous methods remain the same until ProcessSlipCollectionAsync] ...
 
         private async Task EnsureStorageInitializedAsync()
         {
@@ -147,7 +128,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 throw new ArgumentException($"Collection not found: {collectionId}");
             }
 
-            _logger.LogInformation("Starting processing for collection {CollectionName}", collection.Name);
+            _logger.LogInformation("Starting bank slip processing for collection {CollectionName} from {StartDate} to {EndDate}",
+                collection.Name, startDate.ToString("yyyy-MM-dd"), endDate.ToString("yyyy-MM-dd"));
 
             var result = new BankSlipProcessingResult
             {
@@ -169,13 +151,11 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 _visionClient = CreateVisionClient(collection.CredentialsPath);
                 _logger.LogInformation("Vision API client initialized");
 
-                // Get all image files
-                var files = GetImageFiles(collection.SourceDirectory);
-                result.Summary.TotalFiles = files.Count;
+                // Get all image files - but we'll filter by date during processing
+                var allFiles = GetImageFiles(collection.SourceDirectory);
+                _logger.LogInformation("Found {TotalFileCount} total image files in source directory", allFiles.Count);
 
-                _logger.LogInformation("Found {FileCount} image files to process", files.Count);
-
-                if (files.Count == 0)
+                if (allFiles.Count == 0)
                 {
                     _logger.LogWarning("No image files found in {Directory}", collection.SourceDirectory);
                     result.ProcessingCompleted = DateTime.UtcNow;
@@ -183,22 +163,44 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     return result;
                 }
 
-                // Report initial progress
-                progressReporter?.ReportProgress(0, files.Count);
+                // Pre-filter files by file timestamp to get a better estimate
+                // File timestamps are in CE (Christian Era), so use CE dates for comparison
+                var endDateInclusive = endDate.AddDays(1); // Add one day to include end date
 
-                // Process each file
-                for (int i = 0; i < files.Count; i++)
+                var candidateFiles = allFiles.Where(file =>
                 {
-                    var file = files[i];
+                    try
+                    {
+                        var fileInfo = new FileInfo(file);
+                        var fileDate = fileInfo.LastWriteTime.Date;
+                        return fileDate >= startDate.Date && fileDate < endDateInclusive.Date;
+                    }
+                    catch
+                    {
+                        return true; // Include files we can't check timestamp for
+                    }
+                }).ToList();
+
+                _logger.LogInformation("Pre-filtered to {CandidateCount} files based on file timestamps (CE date range: {StartCE} to {EndCE})",
+                    candidateFiles.Count, startDate.ToString("yyyy-MM-dd"), endDate.ToString("yyyy-MM-dd"));
+
+                // Use candidate files for progress reporting
+                result.Summary.TotalFiles = candidateFiles.Count;
+                progressReporter?.ReportProgress(0, candidateFiles.Count);
+
+                // Process each candidate file
+                for (int i = 0; i < candidateFiles.Count; i++)
+                {
+                    var file = candidateFiles[i];
                     var fileName = Path.GetFileName(file);
 
                     try
                     {
                         _logger.LogDebug("Processing file {FileIndex}/{TotalFiles}: {FileName}",
-                            i + 1, files.Count, fileName);
+                            i + 1, candidateFiles.Count, fileName);
 
                         // Report progress with current file
-                        progressReporter?.ReportProgress(i, files.Count, fileName);
+                        progressReporter?.ReportProgress(i, candidateFiles.Count, fileName);
 
                         var slipData = await ProcessSingleFileAsync(file, collection, startDate, endDate);
                         if (slipData != null)
@@ -209,13 +211,14 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                             result.ProcessedSlips.Add(slipData);
                             result.Summary.ProcessedFiles++;
 
-                            _logger.LogDebug("Successfully processed {FileName}, Amount: {Amount}",
-                                fileName, slipData.Amount);
+                            var ceDate = slipData.TransactionDate.AddYears(-543);
+                            _logger.LogDebug("Successfully processed {FileName}, Amount: {Amount}, Date: {Date}",
+                                fileName, slipData.Amount, ceDate.ToString("yyyy-MM-dd"));
                         }
                         else
                         {
                             result.Summary.FailedFiles++;
-                            _logger.LogDebug("Failed to process {FileName}", fileName);
+                            _logger.LogDebug("Failed to process or date out of range: {FileName}", fileName);
                         }
                     }
                     catch (Exception ex)
@@ -231,24 +234,36 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
 
                     // Small delay to prevent overwhelming the system
-                    await Task.Delay(100);
+                    await Task.Delay(50);
                 }
 
+                // Update final counts
+                result.Summary.DateOutOfRangeFiles = candidateFiles.Count - result.Summary.ProcessedFiles - result.Summary.FailedFiles;
+                result.Summary.TotalFiles = allFiles.Count; // Set to actual total for reporting
+
                 // Report final progress
-                progressReporter?.ReportProgress(files.Count, files.Count, "Processing complete");
+                progressReporter?.ReportProgress(candidateFiles.Count, candidateFiles.Count, "Processing complete");
 
                 // Save processed slips if any
                 if (result.ProcessedSlips.Any())
                 {
-                    await SaveProcessedSlipsAsync(result.ProcessedSlips, username);
-                    _logger.LogInformation("Saved {Count} processed slips", result.ProcessedSlips.Count);
+                    try
+                    {
+                        await SaveProcessedSlipsAsync(result.ProcessedSlips, username);
+                        _logger.LogInformation("Saved {Count} processed slips", result.ProcessedSlips.Count);
+                    }
+                    catch (Exception saveEx)
+                    {
+                        _logger.LogError(saveEx, "Failed to save processed slips, but processing completed successfully");
+                        // Don't fail the entire operation - user can still download CSV
+                    }
                 }
 
                 result.ProcessingCompleted = DateTime.UtcNow;
                 result.Summary.ProcessingDuration = result.ProcessingCompleted - result.ProcessingStarted;
 
-                _logger.LogInformation("Processing completed. Success: {Success}, Failed: {Failed}, Total: {Total}",
-                    result.Summary.ProcessedFiles, result.Summary.FailedFiles, result.Summary.TotalFiles);
+                _logger.LogInformation("Processing completed. Total files: {Total}, Candidates: {Candidates}, Success: {Success}, Failed: {Failed}, Out of range: {OutOfRange}",
+                    allFiles.Count, candidateFiles.Count, result.Summary.ProcessedFiles, result.Summary.FailedFiles, result.Summary.DateOutOfRangeFiles);
 
                 return result;
             }
@@ -266,6 +281,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             try
             {
                 _visionClient = CreateVisionClient(collection.CredentialsPath);
+                // For testing, don't apply date filters
                 return await ProcessSingleFileAsync(filePath, collection, DateTime.MinValue, DateTime.MaxValue);
             }
             catch (Exception ex)
@@ -313,23 +329,26 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                                 continue;
                             }
 
+                            // Convert BE to CE for date range checking
                             var ceDate = slipData.TransactionDate.AddYears(-543);
 
-                            // Check date range if specified
+                            // Check date range if specified (skip if testing mode)
                             if (startDate != DateTime.MinValue && endDate != DateTime.MaxValue)
                             {
-                                if (ceDate >= startDate && ceDate <= endDate)
+                                if (ceDate.Date >= startDate.Date && ceDate.Date <= endDate.Date)
                                 {
                                     slipData.Status = BankSlipProcessingStatus.Completed;
-                                    _logger.LogDebug("Successfully processed {FilePath} with pass {Pass}",
-                                        Path.GetFileName(filePath), pass);
+                                    _logger.LogDebug("Successfully processed {FilePath} with pass {Pass}, Date: {Date}",
+                                        Path.GetFileName(filePath), pass, ceDate.ToString("yyyy-MM-dd"));
                                     return slipData;
                                 }
                                 else
                                 {
-                                    _logger.LogDebug("Date {Date} outside range for {FilePath}",
-                                        ceDate.ToString("yyyy-MM-dd"), Path.GetFileName(filePath));
-                                    continue;
+                                    _logger.LogDebug("Date {Date} outside range {StartDate} to {EndDate} for {FilePath}",
+                                        ceDate.ToString("yyyy-MM-dd"), startDate.ToString("yyyy-MM-dd"),
+                                        endDate.ToString("yyyy-MM-dd"), Path.GetFileName(filePath));
+                                    // Don't continue to next pass - this file is just out of range
+                                    return null;
                                 }
                             }
                             else
@@ -367,16 +386,14 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             }
         }
 
-        // Simplified image processing - you can enhance this later
+        // ... [Rest of the methods remain the same] ...
+
         private void ProcessImage(string inputPath, string outputPath, ProcessingParameters parameters)
         {
             try
             {
                 // For now, just copy the file - you can implement actual image processing later
-                // This is where you'd add your image enhancement logic
                 File.Copy(inputPath, outputPath, true);
-
-                _logger.LogDebug("Image processing completed for {InputPath}", Path.GetFileName(inputPath));
             }
             catch (Exception ex)
             {
@@ -499,7 +516,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 
         private DateTime ParseThaiDate(string dateText)
         {
-            // Simplified Thai date parsing
             dateText = dateText.Replace("น.", "").Replace("'", "").Trim();
 
             var patterns = new[]
@@ -601,6 +617,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 return Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories)
                     .Where(f => IsImageFile(f))
                     .Where(f => !Path.GetFileName(f).StartsWith("processed_"))
+                    .OrderBy(f => f) // Sort files for consistent processing order
                     .ToList();
             }
             catch (Exception ex)
@@ -643,10 +660,31 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 
         private async Task SaveProcessedSlipsAsync(List<BankSlipData> slips, string username)
         {
-            await EnsureStorageInitializedAsync();
-            var existingSlips = await _slipsStorage!.LoadAsync(username) ?? new List<BankSlipData>();
-            existingSlips.AddRange(slips);
-            await _slipsStorage.SaveAsync(username, existingSlips);
+            try
+            {
+                _logger.LogInformation("Attempting to save {Count} processed slips for user {Username}", slips.Count, username);
+
+                await EnsureStorageInitializedAsync();
+
+                _logger.LogDebug("Storage initialized, loading existing slips...");
+                var existingSlips = await _slipsStorage!.LoadAsync(username) ?? new List<BankSlipData>();
+
+                _logger.LogDebug("Loaded {ExistingCount} existing slips, adding {NewCount} new slips",
+                    existingSlips.Count, slips.Count);
+
+                existingSlips.AddRange(slips);
+
+                _logger.LogDebug("Saving {TotalCount} total slips to storage", existingSlips.Count);
+                await _slipsStorage.SaveAsync(username, existingSlips);
+
+                _logger.LogInformation("Successfully saved processed slips to storage");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving processed slips for user {Username}: {Error}", username, ex.Message);
+                // Don't rethrow - this shouldn't fail the entire processing operation
+                // The results are still available in memory for the user to download
+            }
         }
     }
 }

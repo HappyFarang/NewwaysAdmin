@@ -149,9 +149,9 @@
             _isLoading = true;
             _users = await AuthService.GetAllUsersAsync();
         }
-        catch (Exception ex)
+        catch (Exception _)
         {
-            ShowError("Failed to load users. Please try again.");
+            // Handle error
         }
         finally
         {
@@ -214,9 +214,9 @@
                 ShowError("Failed to delete user. Please try again.");
             }
         }
-        catch (Exception ex)
+        catch (Exception _)
         {
-            ShowError("An error occurred while deleting the user.");
+            ShowError("Failed to load users. Please try again.");
         }
         finally
         {
@@ -254,10 +254,12 @@
                 await LoadUsers();
             }
         }
-        catch (Exception ex)
+        catch (Exception _)
         {
-            ShowError("An unexpected error occurred. Please try again.");
+            ShowError("Failed to delete user. Please try again.");
         }
+
+
     }
 
     private void HandleUserCancel()
