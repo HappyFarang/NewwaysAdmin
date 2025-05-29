@@ -5,6 +5,7 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Text
 @using System.ComponentModel.DataAnnotations
+@using Google.Cloud.Vision.V1
 @inject IBankSlipOcrService BankSlipService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
@@ -102,15 +103,29 @@
                         </h5>
                     </div>
                     <div class="card-body">
+                        <!-- Configuration Info -->
+                        <div class="alert alert-light mb-4">
+                            <div class="row small">
+                                <div class="col-md-6">
+                                    <strong>Source:</strong> @_selectedCollection.SourceDirectory<br />
+                                    <strong>Output:</strong> @_selectedCollection.OutputDirectory
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>Credentials:</strong> @(File.Exists(_selectedCollection.CredentialsPath) ? "✓ Valid" : "⚠ Not Found")<br />
+                                    <strong>Active:</strong> @(_selectedCollection.IsActive ? "✓ Yes" : "✗ No")
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Date Range Selection -->
                         <div class="row mb-4">
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">Start Date</label>
-                                <input type="date" class="form-control" @bind="_startDate" />
+                                <input type="date" class="form-control" @bind="_startDate" disabled="@_isProcessing" />
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label fw-bold">End Date</label>
-                                <input type="date" class="form-control" @bind="_endDate" />
+                                <input type="date" class="form-control" @bind="_endDate" disabled="@_isProcessing" />
                             </div>
                         </div>
 
@@ -120,7 +135,7 @@
                                 @if (_isProcessing)
                                 {
                                     <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                    <span>Processing @_processedCount of @_totalFiles files...</span>
+                                    <span>Processing...</span>
                                 }
                                 else
                                 {
@@ -135,10 +150,14 @@
                                     <i class="bi bi-download me-2"></i>Download CSV (@_lastResult.ProcessedSlips.Count slips)
                                 </button>
                             }
+
+                            <button class="btn btn-secondary" @onclick="TestSingleFile" disabled="@_isProcessing">
+                                <i class="bi bi-gear me-2"></i>Test Single File
+                            </button>
                         </div>
 
                         <!-- Processing Progress -->
-                        @if (_isProcessing && _totalFiles > 0)
+                        @if (_isProcessing)
                         {
                             <div class="card bg-light mb-4">
                                 <div class="card-body">
@@ -146,8 +165,8 @@
                                         <h6 class="mb-0">Processing Progress</h6>
                                         <span class="badge bg-primary">@_progressPercentage%</span>
                                     </div>
-                                    <div class="progress mb-2">
-                                        <div class="progress-bar"
+                                    <div class="progress mb-2" style="height: 8px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated"
                                              style="width: @(_progressPercentage)%"
                                              role="progressbar"
                                              aria-valuenow="@_progressPercentage"
@@ -155,15 +174,37 @@
                                              aria-valuemax="100">
                                         </div>
                                     </div>
-                                    <small class="text-muted">
-                                        @_processedCount of @_totalFiles files processed
-                                        @if (!string.IsNullOrEmpty(_currentFileName))
-                                        {
-                                            <br />
-                                            <span>Currently processing: @_currentFileName</span>
-                                        }
-                                    </small>
+                                    <div class="d-flex justify-content-between">
+                                        <small class="text-muted">
+                                            @_processedCount of @_totalFiles files processed
+                                        </small>
+                                        <small class="text-muted">
+                                            @if (_processingStartTime.HasValue)
+                                            {
+                                                var elapsed = DateTime.Now - _processingStartTime.Value;
+                                                <span>Elapsed: @elapsed.ToString(@"mm\:ss")</span>
+                                            }
+                                        </small>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(_currentFileName))
+                                    {
+                                        <div class="mt-2">
+                                            <small class="text-muted">
+                                                <i class="bi bi-file-earmark me-1"></i>
+                                                Currently processing: <strong>@_currentFileName</strong>
+                                            </small>
+                                        </div>
+                                    }
                                 </div>
+                            </div>
+                        }
+
+                        <!-- Processing Status Messages -->
+                        @if (!string.IsNullOrEmpty(_statusMessage))
+                        {
+                            <div class="alert @(_statusMessageType == "error" ? "alert-danger" : "alert-info") mb-4">
+                                <i class="bi @(_statusMessageType == "error" ? "bi-exclamation-triangle" : "bi-info-circle") me-2"></i>
+                                @_statusMessage
                             </div>
                         }
 
@@ -209,6 +250,7 @@
                                     <div class="alert alert-info">
                                         <i class="bi bi-clock me-2"></i>
                                         Processing completed in @_lastResult.Summary.ProcessingDuration.TotalSeconds.ToString("F1") seconds
+                                        (@(_lastResult.Summary.ProcessedFiles / Math.Max(1, _lastResult.Summary.ProcessingDuration.TotalSeconds)).ToString("F1") files/sec)
                                     </div>
 
                                     <!-- Processed Slips Table -->
@@ -276,10 +318,6 @@
                                                             <div class="row">
                                                                 <div class="col-md-4"><strong>Error:</strong></div>
                                                                 <div class="col-md-8 text-danger">@error.Reason</div>
-                                                            </div>
-                                                            <div class="row">
-                                                                <div class="col-md-4"><strong>Failed Pass:</strong></div>
-                                                                <div class="col-md-8">@error.FailedPass</div>
                                                             </div>
                                                             <div class="row">
                                                                 <div class="col-md-4"><strong>Time:</strong></div>
@@ -391,7 +429,21 @@
                             <InputText @bind-Value="_editingCollection!.CredentialsPath" class="form-control"
                                        placeholder="C:\Keys\purrfectocr-db2d9d796b58.json" />
                             <ValidationMessage For="@(() => _editingCollection.CredentialsPath)" class="text-danger" />
-                            <div class="form-text">Path to Google Cloud Vision API service account key file (uses default if empty)</div>
+                            <div class="form-text">Path to Google Cloud Vision API service account key file</div>
+                        </div>
+
+                        <!-- Test Buttons for Debugging -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestDirectoryAccess">
+                                    <i class="bi bi-folder-check me-1"></i>Test Directory Access
+                                </button>
+                            </div>
+                            <div class="col-md-6">
+                                <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestCredentials">
+                                    <i class="bi bi-key me-1"></i>Test Credentials
+                                </button>
+                            </div>
                         </div>
 
                         <div class="form-check">
@@ -424,6 +476,22 @@
 }
 
 @code {
+    // Progress reporter implementation
+    private class BlazorProgressReporter : IProgressReporter
+    {
+        private readonly BankSlipsView _component;
+
+        public BlazorProgressReporter(BankSlipsView component)
+        {
+            _component = component;
+        }
+
+        public void ReportProgress(int processedCount, int totalCount, string currentFileName = "")
+        {
+            _component.UpdateProgress(processedCount, totalCount, currentFileName);
+        }
+    }
+
     // User and permissions
     private string _currentUsername = string.Empty;
     private bool _isAdmin = false;
@@ -444,12 +512,17 @@
     private DateTime _endDate = DateTime.Today;
     private bool _isProcessing = false;
     private BankSlipProcessingResult? _lastResult;
+    private DateTime? _processingStartTime;
 
     // Progress tracking
     private int _processedCount = 0;
     private int _totalFiles = 0;
     private string _currentFileName = string.Empty;
     private int _progressPercentage => _totalFiles > 0 ? (_processedCount * 100 / _totalFiles) : 0;
+
+    // Status messages
+    private string _statusMessage = string.Empty;
+    private string _statusMessageType = "info"; // "info" or "error"
 
     protected override async Task OnInitializedAsync()
     {
@@ -498,6 +571,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading collections");
+            SetStatusMessage($"Error loading collections: {ex.Message}", "error");
         }
         finally
         {
@@ -511,6 +585,7 @@
         _selectedCollection = collection;
         _lastResult = null; // Clear previous results
         ResetProgress();
+        ClearStatusMessage();
         StateHasChanged();
     }
 
@@ -586,16 +661,10 @@
 
             if (string.IsNullOrWhiteSpace(_editingCollection.CredentialsPath))
             {
-                // Set default if empty
                 _editingCollection.CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json";
             }
 
-            Logger.LogInformation("Attempting to save collection: {Name} for user: {Username}",
-                _editingCollection.Name, _currentUsername);
-
             await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
-
-            Logger.LogInformation("Collection {Name} saved successfully", _editingCollection.Name);
 
             // Reload collections and close modal
             await LoadAvailableCollections();
@@ -613,6 +682,60 @@
         }
     }
 
+    private async Task TestDirectoryAccess()
+    {
+        if (_editingCollection == null) return;
+
+        try
+        {
+            if (Directory.Exists(_editingCollection.SourceDirectory))
+            {
+                var files = Directory.GetFiles(_editingCollection.SourceDirectory, "*.*")
+                    .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                    .Take(5)
+                    .ToList();
+
+                _saveErrorMessage = $"✓ Directory accessible. Found {files.Count} sample images.";
+            }
+            else
+            {
+                _saveErrorMessage = "✗ Source directory not found or not accessible.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _saveErrorMessage = $"✗ Error accessing directory: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
+    private async Task TestCredentials()
+    {
+        if (_editingCollection == null) return;
+
+        try
+        {
+            if (File.Exists(_editingCollection.CredentialsPath))
+            {
+                // Try to create a Vision client
+                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _editingCollection.CredentialsPath);
+                var client = ImageAnnotatorClient.Create();
+                _saveErrorMessage = "✓ Google Cloud credentials file is valid and accessible.";
+            }
+            else
+            {
+                _saveErrorMessage = "✗ Credentials file not found at specified path.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _saveErrorMessage = $"✗ Credentials error: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
     #endregion
 
     #region Processing
@@ -624,21 +747,27 @@
         try
         {
             _isProcessing = true;
+            _processingStartTime = DateTime.Now;
             ResetProgress();
+            ClearStatusMessage();
             StateHasChanged();
 
             Logger.LogInformation("Starting bank slip processing for collection {CollectionName} from {StartDate} to {EndDate}",
                 _selectedCollection.Name, _startDate, _endDate);
 
+            var progressReporter = new BlazorProgressReporter(this);
             _lastResult = await BankSlipService.ProcessSlipCollectionAsync(
-                _selectedCollection.Id, _startDate, _endDate, _currentUsername);
+                _selectedCollection.Id, _startDate, _endDate, _currentUsername, progressReporter);
 
             Logger.LogInformation("Processing completed. Processed: {ProcessedCount}, Failed: {FailedCount}",
                 _lastResult.Summary.ProcessedFiles, _lastResult.Summary.FailedFiles);
+
+            SetStatusMessage($"Processing completed successfully! Processed {_lastResult.Summary.ProcessedFiles} files.", "info");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error during bank slip processing");
+            SetStatusMessage($"Processing failed: {ex.Message}", "error");
         }
         finally
         {
@@ -647,11 +776,64 @@
         }
     }
 
+    private async Task TestSingleFile()
+    {
+        if (_selectedCollection == null) return;
+
+        try
+        {
+            SetStatusMessage("Testing single file processing...", "info");
+
+            // Get the first image file from the source directory for testing
+            var testFiles = Directory.GetFiles(_selectedCollection.SourceDirectory, "*.*")
+                .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                           f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                .Take(1)
+                .ToList();
+
+            if (!testFiles.Any())
+            {
+                SetStatusMessage("No image files found in source directory for testing.", "error");
+                return;
+            }
+
+            var testFile = testFiles.First();
+            Logger.LogInformation("Testing single file: {FilePath}", testFile);
+
+            var result = await BankSlipService.TestProcessSingleFileAsync(testFile, _selectedCollection);
+
+            if (result != null)
+            {
+                SetStatusMessage($"✓ Test successful! Extracted: {result.Amount:N2} ฿ from {result.AccountName} on {result.TransactionDate.AddYears(-543):dd/MM/yyyy}", "info");
+            }
+            else
+            {
+                SetStatusMessage("✗ Test failed - could not extract data from the test file.", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during single file test");
+            SetStatusMessage($"Test failed: {ex.Message}", "error");
+        }
+    }
+
     private void ResetProgress()
     {
         _processedCount = 0;
         _totalFiles = 0;
         _currentFileName = string.Empty;
+    }
+
+    public void UpdateProgress(int processedCount, int totalCount, string currentFileName = "")
+    {
+        _processedCount = processedCount;
+        _totalFiles = totalCount;
+        _currentFileName = currentFileName;
+
+        // Use InvokeAsync to ensure UI updates happen on the correct thread
+        InvokeAsync(StateHasChanged);
     }
 
     #endregion
@@ -670,10 +852,12 @@
             await JSRuntime.InvokeVoidAsync("downloadFile", fileName, csvContent, "text/csv");
 
             Logger.LogInformation("CSV export initiated for {Count} bank slips", _lastResult.ProcessedSlips.Count);
+            SetStatusMessage($"CSV file '{fileName}' downloaded successfully!", "info");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error generating CSV export");
+            SetStatusMessage($"CSV export failed: {ex.Message}", "error");
         }
     }
 
@@ -705,6 +889,23 @@
     {
         if (string.IsNullOrEmpty(value)) return "";
         return value.Replace("\"", "\"\"");
+    }
+
+    #endregion
+
+    #region Helper Methods
+
+    private void SetStatusMessage(string message, string type)
+    {
+        _statusMessage = message;
+        _statusMessageType = type;
+        StateHasChanged();
+    }
+
+    private void ClearStatusMessage()
+    {
+        _statusMessage = string.Empty;
+        _statusMessageType = "info";
     }
 
     #endregion
