@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.SharedModels.BankSlips;
+using NewwaysAdmin.WebAdmin.Services.Auth;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +15,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
     {
         private readonly ILogger<BankSlipOcrService> _logger;
         private readonly IOManager _ioManager;
+        private readonly IAuthenticationService _authService;
         private readonly SemaphoreSlim _initLock = new(1, 1);
         private IDataStorage<List<SlipCollection>>? _collectionsStorage;
         private IDataStorage<List<BankSlipData>>? _slipsStorage;
@@ -24,10 +26,11 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
         };
 
-        public BankSlipOcrService(ILogger<BankSlipOcrService> logger, IOManager ioManager)
+        public BankSlipOcrService(ILogger<BankSlipOcrService> logger, IOManager ioManager, IAuthenticationService authService)
         {
             _logger = logger;
             _ioManager = ioManager;
+            _authService = authService;
         }
 
         private async Task EnsureStorageInitializedAsync()

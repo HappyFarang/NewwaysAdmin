@@ -558,11 +558,7 @@
             _isLoadingCollections = true;
 
             // Load all collections for admin to assign access
-            var bankSlipService = ServiceProvider.GetService<IBankSlipOcrService>();
-            if (bankSlipService != null)
-            {
-                _availableCollections = await bankSlipService.GetAllCollectionsAsync();
-            }
+            _availableCollections = await BankSlipService.GetAllCollectionsAsync();
         }
         catch (Exception ex)
         {

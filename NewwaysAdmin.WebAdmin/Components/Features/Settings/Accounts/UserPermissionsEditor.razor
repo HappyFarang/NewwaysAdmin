@@ -2,6 +2,7 @@
 @using NewwaysAdmin.WebAdmin.Models.Navigation
 @using NewwaysAdmin.WebAdmin.Services.Modules
 @using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.SharedModels.BankSlips
 @namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.Accounts
 
 <div class="modal fade show" style="display: block" tabindex="-1">
@@ -226,6 +227,7 @@
                             }
                         </div>
                     </div>
+                </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="OnCancel">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>

@@ -22,5 +22,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         Task SaveCollectionAsync(SlipCollection collection, string username);
         Task DeleteCollectionAsync(string collectionId, string username);
         Task<BankSlipData?> TestProcessSingleFileAsync(string filePath, SlipCollection collection);
+        Task<List<SlipCollection>> GetAllCollectionsAsync();
     }
 }
