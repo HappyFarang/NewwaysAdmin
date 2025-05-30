@@ -33,8 +33,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             _ioManager = ioManager;
         }
 
-        // ... [Previous methods remain the same until ProcessSlipCollectionAsync] ...
-
+        
         private async Task EnsureStorageInitializedAsync()
         {
             if (_collectionsStorage != null && _slipsStorage != null) return;
@@ -453,67 +452,425 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 .Where(l => !string.IsNullOrWhiteSpace(l))
                 .ToList();
 
+            _logger.LogDebug("OCR Output for {FileName} - Total lines: {LineCount}",
+                Path.GetFileName(imagePath), lines.Count);
+
+            foreach (var line in lines.Take(Math.Min(lines.Count, 25))) // Log more lines for debugging
+            {
+                _logger.LogDebug("OCR Line: '{Line}'", line);
+            }
+
             var slip = new BankSlipData
             {
                 OriginalFilePath = imagePath
             };
 
-            foreach (var line in lines)
+            var accountNumberPattern = new Regex(@"[xX]{3,}[-\d]+|[\d]+-[xX]{3,}|\d{3}-\d-\d{5}-\d");
+            var amountPattern = new Regex(@"[\d,]+\.?\d*\s*บาท");
+
+            bool foundSenderAccount = false;
+            bool foundAmount = false;
+            bool foundPromptPaySection = false;
+
+            for (int i = 0; i < lines.Count; i++)
             {
+                var line = lines[i];
+                var nextLine = i + 1 < lines.Count ? lines[i + 1] : "";
+                var lineAfterNext = i + 2 < lines.Count ? lines[i + 2] : "";
+
+                // Skip lines that are clearly system/UI elements
+                if (ShouldSkipLine(line))
+                {
+                    _logger.LogDebug("Skipping system line: '{Line}'", line);
+                    continue;
+                }
+
+                // Date parsing
                 if (IsDateLine(line) && slip.TransactionDate == default)
                 {
                     try
                     {
                         slip.TransactionDate = ParseThaiDate(line);
+                        _logger.LogDebug("Found date: {Date}", slip.TransactionDate);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogDebug("Failed to parse date from '{Line}': {Error}", line, ex.Message);
                     }
                 }
-                else if (string.IsNullOrEmpty(slip.AccountName) &&
-                        (line.StartsWith("น.ส.") || line.StartsWith("นาย") ||
-                         line.StartsWith("นาง") || line.StartsWith("บจ.") ||
-                         line.Contains("บริษัท")))
+
+                // Check for PromptPay section indicator
+                else if (line.Contains("พร้อมเพย์") || line.Contains("Prompt"))
                 {
-                    slip.AccountName = line;
+                    foundPromptPaySection = true;
+                    _logger.LogDebug("Found PromptPay section at line {Index}", i);
                 }
-                else if ((line.Contains("XXX") || line.Contains("xxx")) && line.Contains("-"))
+
+                // Account number detection - sender account first
+                else if (!foundSenderAccount && accountNumberPattern.IsMatch(line))
                 {
-                    var cleanLine = line.Replace("+", "").Replace(" ", "").Replace(":", "");
-                    if (string.IsNullOrEmpty(slip.AccountNumber))
+                    var cleanLine = CleanAccountNumber(line);
+                    slip.AccountNumber = cleanLine;
+                    foundSenderAccount = true;
+                    _logger.LogDebug("Found sender account: {Account}", slip.AccountNumber);
+
+                    // Look for sender name in nearby lines
+                    if (string.IsNullOrEmpty(slip.AccountName))
                     {
-                        slip.AccountNumber = cleanLine;
+                        slip.AccountName = FindSenderNameNearAccount(lines, i);
+                        if (!string.IsNullOrEmpty(slip.AccountName))
+                        {
+                            _logger.LogDebug("Found sender name: {Name}", slip.AccountName);
+                        }
                     }
-                    else if (slip.AccountNumber != cleanLine)
+                }
+
+                // Second account number (receiver account) - only after we found sender
+                else if (foundSenderAccount && accountNumberPattern.IsMatch(line))
+                {
+                    var cleanLine = CleanAccountNumber(line);
+                    if (cleanLine != slip.AccountNumber) // Make sure it's different from sender
                     {
                         slip.ReceiverAccount = cleanLine;
+                        _logger.LogDebug("Found receiver account: {Account}", slip.ReceiverAccount);
+
+                        // Look for receiver name near this account
+                        if (string.IsNullOrEmpty(slip.ReceiverName))
+                        {
+                            slip.ReceiverName = FindReceiverNameNearAccount(lines, i, slip.AccountName);
+                            if (!string.IsNullOrEmpty(slip.ReceiverName))
+                            {
+                                _logger.LogDebug("Found receiver name near account: {Name}", slip.ReceiverName);
+                            }
+                        }
                     }
                 }
-                else if (line.Contains("บาท"))
+
+                // Amount detection
+                else if (!foundAmount && amountPattern.IsMatch(line))
                 {
-                    var amountStr = line.Replace("บาท", "").Replace(",", "").Trim();
+                    var amountStr = ExtractAmount(line);
                     if (decimal.TryParse(amountStr, out decimal amount) && amount > 0)
                     {
                         slip.Amount = amount;
+                        foundAmount = true;
+                        _logger.LogDebug("Found amount: {Amount}", slip.Amount);
                     }
                 }
-                else if (line.Contains("บันทึกช่วย"))
+
+                // Sender name detection (if not found yet)
+                else if (string.IsNullOrEmpty(slip.AccountName) && IsValidPersonOrCompanyName(line, ""))
                 {
-                    slip.Note = line;
+                    slip.AccountName = line;
+                    _logger.LogDebug("Found sender name: {Name}", slip.AccountName);
+                }
+
+                // Enhanced receiver name detection - look for names that appear after PromptPay indicator
+                else if (string.IsNullOrEmpty(slip.ReceiverName) && foundPromptPaySection)
+                {
+                    if (IsValidReceiverName(line, slip.AccountName))
+                    {
+                        var receiverName = line;
+
+                        // Try to combine with next line if it looks like continuation
+                        if (ShouldCombineWithNextLine(line, nextLine))
+                        {
+                            receiverName += " " + nextLine;
+                            i++; // Skip next line since we consumed it
+                        }
+
+                        slip.ReceiverName = receiverName.Trim();
+                        _logger.LogDebug("Found receiver name in PromptPay section: {Name}", slip.ReceiverName);
+                    }
+                }
+
+                // Note/memo detection
+                else if (line.Contains("บันทึกช่วยจำ") || line.Contains("บันทึกช่วยจํา"))
+                {
+                    // Extract the note part after the colon
+                    var colonIndex = line.IndexOf(':');
+                    if (colonIndex >= 0 && colonIndex < line.Length - 1)
+                    {
+                        slip.Note = line.Substring(colonIndex + 1).Trim();
+                    }
+                    else
+                    {
+                        slip.Note = line;
+                    }
+                    _logger.LogDebug("Found note: {Note}", slip.Note);
                 }
             }
 
-            // Validation
-            if (slip.TransactionDate == default || slip.Amount == 0 ||
-                string.IsNullOrEmpty(slip.AccountName) || string.IsNullOrEmpty(slip.AccountNumber))
-            {
-                return null;
-            }
+            // Final validation and cleanup
+            CleanupAndValidate(slip);
+
+            // Enhanced logging for debugging
+            LogParsingResults(slip, imagePath);
 
             return slip;
         }
 
+        private bool ShouldSkipLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 2) return true;
+
+            var skipPatterns = new[]
+            {
+        "เค+", // Logo text
+        "สแกนตรวจสอบ", // Scan verification
+        "จํานวน:", "จำนวน:", // Amount label (without actual amount)
+        "ค่าธรรมเนียม:", // Fee label (without actual fee)
+        "รหัสพร้อมเพย์", // PromptPay code label
+        "ยอดคงเหลือ", // Balance
+        "เลขที่รายการ", // Transaction number
+        "Mobile Banking", "ATM", "Online"
+    };
+
+            return skipPatterns.Any(pattern => line.Contains(pattern));
+        }
+
+        private bool IsValidReceiverName(string line, string senderName)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
+
+            // Skip if it's the same as sender name
+            if (!string.IsNullOrEmpty(senderName) && line.Equals(senderName, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Skip lines that contain system keywords
+            var systemKeywords = new[]
+            {
+        "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท", "พร้อมเพย์", "รหัส",
+        "สแกน", "ตรวจสอบ", "ยอด", "คงเหลือ", "เลขที่", "รายการ"
+    };
+
+            if (systemKeywords.Any(keyword => line.Contains(keyword)))
+                return false;
+
+            // Skip lines that are mostly numbers or contain account number patterns
+            if (Regex.IsMatch(line, @"[xX]{3,}|^\d+-\d+-\d+") || line.Count(char.IsDigit) > line.Length / 2)
+                return false;
+
+            // Must start with typical Thai name prefixes
+            var namePatterns = new[] { "นาย", "นาง", "น.ส.", "บจ.", "บมจ.", "บริษัท" };
+
+            if (namePatterns.Any(pattern => line.StartsWith(pattern)))
+            {
+                _logger.LogDebug("Line '{Line}' matches name pattern", line);
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsValidPersonOrCompanyName(string line, string excludeName)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
+
+            // Skip if it's the excluded name
+            if (!string.IsNullOrEmpty(excludeName) && line.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Thai person titles and company identifiers
+            var validPrefixes = new[] { "นาย", "นาง", "น.ส.", "เด็กชาย", "เด็กหญิง", "บจ.", "บมจ.", "บริษัท", "ห้าง" };
+
+            return validPrefixes.Any(prefix => line.StartsWith(prefix));
+        }
+
+        private string FindSenderNameNearAccount(List<string> lines, int accountLineIndex)
+        {
+            // Look in lines before and after the account number
+            for (int i = Math.Max(0, accountLineIndex - 3); i <= Math.Min(lines.Count - 1, accountLineIndex + 2); i++)
+            {
+                if (i != accountLineIndex && IsValidPersonOrCompanyName(lines[i], ""))
+                {
+                    return lines[i];
+                }
+            }
+            return "";
+        }
+
+        private string FindReceiverNameNearAccount(List<string> lines, int accountLineIndex, string senderName)
+        {
+            // Look for receiver name in lines around the receiver account
+            for (int i = Math.Max(0, accountLineIndex - 5); i <= Math.Min(lines.Count - 1, accountLineIndex + 3); i++)
+            {
+                if (i != accountLineIndex)
+                {
+                    var line = lines[i];
+                    if (IsValidReceiverName(line, senderName))
+                    {
+                        _logger.LogDebug("Found potential receiver name near account: '{Name}'", line);
+                        return line;
+                    }
+                }
+            }
+            return "";
+        }        
+
+        private void CleanupAndValidate(BankSlipData slip)
+        {
+            // Clean up receiver name if it contains unwanted text
+            if (!string.IsNullOrEmpty(slip.ReceiverName))
+            {
+                // Remove common prefixes that might be captured incorrectly
+                var unwantedPrefixes = new[] { "จํานวน:", "จำนวน:", "ค่าธรรมเนียม:" };
+                foreach (var prefix in unwantedPrefixes)
+                {
+                    if (slip.ReceiverName.StartsWith(prefix))
+                    {
+                        var colonIndex = slip.ReceiverName.IndexOf(':');
+                        if (colonIndex >= 0 && colonIndex < slip.ReceiverName.Length - 1)
+                        {
+                            slip.ReceiverName = slip.ReceiverName.Substring(colonIndex + 1).Trim();
+                        }
+                    }
+                }
+
+                // If receiver name still contains system keywords, clear it
+                var systemKeywords = new[] { "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท" };
+                if (systemKeywords.Any(keyword => slip.ReceiverName.Contains(keyword)))
+                {
+                    _logger.LogDebug("Clearing invalid receiver name: '{Name}'", slip.ReceiverName);
+                    slip.ReceiverName = "";
+                }
+            }
+        }
+
+        private void LogParsingResults(BankSlipData slip, string imagePath)
+        {
+            _logger.LogDebug("=== Parsing Results for {FileName} ===", Path.GetFileName(imagePath));
+            _logger.LogDebug("Date: {Date}", slip.TransactionDate);
+            _logger.LogDebug("Amount: {Amount}", slip.Amount);
+            _logger.LogDebug("Sender: '{Sender}' | Account: '{SenderAccount}'", slip.AccountName, slip.AccountNumber);
+            _logger.LogDebug("Receiver: '{Receiver}' | Account: '{ReceiverAccount}'", slip.ReceiverName ?? "NOT FOUND", slip.ReceiverAccount ?? "NOT FOUND");
+            _logger.LogDebug("Note: '{Note}'", slip.Note ?? "N/A");
+
+            var isValid = slip.TransactionDate != default && slip.Amount > 0 &&
+                          !string.IsNullOrEmpty(slip.AccountName) && !string.IsNullOrEmpty(slip.AccountNumber);
+            _logger.LogDebug("Valid: {IsValid}", isValid);
+            _logger.LogDebug("==========================================");
+        }
+        private bool IsPersonOrCompanyName(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
+
+            // Thai person titles
+            var personTitles = new[] { "นาย", "นาง", "น.ส.", "เด็กชาย", "เด็กหญิง", "พระ" };
+
+            // Company identifiers
+            var companyIdentifiers = new[] { "บจ.", "บมจ.", "บริษัท", "ห้างหุ้นส่วน", "มูลนิธิ", "สมาคม" };
+
+            return personTitles.Any(title => line.StartsWith(title)) ||
+                   companyIdentifiers.Any(id => line.Contains(id)) ||
+                   (line.All(c => char.IsLetter(c) || char.IsWhiteSpace(c) || ".-".Contains(c)) &&
+                    line.Count(char.IsLetter) > 2);
+        }
+
+        private bool IsLikelyReceiverName(string line, string senderName)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
+
+            // Skip if it's the same as sender name
+            if (!string.IsNullOrEmpty(senderName) && line.Equals(senderName, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Skip lines that look like system messages
+            var systemKeywords = new[] {
+        "โอนเงิน", "สำเร็จ", "ธนาคาร", "เลขที่", "รายการ", "ค่าธรรมเนียม",
+        "ยอดคงเหลือ", "วันที่", "เวลา", "ATM", "Mobile", "Online"
+    };
+
+            if (systemKeywords.Any(keyword => line.Contains(keyword)))
+                return false;
+
+            // Skip lines that are mostly numbers
+            if (line.Count(char.IsDigit) > line.Length / 2)
+                return false;
+
+            // Check for typical receiver name patterns
+            var receiverIndicators = new[] {
+        "บจ.", "บมจ.", "บริษัท", "ห้าง", "ร้าน", "นาย", "นาง", "น.ส.",
+        "เอ็ม", "กรุ๊ป", "เซ็นเตอร์", "คอร์ป", "เทรดดิ้ง", "จำกัด"
+    };
+
+            // Strong indicators for receiver names
+            if (receiverIndicators.Any(indicator => line.Contains(indicator)))
+                return true;
+
+            // Check if it looks like a Thai name (mostly Thai characters with some spaces/dots)
+            var thaiCharCount = line.Count(c => c >= '\u0E00' && c <= '\u0E7F');
+            var totalNonSpaceChars = line.Count(c => !char.IsWhiteSpace(c));
+
+            return totalNonSpaceChars > 2 && thaiCharCount > totalNonSpaceChars * 0.7;
+        }
+
+        private bool ShouldCombineWithNextLine(string currentLine, string nextLine)
+        {
+            if (string.IsNullOrWhiteSpace(nextLine)) return false;
+
+            // Combine if next line looks like a continuation (no clear ending)
+            var continuationPatterns = new[] {
+        "จำกัด", "มหาชน", "กรุ๊ป", "เซ็นเตอร์", "คอร์ปอเรชั่น",
+        "เทรดดิ้ง", "ดีเวลลอปเมนท์", "แมนเนจเมนท์", "อินเตอร์เนชั่นแนล"
+    };
+
+            // Don't combine if current line already looks complete
+            if (currentLine.EndsWith("จำกัด") || currentLine.EndsWith("มหาชน"))
+                return false;
+
+            // Combine if next line starts with continuation words
+            if (continuationPatterns.Any(pattern => nextLine.StartsWith(pattern)))
+                return true;
+
+            // Combine if current line seems incomplete (doesn't end with typical endings)
+            var completeEndings = new[] { "จำกัด", "มหาชน", "บริษัท", "ห้าง" };
+            if (!completeEndings.Any(ending => currentLine.EndsWith(ending)))
+            {
+                // And next line looks like it could be part of company name
+                if (nextLine.Any(c => c >= '\u0E00' && c <= '\u0E7F') && nextLine.Length < 20)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private string FindReceiverNameNearAccount(List<string> lines, string receiverAccount)
+        {
+            if (string.IsNullOrEmpty(receiverAccount)) return "";
+
+            // Find the line with receiver account
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].Contains(receiverAccount.Replace("XXX", "").Replace("xxx", "")))
+                {
+                    // Check lines before and after for receiver name
+                    for (int j = Math.Max(0, i - 3); j <= Math.Min(lines.Count - 1, i + 3); j++)
+                    {
+                        if (j != i && IsPersonOrCompanyName(lines[j]))
+                        {
+                            return lines[j];
+                        }
+                    }
+                }
+            }
+
+            return "";
+        }
+
+        private string CleanAccountNumber(string line)
+        {
+            return line.Replace("+", "").Replace(" ", "").Replace(":", "").Replace(".", "");
+        }
+        private string ExtractAmount(string line)
+        {
+            var match = Regex.Match(line, @"([\d,]+\.?\d*)\s*บาท");
+            if (match.Success)
+            {
+                return match.Groups[1].Value.Replace(",", "");
+            }
+            return line.Replace("บาท", "").Replace(",", "").Trim();
+        }
         private DateTime ParseThaiDate(string dateText)
         {
             dateText = dateText.Replace("น.", "").Replace("'", "").Trim();
