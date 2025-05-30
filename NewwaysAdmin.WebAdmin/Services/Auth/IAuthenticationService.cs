@@ -1,4 +1,4 @@
-﻿using NewwaysAdmin.WebAdmin.Models.Auth;
+﻿/*using NewwaysAdmin.WebAdmin.Models.Auth;
 
 public interface IAuthenticationService
 {
@@ -13,3 +13,4 @@ public interface IAuthenticationService
     Task<bool> CreateUserAsync(User user);  // New method
     Task<bool> DeleteUserAsync(string username);  // New method
 }
+*/

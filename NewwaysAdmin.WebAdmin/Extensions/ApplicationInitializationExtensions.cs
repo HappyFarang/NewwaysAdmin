@@ -8,9 +8,9 @@ namespace NewwaysAdmin.WebAdmin.Extensions
         {
             using var scope = app.Services.CreateScope();
 
-            // Initialize default admin user
-            var authService = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
-            await authService.InitializeDefaultAdminAsync();
+            // Initialize default users
+            var userInitService = scope.ServiceProvider.GetRequiredService<UserInitializationService>();
+            await userInitService.EnsureAdminUserExistsAsync();
 
             app.Logger.LogInformation("Application data initialized successfully");
         }

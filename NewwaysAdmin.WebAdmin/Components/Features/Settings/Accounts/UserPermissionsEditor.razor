@@ -401,13 +401,13 @@
 
         // Clean up module configs for modules without access
         var accessibleModules = Model.PageAccess
-            .Where(p => p.AccessLevel != AccessLevel.None)
-            .Select(p => p.NavigationId)
-            .ToHashSet();
+        .Where(p => p.AccessLevel != AccessLevel.None)
+        .Select(p => p.NavigationId)
+        .ToHashSet();
 
         var configsToRemove = Model.ModuleConfigs.Keys
-            .Where(moduleId => !accessibleModules.Contains(moduleId))
-            .ToList();
+        .Where(moduleId => !accessibleModules.Contains(moduleId))
+        .ToList();
 
         foreach (var moduleId in configsToRemove)
         {

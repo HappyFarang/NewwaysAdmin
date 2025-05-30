@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.Extensions.Primitives;
 using NewwaysAdmin.Shared.IO;
-using NewwaysAdmin.WebAdmin.Services.Auth;
+using NewwaysAdmin.WebAdmin.Models.Auth;
 using NewwaysAdmin.WebAdmin.Services.Navigation;
 using NewwaysAdmin.WebAdmin.Authentication;
 using NewwaysAdmin.WebAdmin.Extensions;
@@ -19,7 +19,6 @@ using NewwaysAdmin.Shared.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
 using NewwaysAdmin.WebAdmin.Authorization;
-using NewwaysAdmin.WebAdmin.Models.Auth;
 using NewwaysAdmin.WebAdmin.Services.BankSlips;
 
 namespace NewwaysAdmin.WebAdmin;
@@ -38,6 +37,7 @@ public class Program
 
         app.Run();
     }
+
     private static void ConfigureServices(IServiceCollection services, IConfiguration configuration, string[] args)
     {
         // Basic Blazor services
@@ -118,6 +118,9 @@ public class Program
         services.AddSingleton<StorageManager>();
         services.AddStorageServices();
 
+        // Register UserInitializationService
+        services.AddScoped<UserInitializationService>();
+
         // Add ConfigProvider that uses IOManager
         services.AddSingleton<ConfigProvider>(sp =>
         {
@@ -127,11 +130,9 @@ public class Program
             return new ConfigProvider(logger, ioManager);
         });
 
-        // Register SalesDataProvider - now depends on StorageManager and ConfigProvider
+        // Register SalesDataProvider 
         services.AddScoped<SalesDataProvider>(sp =>
         {
-            // Get the EnhancedStorageFactory directly for now
-            // This is temporary until we update SalesDataProvider to use IOManager
             var factory = sp.GetRequiredService<EnhancedStorageFactory>();
             return new SalesDataProvider(factory);
         });
@@ -140,7 +141,7 @@ public class Program
         services.AddAuthorizationCore(options =>
         {
             // Create policies for each module and access level combination
-            var modules = new[] { "home", "test", "settings", "sales", "bankslip" }; // Added bankslip
+            var modules = new[] { "home", "test", "settings", "sales", "accounting", "accounting.bankslips" };
             var accessLevels = new[] { AccessLevel.Read, AccessLevel.ReadWrite };
 
             foreach (var module in modules)
@@ -170,100 +171,18 @@ public class Program
         services.AddScoped<CircuitHandler, CustomCircuitHandler>();
         services.AddSingleton<ICircuitManager, CircuitManager>();
 
-        // Authentication and navigation - now using StorageManager
+        // Authentication and navigation - FIXED: Only register once
         services.AddScoped<IAuthenticationService, AuthenticationService>();
         services.AddScoped<INavigationService, NavigationService>();
         services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
 
         // Module system
         services.AddModuleRegistry();
+
+        // Bank slip service
         services.AddScoped<IBankSlipOcrService, BankSlipOcrService>();
-
     }
 
-    /*
-    private static void ConfigureServices(IServiceCollection services, IConfiguration configuration)
-    {
-        // Basic Blazor services
-        services.AddRazorPages();
-        services.AddServerSideBlazor();
-        services.AddHttpContextAccessor();
-        services.AddAuthorizationCore();
-
-        // Add logging
-        services.AddLogging(logging =>
-        {
-            logging.AddConsole();
-            logging.AddDebug();
-        });
-
-        // IO Manager configuration
-        services.AddSingleton<IOConfigLoader>();
-        services.AddSingleton<MachineConfigProvider>();
-
-        // Add IOManagerOptions first because IOManager depends on it
-        services.AddSingleton<IOManagerOptions>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<IOConfigLoader>>();
-            var configLoader = new IOConfigLoader(logger);
-            var config = configLoader.LoadConfigAsync().GetAwaiter().GetResult();
-
-            return new IOManagerOptions
-            {
-                LocalBaseFolder = config.LocalBaseFolder ?? "C:/NewwaysData",
-                ServerDefinitionsPath = config.ServerDefinitionsPath ?? "X:/NewwaysAdmin/Definitions",
-                ApplicationName = "NewwaysAdmin.WebAdmin"
-            };
-        });
-
-        // Now register IOManager with its dependencies satisfied
-        services.AddSingleton<IOManager>();
-
-        // ConfigSyncTracker depends on IOManager
-        services.AddSingleton<ConfigSyncTracker>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<ConfigSyncTracker>>();
-            var ioManager = sp.GetRequiredService<IOManager>();
-            return new ConfigSyncTracker(ioManager.LocalBaseFolder, logger);
-        });
-
-        // Storage system
-        services.AddStorageServices();
-
-        // Add EnhancedStorageFactory
-        services.AddSingleton<EnhancedStorageFactory>(sp =>
-        {
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger<EnhancedStorageFactory>();
-            return new EnhancedStorageFactory(logger);
-        });
-
-        // Add StorageManager with logger
-        services.AddSingleton<StorageManager>();
-        services.AddScoped<SalesDataProvider>();
-
-        // Add ConfigProvider that uses IOManager
-        services.AddSingleton<ConfigProvider>(sp =>
-        {
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger<ConfigProvider>();
-            var ioManager = sp.GetRequiredService<IOManager>();  // Changed to use IOManager
-            return new ConfigProvider(logger, ioManager);  // Pass IOManager, not EnhancedStorageFactory
-        });
-
-        // Circuit handling
-        services.AddScoped<CircuitHandler, CustomCircuitHandler>();
-        services.AddSingleton<ICircuitManager, CircuitManager>();
-
-        // Authentication and navigation
-        services.AddScoped<IAuthenticationService, AuthenticationService>();
-        services.AddScoped<INavigationService, NavigationService>();
-        services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
-
-        // Module system
-        services.AddModuleRegistry();
-    }
-    */
     private static async Task ConfigureApplication(WebApplication app)
     {
         // Initialize core systems
