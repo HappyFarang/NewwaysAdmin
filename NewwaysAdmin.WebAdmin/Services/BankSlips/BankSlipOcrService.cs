@@ -1,13 +1,10 @@
-﻿// Fixed BankSlipOcrService with proper date filtering and file counting
+﻿// Updated BankSlipOcrService.cs with enhanced note detection and image processing
 using Google.Cloud.Vision.V1;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.SharedModels.BankSlips;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -33,7 +30,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             _ioManager = ioManager;
         }
 
-        
         private async Task EnsureStorageInitializedAsync()
         {
             if (_collectionsStorage != null && _slipsStorage != null) return;
@@ -69,7 +65,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             try
             {
                 await EnsureStorageInitializedAsync();
-
                 _logger.LogInformation("Saving collection {CollectionName} for user {Username}",
                     collection.Name, username);
 
@@ -127,7 +122,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 throw new ArgumentException($"Collection not found: {collectionId}");
             }
 
-            _logger.LogInformation("Starting bank slip processing for collection {CollectionName} from {StartDate} to {EndDate}",
+            _logger.LogInformation("Starting enhanced bank slip processing for collection {CollectionName} from {StartDate} to {EndDate}",
                 collection.Name, startDate.ToString("yyyy-MM-dd"), endDate.ToString("yyyy-MM-dd"));
 
             var result = new BankSlipProcessingResult
@@ -146,11 +141,14 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 // Ensure output directory exists
                 Directory.CreateDirectory(collection.OutputDirectory);
 
+                // Clean up any old temp files first
+                EnhancedImageProcessor.CleanupTempFiles(collection.OutputDirectory, _logger);
+
                 // Initialize Vision API client
                 _visionClient = CreateVisionClient(collection.CredentialsPath);
                 _logger.LogInformation("Vision API client initialized");
 
-                // Get all image files - but we'll filter by date during processing
+                // Get all image files
                 var allFiles = GetImageFiles(collection.SourceDirectory);
                 _logger.LogInformation("Found {TotalFileCount} total image files in source directory", allFiles.Count);
 
@@ -162,10 +160,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     return result;
                 }
 
-                // Pre-filter files by file timestamp to get a better estimate
-                // File timestamps are in CE (Christian Era), so use CE dates for comparison
-                var endDateInclusive = endDate.AddDays(1); // Add one day to include end date
-
+                // Pre-filter files by file timestamp
+                var endDateInclusive = endDate.AddDays(1);
                 var candidateFiles = allFiles.Where(file =>
                 {
                     try
@@ -176,14 +172,13 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                     catch
                     {
-                        return true; // Include files we can't check timestamp for
+                        return true;
                     }
                 }).ToList();
 
-                _logger.LogInformation("Pre-filtered to {CandidateCount} files based on file timestamps (CE date range: {StartCE} to {EndCE})",
-                    candidateFiles.Count, startDate.ToString("yyyy-MM-dd"), endDate.ToString("yyyy-MM-dd"));
+                _logger.LogInformation("Pre-filtered to {CandidateCount} files based on file timestamps",
+                    candidateFiles.Count);
 
-                // Use candidate files for progress reporting
                 result.Summary.TotalFiles = candidateFiles.Count;
                 progressReporter?.ReportProgress(0, candidateFiles.Count);
 
@@ -198,7 +193,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                         _logger.LogDebug("Processing file {FileIndex}/{TotalFiles}: {FileName}",
                             i + 1, candidateFiles.Count, fileName);
 
-                        // Report progress with current file
                         progressReporter?.ReportProgress(i, candidateFiles.Count, fileName);
 
                         var slipData = await ProcessSingleFileAsync(file, collection, startDate, endDate);
@@ -211,8 +205,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                             result.Summary.ProcessedFiles++;
 
                             var ceDate = slipData.TransactionDate.AddYears(-543);
-                            _logger.LogDebug("Successfully processed {FileName}, Amount: {Amount}, Date: {Date}",
-                                fileName, slipData.Amount, ceDate.ToString("yyyy-MM-dd"));
+                            _logger.LogDebug("Successfully processed {FileName}, Amount: {Amount}, Date: {Date}, Note: '{Note}'",
+                                fileName, slipData.Amount, ceDate.ToString("yyyy-MM-dd"), slipData.Note ?? "No note");
                         }
                         else
                         {
@@ -232,18 +226,14 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                         result.Summary.FailedFiles++;
                     }
 
-                    // Small delay to prevent overwhelming the system
                     await Task.Delay(50);
                 }
 
-                // Update final counts
                 result.Summary.DateOutOfRangeFiles = candidateFiles.Count - result.Summary.ProcessedFiles - result.Summary.FailedFiles;
-                result.Summary.TotalFiles = allFiles.Count; // Set to actual total for reporting
+                result.Summary.TotalFiles = allFiles.Count;
 
-                // Report final progress
                 progressReporter?.ReportProgress(candidateFiles.Count, candidateFiles.Count, "Processing complete");
 
-                // Save processed slips if any
                 if (result.ProcessedSlips.Any())
                 {
                     try
@@ -254,21 +244,23 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     catch (Exception saveEx)
                     {
                         _logger.LogError(saveEx, "Failed to save processed slips, but processing completed successfully");
-                        // Don't fail the entire operation - user can still download CSV
                     }
                 }
+
+                // Clean up temp files after processing
+                EnhancedImageProcessor.CleanupTempFiles(collection.OutputDirectory, _logger);
 
                 result.ProcessingCompleted = DateTime.UtcNow;
                 result.Summary.ProcessingDuration = result.ProcessingCompleted - result.ProcessingStarted;
 
-                _logger.LogInformation("Processing completed. Total files: {Total}, Candidates: {Candidates}, Success: {Success}, Failed: {Failed}, Out of range: {OutOfRange}",
-                    allFiles.Count, candidateFiles.Count, result.Summary.ProcessedFiles, result.Summary.FailedFiles, result.Summary.DateOutOfRangeFiles);
+                _logger.LogInformation("Enhanced processing completed. Success: {Success}, Failed: {Failed}, Out of range: {OutOfRange}",
+                    result.Summary.ProcessedFiles, result.Summary.FailedFiles, result.Summary.DateOutOfRangeFiles);
 
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during batch processing");
+                _logger.LogError(ex, "Error during enhanced batch processing");
                 result.ProcessingCompleted = DateTime.UtcNow;
                 result.Summary.ProcessingDuration = result.ProcessingCompleted - result.ProcessingStarted;
                 throw;
@@ -279,13 +271,20 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         {
             try
             {
+                // Clean up any old temp files first
+                EnhancedImageProcessor.CleanupTempFiles(collection.OutputDirectory, _logger);
+
                 _visionClient = CreateVisionClient(collection.CredentialsPath);
-                // For testing, don't apply date filters
-                return await ProcessSingleFileAsync(filePath, collection, DateTime.MinValue, DateTime.MaxValue);
+                var result = await ProcessSingleFileAsync(filePath, collection, DateTime.MinValue, DateTime.MaxValue);
+
+                // Clean up after test
+                EnhancedImageProcessor.CleanupTempFiles(collection.OutputDirectory, _logger);
+
+                return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in test processing: {FilePath}", filePath);
+                _logger.LogError(ex, "Error in enhanced test processing: {FilePath}", filePath);
                 throw;
             }
         }
@@ -302,51 +301,49 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 return null;
             }
 
-            var tempProcessedPath = Path.Combine(collection.OutputDirectory, $"temp_processed_{Guid.NewGuid():N}.jpg");
+            var tempProcessedPath = Path.Combine(collection.OutputDirectory, $"enhanced_processed_{Guid.NewGuid():N}.png");
 
             try
             {
-                // Try different processing passes
+                // Try different processing passes with enhanced image processing
                 foreach (var pass in collection.ProcessingSettings.ProcessingPasses)
                 {
                     try
                     {
-                        _logger.LogDebug("Trying processing pass {Pass} for {FilePath}", pass, Path.GetFileName(filePath));
+                        _logger.LogDebug("Trying enhanced processing pass {Pass} for {FilePath}", pass, Path.GetFileName(filePath));
 
-                        var parameters = GetProcessingParameters(pass, collection.ProcessingSettings);
-                        ProcessImage(filePath, tempProcessedPath, parameters);
+                        // Get processing settings for this pass
+                        var settings = EnhancedImageProcessor.GetSettingsForPass(pass);
+
+                        // Apply enhanced image processing
+                        EnhancedImageProcessor.ProcessImage(filePath, tempProcessedPath, settings, _logger);
 
                         var slipData = await ExtractSlipDataAsync(tempProcessedPath);
                         if (slipData != null)
                         {
                             slipData.OriginalFilePath = filePath;
 
-                            // Validate and fix date
                             if (!ValidateAndFixDate(slipData, filePath))
                             {
                                 _logger.LogDebug("Date validation failed for {FilePath}", filePath);
                                 continue;
                             }
 
-                            // Convert BE to CE for date range checking
                             var ceDate = slipData.TransactionDate.AddYears(-543);
 
-                            // Check date range if specified (skip if testing mode)
                             if (startDate != DateTime.MinValue && endDate != DateTime.MaxValue)
                             {
                                 if (ceDate.Date >= startDate.Date && ceDate.Date <= endDate.Date)
                                 {
                                     slipData.Status = BankSlipProcessingStatus.Completed;
-                                    _logger.LogDebug("Successfully processed {FilePath} with pass {Pass}, Date: {Date}",
-                                        Path.GetFileName(filePath), pass, ceDate.ToString("yyyy-MM-dd"));
+                                    _logger.LogDebug("Successfully processed {FilePath} with enhanced pass {Pass}, Date: {Date}, Note: '{Note}'",
+                                        Path.GetFileName(filePath), pass, ceDate.ToString("yyyy-MM-dd"), slipData.Note ?? "No note");
                                     return slipData;
                                 }
                                 else
                                 {
-                                    _logger.LogDebug("Date {Date} outside range {StartDate} to {EndDate} for {FilePath}",
-                                        ceDate.ToString("yyyy-MM-dd"), startDate.ToString("yyyy-MM-dd"),
-                                        endDate.ToString("yyyy-MM-dd"), Path.GetFileName(filePath));
-                                    // Don't continue to next pass - this file is just out of range
+                                    _logger.LogDebug("Date {Date} outside range for {FilePath}",
+                                        ceDate.ToString("yyyy-MM-dd"), Path.GetFileName(filePath));
                                     return null;
                                 }
                             }
@@ -359,13 +356,13 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug("Processing pass {Pass} failed for {FilePath}: {Error}",
+                        _logger.LogDebug("Enhanced processing pass {Pass} failed for {FilePath}: {Error}",
                             pass, Path.GetFileName(filePath), ex.Message);
                         continue;
                     }
                 }
 
-                _logger.LogDebug("All processing passes failed for {FilePath}", Path.GetFileName(filePath));
+                _logger.LogDebug("All enhanced processing passes failed for {FilePath}", Path.GetFileName(filePath));
                 return null;
             }
             finally
@@ -382,22 +379,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 {
                     _logger.LogDebug("Failed to delete temp file {TempPath}: {Error}", tempProcessedPath, ex.Message);
                 }
-            }
-        }
-
-        // ... [Rest of the methods remain the same] ...
-
-        private void ProcessImage(string inputPath, string outputPath, ProcessingParameters parameters)
-        {
-            try
-            {
-                // For now, just copy the file - you can implement actual image processing later
-                File.Copy(inputPath, outputPath, true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing image {InputPath}", inputPath);
-                throw;
             }
         }
 
@@ -436,11 +417,14 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 }
 
                 var text = string.Join("\n", response.Select(r => r.Description));
+                _logger.LogDebug("Enhanced OCR extracted {CharCount} characters from {ImagePath}",
+                    text.Length, Path.GetFileName(imagePath));
+
                 return ParseSlipText(text, imagePath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during OCR extraction for {ImagePath}", imagePath);
+                _logger.LogError(ex, "Error during enhanced OCR extraction for {ImagePath}", imagePath);
                 return null;
             }
         }
@@ -452,12 +436,13 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 .Where(l => !string.IsNullOrWhiteSpace(l))
                 .ToList();
 
-            _logger.LogDebug("OCR Output for {FileName} - Total lines: {LineCount}",
+            _logger.LogDebug("Enhanced OCR Output for {FileName} - Total lines: {LineCount}",
                 Path.GetFileName(imagePath), lines.Count);
 
-            foreach (var line in lines.Take(Math.Min(lines.Count, 25))) // Log more lines for debugging
+            // Log lines for debugging
+            foreach (var line in lines.Take(Math.Min(lines.Count, 25)))
             {
-                _logger.LogDebug("OCR Line: '{Line}'", line);
+                _logger.LogDebug("Enhanced OCR Line: '{Line}'", line);
             }
 
             var slip = new BankSlipData
@@ -476,7 +461,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             {
                 var line = lines[i];
                 var nextLine = i + 1 < lines.Count ? lines[i + 1] : "";
-                var lineAfterNext = i + 2 < lines.Count ? lines[i + 2] : "";
 
                 // Skip lines that are clearly system/UI elements
                 if (ShouldSkipLine(line))
@@ -500,7 +484,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 }
 
                 // Check for PromptPay section indicator
-                else if (line.Contains("พร้อมเพย์") || line.Contains("Prompt"))
+                else if (line.Contains("พร้อมเพย์") || line.Contains("Prompt") || line.Contains("PromptPay"))
                 {
                     foundPromptPaySection = true;
                     _logger.LogDebug("Found PromptPay section at line {Index}", i);
@@ -565,7 +549,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     _logger.LogDebug("Found sender name: {Name}", slip.AccountName);
                 }
 
-                // Enhanced receiver name detection - look for names that appear after PromptPay indicator
+                // Enhanced receiver name detection
                 else if (string.IsNullOrEmpty(slip.ReceiverName) && foundPromptPaySection)
                 {
                     if (IsValidReceiverName(line, slip.AccountName))
@@ -584,20 +568,15 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                 }
 
-                // Note/memo detection
-                else if (line.Contains("บันทึกช่วยจำ") || line.Contains("บันทึกช่วยจํา"))
+                // Enhanced note/memo detection
+                else if (IsNoteLine(line))
                 {
-                    // Extract the note part after the colon
-                    var colonIndex = line.IndexOf(':');
-                    if (colonIndex >= 0 && colonIndex < line.Length - 1)
+                    var note = ExtractNote(line, lines, i);
+                    if (!string.IsNullOrEmpty(note))
                     {
-                        slip.Note = line.Substring(colonIndex + 1).Trim();
+                        slip.Note = note;
+                        _logger.LogDebug("Found note: '{Note}'", slip.Note);
                     }
-                    else
-                    {
-                        slip.Note = line;
-                    }
-                    _logger.LogDebug("Found note: {Note}", slip.Note);
                 }
             }
 
@@ -610,21 +589,132 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             return slip;
         }
 
+        #region Enhanced Note Detection Methods
+
+        private bool IsNoteLine(string line)
+        {
+            var notePatterns = new[]
+            {
+                "บันทึกช่วยจำ", "บันทึกช่วยจํา", "บันทึก", "หมายเหตุ", "Memo", "Note",
+                "รายละเอียด", "วัตถุประสงค์", "หมายเหตุ:", "บันทึก:", "ข้อความ"
+            };
+
+            return notePatterns.Any(pattern => line.Contains(pattern));
+        }
+
+        private string ExtractNote(string line, List<string> lines, int currentIndex)
+        {
+            var note = "";
+
+            // Try to extract note from current line first
+            var colonIndex = line.IndexOf(':');
+            if (colonIndex >= 0 && colonIndex < line.Length - 1)
+            {
+                note = line.Substring(colonIndex + 1).Trim();
+            }
+            else
+            {
+                // If no colon, check if the line itself contains the note after keywords
+                var noteKeywords = new[] { "บันทึกช่วยจำ", "บันทึกช่วยจํา", "หมายเหตุ", "บันทึก" };
+                var keyword = noteKeywords.FirstOrDefault(k => line.Contains(k));
+                if (keyword != null)
+                {
+                    var keywordIndex = line.IndexOf(keyword);
+                    if (keywordIndex >= 0)
+                    {
+                        note = line.Substring(keywordIndex + keyword.Length).Trim();
+                        // Remove any leading colons or special characters
+                        note = note.TrimStart(':', '-', ' ');
+                    }
+                }
+            }
+
+            // If note is empty or very short, check next lines
+            if (string.IsNullOrEmpty(note) || note.Length < 3)
+            {
+                for (int i = currentIndex + 1; i < Math.Min(lines.Count, currentIndex + 3); i++)
+                {
+                    var nextLine = lines[i].Trim();
+
+                    // Skip system lines
+                    if (ShouldSkipLine(nextLine) ||
+                        nextLine.Contains("บาท") ||
+                        nextLine.Contains("ยอดคงเหลือ") ||
+                        IsDateLine(nextLine) ||
+                        Regex.IsMatch(nextLine, @"[xX]{3,}[-\d]+|[\d]+-[xX]{3,}"))
+                    {
+                        continue;
+                    }
+
+                    // If this looks like note content
+                    if (nextLine.Length > 2 && !nextLine.All(char.IsDigit) && !IsAccountNumber(nextLine))
+                    {
+                        if (string.IsNullOrEmpty(note))
+                        {
+                            note = nextLine;
+                        }
+                        else
+                        {
+                            note += " " + nextLine;
+                        }
+
+                        // Don't continue if we found a substantial note
+                        if (note.Length > 10)
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Clean up the note
+            if (!string.IsNullOrEmpty(note))
+            {
+                // Remove common prefixes
+                var prefixesToRemove = new[] { "บันทึกช่วยจำ", "บันทึกช่วยจํา", "หมายเหตุ", "บันทึก", ":", "-" };
+                foreach (var prefix in prefixesToRemove)
+                {
+                    if (note.StartsWith(prefix))
+                    {
+                        note = note.Substring(prefix.Length).Trim();
+                    }
+                }
+
+                // Remove trailing colons or dashes
+                note = note.TrimEnd(':', '-', ' ');
+
+                // Final check - if note contains system keywords, clear it
+                var systemKeywords = new[] { "ยอดคงเหลือ", "ค่าธรรมเนียม", "เลขที่รายการ", "สแกน", "ตรวจสอบ" };
+                if (systemKeywords.Any(keyword => note.Contains(keyword)))
+                {
+                    _logger.LogDebug("Clearing note containing system keywords: '{Note}'", note);
+                    note = "";
+                }
+            }
+
+            return note;
+        }
+
+        private bool IsAccountNumber(string line)
+        {
+            return Regex.IsMatch(line, @"[xX]{3,}[-\d]+|[\d]+-[xX]{3,}|\d{3}-\d-\d{5}-\d") ||
+                   line.Count(char.IsDigit) > line.Length / 2;
+        }
+
+        #endregion
+
+        #region Helper Methods
+
         private bool ShouldSkipLine(string line)
         {
             if (string.IsNullOrWhiteSpace(line) || line.Length < 2) return true;
 
             var skipPatterns = new[]
             {
-        "เค+", // Logo text
-        "สแกนตรวจสอบ", // Scan verification
-        "จํานวน:", "จำนวน:", // Amount label (without actual amount)
-        "ค่าธรรมเนียม:", // Fee label (without actual fee)
-        "รหัสพร้อมเพย์", // PromptPay code label
-        "ยอดคงเหลือ", // Balance
-        "เลขที่รายการ", // Transaction number
-        "Mobile Banking", "ATM", "Online"
-    };
+                "เค+", "สแกนตรวจสอบ", "จํานวน:", "จำนวน:", "ค่าธรรมเนียม:",
+                "รหัสพร้อมเพย์", "ยอดคงเหลือ", "เลขที่รายการ", "Mobile Banking",
+                "ATM", "Online", "สำเร็จ", "เสร็จสิ้น", "completed"
+            };
 
             return skipPatterns.Any(pattern => line.Contains(pattern));
         }
@@ -640,9 +730,9 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             // Skip lines that contain system keywords
             var systemKeywords = new[]
             {
-        "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท", "พร้อมเพย์", "รหัส",
-        "สแกน", "ตรวจสอบ", "ยอด", "คงเหลือ", "เลขที่", "รายการ"
-    };
+                "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท", "พร้อมเพย์", "รหัส",
+                "สแกน", "ตรวจสอบ", "ยอด", "คงเหลือ", "เลขที่", "รายการ", "บันทึก"
+            };
 
             if (systemKeywords.Any(keyword => line.Contains(keyword)))
                 return false;
@@ -651,35 +741,25 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             if (Regex.IsMatch(line, @"[xX]{3,}|^\d+-\d+-\d+") || line.Count(char.IsDigit) > line.Length / 2)
                 return false;
 
-            // Must start with typical Thai name prefixes
+            // Must start with typical Thai name prefixes or contain company indicators
             var namePatterns = new[] { "นาย", "นาง", "น.ส.", "บจ.", "บมจ.", "บริษัท" };
 
-            if (namePatterns.Any(pattern => line.StartsWith(pattern)))
-            {
-                _logger.LogDebug("Line '{Line}' matches name pattern", line);
-                return true;
-            }
-
-            return false;
+            return namePatterns.Any(pattern => line.StartsWith(pattern));
         }
 
         private bool IsValidPersonOrCompanyName(string line, string excludeName)
         {
             if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
 
-            // Skip if it's the excluded name
             if (!string.IsNullOrEmpty(excludeName) && line.Equals(excludeName, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // Thai person titles and company identifiers
             var validPrefixes = new[] { "นาย", "นาง", "น.ส.", "เด็กชาย", "เด็กหญิง", "บจ.", "บมจ.", "บริษัท", "ห้าง" };
-
             return validPrefixes.Any(prefix => line.StartsWith(prefix));
         }
 
         private string FindSenderNameNearAccount(List<string> lines, int accountLineIndex)
         {
-            // Look in lines before and after the account number
             for (int i = Math.Max(0, accountLineIndex - 3); i <= Math.Min(lines.Count - 1, accountLineIndex + 2); i++)
             {
                 if (i != accountLineIndex && IsValidPersonOrCompanyName(lines[i], ""))
@@ -692,7 +772,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 
         private string FindReceiverNameNearAccount(List<string> lines, int accountLineIndex, string senderName)
         {
-            // Look for receiver name in lines around the receiver account
             for (int i = Math.Max(0, accountLineIndex - 5); i <= Math.Min(lines.Count - 1, accountLineIndex + 3); i++)
             {
                 if (i != accountLineIndex)
@@ -706,14 +785,39 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 }
             }
             return "";
-        }        
+        }
+
+        private bool ShouldCombineWithNextLine(string currentLine, string nextLine)
+        {
+            if (string.IsNullOrWhiteSpace(nextLine)) return false;
+
+            var continuationPatterns = new[]
+            {
+                "จำกัด", "มหาชน", "กรุ๊ป", "เซ็นเตอร์", "คอร์ปอเรชั่น",
+                "เทรดดิ้ง", "ดีเวลลอปเมนท์", "แมนเนจเมนท์", "อินเตอร์เนชั่นแนล"
+            };
+
+            if (currentLine.EndsWith("จำกัด") || currentLine.EndsWith("มหาชน"))
+                return false;
+
+            if (continuationPatterns.Any(pattern => nextLine.StartsWith(pattern)))
+                return true;
+
+            var completeEndings = new[] { "จำกัด", "มหาชน", "บริษัท", "ห้าง" };
+            if (!completeEndings.Any(ending => currentLine.EndsWith(ending)))
+            {
+                if (nextLine.Any(c => c >= '\u0E00' && c <= '\u0E7F') && nextLine.Length < 20)
+                    return true;
+            }
+
+            return false;
+        }
 
         private void CleanupAndValidate(BankSlipData slip)
         {
             // Clean up receiver name if it contains unwanted text
             if (!string.IsNullOrEmpty(slip.ReceiverName))
             {
-                // Remove common prefixes that might be captured incorrectly
                 var unwantedPrefixes = new[] { "จํานวน:", "จำนวน:", "ค่าธรรมเนียม:" };
                 foreach (var prefix in unwantedPrefixes)
                 {
@@ -727,7 +831,6 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                 }
 
-                // If receiver name still contains system keywords, clear it
                 var systemKeywords = new[] { "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท" };
                 if (systemKeywords.Any(keyword => slip.ReceiverName.Contains(keyword)))
                 {
@@ -739,129 +842,25 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 
         private void LogParsingResults(BankSlipData slip, string imagePath)
         {
-            _logger.LogDebug("=== Parsing Results for {FileName} ===", Path.GetFileName(imagePath));
+            _logger.LogDebug("=== Enhanced Parsing Results for {FileName} ===", Path.GetFileName(imagePath));
             _logger.LogDebug("Date: {Date}", slip.TransactionDate);
             _logger.LogDebug("Amount: {Amount}", slip.Amount);
             _logger.LogDebug("Sender: '{Sender}' | Account: '{SenderAccount}'", slip.AccountName, slip.AccountNumber);
-            _logger.LogDebug("Receiver: '{Receiver}' | Account: '{ReceiverAccount}'", slip.ReceiverName ?? "NOT FOUND", slip.ReceiverAccount ?? "NOT FOUND");
-            _logger.LogDebug("Note: '{Note}'", slip.Note ?? "N/A");
+            _logger.LogDebug("Receiver: '{Receiver}' | Account: '{ReceiverAccount}'",
+                slip.ReceiverName ?? "NOT FOUND", slip.ReceiverAccount ?? "NOT FOUND");
+            _logger.LogDebug("Note: '{Note}'", slip.Note ?? "NOT FOUND");
 
             var isValid = slip.TransactionDate != default && slip.Amount > 0 &&
                           !string.IsNullOrEmpty(slip.AccountName) && !string.IsNullOrEmpty(slip.AccountNumber);
             _logger.LogDebug("Valid: {IsValid}", isValid);
-            _logger.LogDebug("==========================================");
-        }
-        private bool IsPersonOrCompanyName(string line)
-        {
-            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
-
-            // Thai person titles
-            var personTitles = new[] { "นาย", "นาง", "น.ส.", "เด็กชาย", "เด็กหญิง", "พระ" };
-
-            // Company identifiers
-            var companyIdentifiers = new[] { "บจ.", "บมจ.", "บริษัท", "ห้างหุ้นส่วน", "มูลนิธิ", "สมาคม" };
-
-            return personTitles.Any(title => line.StartsWith(title)) ||
-                   companyIdentifiers.Any(id => line.Contains(id)) ||
-                   (line.All(c => char.IsLetter(c) || char.IsWhiteSpace(c) || ".-".Contains(c)) &&
-                    line.Count(char.IsLetter) > 2);
-        }
-
-        private bool IsLikelyReceiverName(string line, string senderName)
-        {
-            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
-
-            // Skip if it's the same as sender name
-            if (!string.IsNullOrEmpty(senderName) && line.Equals(senderName, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            // Skip lines that look like system messages
-            var systemKeywords = new[] {
-        "โอนเงิน", "สำเร็จ", "ธนาคาร", "เลขที่", "รายการ", "ค่าธรรมเนียม",
-        "ยอดคงเหลือ", "วันที่", "เวลา", "ATM", "Mobile", "Online"
-    };
-
-            if (systemKeywords.Any(keyword => line.Contains(keyword)))
-                return false;
-
-            // Skip lines that are mostly numbers
-            if (line.Count(char.IsDigit) > line.Length / 2)
-                return false;
-
-            // Check for typical receiver name patterns
-            var receiverIndicators = new[] {
-        "บจ.", "บมจ.", "บริษัท", "ห้าง", "ร้าน", "นาย", "นาง", "น.ส.",
-        "เอ็ม", "กรุ๊ป", "เซ็นเตอร์", "คอร์ป", "เทรดดิ้ง", "จำกัด"
-    };
-
-            // Strong indicators for receiver names
-            if (receiverIndicators.Any(indicator => line.Contains(indicator)))
-                return true;
-
-            // Check if it looks like a Thai name (mostly Thai characters with some spaces/dots)
-            var thaiCharCount = line.Count(c => c >= '\u0E00' && c <= '\u0E7F');
-            var totalNonSpaceChars = line.Count(c => !char.IsWhiteSpace(c));
-
-            return totalNonSpaceChars > 2 && thaiCharCount > totalNonSpaceChars * 0.7;
-        }
-
-        private bool ShouldCombineWithNextLine(string currentLine, string nextLine)
-        {
-            if (string.IsNullOrWhiteSpace(nextLine)) return false;
-
-            // Combine if next line looks like a continuation (no clear ending)
-            var continuationPatterns = new[] {
-        "จำกัด", "มหาชน", "กรุ๊ป", "เซ็นเตอร์", "คอร์ปอเรชั่น",
-        "เทรดดิ้ง", "ดีเวลลอปเมนท์", "แมนเนจเมนท์", "อินเตอร์เนชั่นแนล"
-    };
-
-            // Don't combine if current line already looks complete
-            if (currentLine.EndsWith("จำกัด") || currentLine.EndsWith("มหาชน"))
-                return false;
-
-            // Combine if next line starts with continuation words
-            if (continuationPatterns.Any(pattern => nextLine.StartsWith(pattern)))
-                return true;
-
-            // Combine if current line seems incomplete (doesn't end with typical endings)
-            var completeEndings = new[] { "จำกัด", "มหาชน", "บริษัท", "ห้าง" };
-            if (!completeEndings.Any(ending => currentLine.EndsWith(ending)))
-            {
-                // And next line looks like it could be part of company name
-                if (nextLine.Any(c => c >= '\u0E00' && c <= '\u0E7F') && nextLine.Length < 20)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private string FindReceiverNameNearAccount(List<string> lines, string receiverAccount)
-        {
-            if (string.IsNullOrEmpty(receiverAccount)) return "";
-
-            // Find the line with receiver account
-            for (int i = 0; i < lines.Count; i++)
-            {
-                if (lines[i].Contains(receiverAccount.Replace("XXX", "").Replace("xxx", "")))
-                {
-                    // Check lines before and after for receiver name
-                    for (int j = Math.Max(0, i - 3); j <= Math.Min(lines.Count - 1, i + 3); j++)
-                    {
-                        if (j != i && IsPersonOrCompanyName(lines[j]))
-                        {
-                            return lines[j];
-                        }
-                    }
-                }
-            }
-
-            return "";
+            _logger.LogDebug("================================================");
         }
 
         private string CleanAccountNumber(string line)
         {
             return line.Replace("+", "").Replace(" ", "").Replace(":", "").Replace(".", "");
         }
+
         private string ExtractAmount(string line)
         {
             var match = Regex.Match(line, @"([\d,]+\.?\d*)\s*บาท");
@@ -871,6 +870,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             }
             return line.Replace("บาท", "").Replace(",", "").Trim();
         }
+
         private DateTime ParseThaiDate(string dateText)
         {
             dateText = dateText.Replace("น.", "").Replace("'", "").Trim();
@@ -973,8 +973,9 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             {
                 return Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories)
                     .Where(f => IsImageFile(f))
-                    .Where(f => !Path.GetFileName(f).StartsWith("processed_"))
-                    .OrderBy(f => f) // Sort files for consistent processing order
+                    .Where(f => !Path.GetFileName(f).StartsWith("processed_") &&
+                              !Path.GetFileName(f).StartsWith("enhanced_processed_"))
+                    .OrderBy(f => f)
                     .ToList();
             }
             catch (Exception ex)
@@ -990,58 +991,31 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             return extension == ".jpg" || extension == ".jpeg" || extension == ".png";
         }
 
-        private ProcessingParameters GetProcessingParameters(ProcessingPass pass, ProcessingParameters baseSettings)
-        {
-            return pass switch
-            {
-                ProcessingPass.Default => baseSettings,
-                ProcessingPass.Fallback => new ProcessingParameters
-                {
-                    GaussianSigma = 0.8,
-                    BinarizationWindow = 30,
-                    BinarizationK = 0.15,
-                    PreserveGrays = false,
-                    BorderSize = 30
-                },
-                ProcessingPass.Tablet => new ProcessingParameters
-                {
-                    GaussianSigma = 0.7,
-                    BinarizationWindow = 20,
-                    BinarizationK = 0.3,
-                    PreserveGrays = false,
-                    BorderSize = 30
-                },
-                _ => baseSettings
-            };
-        }
-
         private async Task SaveProcessedSlipsAsync(List<BankSlipData> slips, string username)
         {
             try
             {
-                _logger.LogInformation("Attempting to save {Count} processed slips for user {Username}", slips.Count, username);
+                _logger.LogInformation("Attempting to save {Count} enhanced processed slips for user {Username}",
+                    slips.Count, username);
 
                 await EnsureStorageInitializedAsync();
-
-                _logger.LogDebug("Storage initialized, loading existing slips...");
                 var existingSlips = await _slipsStorage!.LoadAsync(username) ?? new List<BankSlipData>();
 
                 _logger.LogDebug("Loaded {ExistingCount} existing slips, adding {NewCount} new slips",
                     existingSlips.Count, slips.Count);
 
                 existingSlips.AddRange(slips);
-
-                _logger.LogDebug("Saving {TotalCount} total slips to storage", existingSlips.Count);
                 await _slipsStorage.SaveAsync(username, existingSlips);
 
-                _logger.LogInformation("Successfully saved processed slips to storage");
+                _logger.LogInformation("Successfully saved enhanced processed slips to storage");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving processed slips for user {Username}: {Error}", username, ex.Message);
-                // Don't rethrow - this shouldn't fail the entire processing operation
-                // The results are still available in memory for the user to download
+                _logger.LogError(ex, "Error saving enhanced processed slips for user {Username}: {Error}",
+                    username, ex.Message);
             }
         }
+
+        #endregion
     }
 }

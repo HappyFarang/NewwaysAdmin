@@ -4,15 +4,17 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Google.Cloud.Vision.V1" Version="3.7.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.1" />
-<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-<ProjectReference Include="..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
-<ProjectReference Include="..\NewwaysAdmin.OrderProcessor\NewwaysAdmin.OrderProcessor.csproj" />
-<ProjectReference Include="..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />    
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <ProjectReference Include="..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
+    <ProjectReference Include="..\NewwaysAdmin.OrderProcessor\NewwaysAdmin.OrderProcessor.csproj" />
+    <ProjectReference Include="..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
     <PackageReference Include="itext7" Version="9.0.0" />
   </ItemGroup>
