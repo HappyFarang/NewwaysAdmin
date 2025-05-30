@@ -228,7 +228,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             }
         }
 
-        private static void ApplyGaussianBlur(byte* pixels, int width, int height, int stride, double sigma)
+        private static unsafe void ApplyGaussianBlur(byte* pixels, int width, int height, int stride, double sigma)
         {
             int kernelSize = (int)(sigma * 6) | 1; // Always odd number
             double[] kernel = GenerateGaussianKernel(kernelSize, sigma);
@@ -290,7 +290,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             }
         }
 
-        private static void ApplyLocalContrastEnhancement(byte* pixels, int width, int height, int stride)
+        private static unsafe void ApplyLocalContrastEnhancement(byte* pixels, int width, int height, int stride)
         {
             const int windowSize = 7;
             const double enhancementFactor = 1.5;

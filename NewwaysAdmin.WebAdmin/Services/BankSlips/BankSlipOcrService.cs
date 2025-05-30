@@ -568,14 +568,18 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                 }
 
-                // Enhanced note/memo detection
-                else if (IsNoteLine(line))
+                // Enhanced note/memo detection - only process if we haven't found a good note yet
+                else if (string.IsNullOrEmpty(slip.Note) && IsNoteLine(line))
                 {
                     var note = ExtractNote(line, lines, i);
-                    if (!string.IsNullOrEmpty(note))
+                    if (!string.IsNullOrEmpty(note) && note.Length > 2)
                     {
                         slip.Note = note;
                         _logger.LogDebug("Found note: '{Note}'", slip.Note);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Note line detected but extraction failed or too short: '{Line}'", line);
                     }
                 }
             }
@@ -622,36 +626,36 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     var keywordIndex = line.IndexOf(keyword);
                     if (keywordIndex >= 0)
                     {
-                        note = line.Substring(keywordIndex + keyword.Length).Trim();
+                        var afterKeyword = line.Substring(keywordIndex + keyword.Length).Trim();
                         // Remove any leading colons or special characters
-                        note = note.TrimStart(':', '-', ' ');
+                        note = afterKeyword.TrimStart(':', '-', ' ');
                     }
                 }
             }
 
-            // If note is empty or very short, check next lines
-            if (string.IsNullOrEmpty(note) || note.Length < 3)
+            // Enhanced validation: if note is too short, incomplete, or looks like OCR noise, check next lines
+            if (IsNoteIncompleteOrInvalid(note))
             {
-                for (int i = currentIndex + 1; i < Math.Min(lines.Count, currentIndex + 3); i++)
+                _logger.LogDebug("Note '{Note}' appears incomplete or invalid, checking subsequent lines", note);
+
+                // Look at the next few lines for actual note content
+                for (int i = currentIndex + 1; i < Math.Min(lines.Count, currentIndex + 4); i++)
                 {
                     var nextLine = lines[i].Trim();
 
-                    // Skip system lines
-                    if (ShouldSkipLine(nextLine) ||
-                        nextLine.Contains("บาท") ||
-                        nextLine.Contains("ยอดคงเหลือ") ||
-                        IsDateLine(nextLine) ||
-                        Regex.IsMatch(nextLine, @"[xX]{3,}[-\d]+|[\d]+-[xX]{3,}"))
+                    // Skip system lines and known non-note content
+                    if (ShouldSkipLineForNote(nextLine))
                     {
                         continue;
                     }
 
-                    // If this looks like note content
-                    if (nextLine.Length > 2 && !nextLine.All(char.IsDigit) && !IsAccountNumber(nextLine))
+                    // If this looks like valid note content
+                    if (IsValidNoteContent(nextLine))
                     {
-                        if (string.IsNullOrEmpty(note))
+                        if (string.IsNullOrEmpty(note) || note.Length < 5)
                         {
                             note = nextLine;
+                            _logger.LogDebug("Found note content in next line: '{Note}'", note);
                         }
                         else
                         {
@@ -659,7 +663,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                         }
 
                         // Don't continue if we found a substantial note
-                        if (note.Length > 10)
+                        if (note.Length > 15)
                         {
                             break;
                         }
@@ -667,32 +671,168 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 }
             }
 
-            // Clean up the note
-            if (!string.IsNullOrEmpty(note))
+            // Final cleanup and validation
+            note = CleanupNoteText(note);
+
+            // Final validation - reject if still looks like OCR noise or system text
+            if (IsNoteTextInvalid(note))
             {
-                // Remove common prefixes
-                var prefixesToRemove = new[] { "บันทึกช่วยจำ", "บันทึกช่วยจํา", "หมายเหตุ", "บันทึก", ":", "-" };
-                foreach (var prefix in prefixesToRemove)
-                {
-                    if (note.StartsWith(prefix))
-                    {
-                        note = note.Substring(prefix.Length).Trim();
-                    }
-                }
-
-                // Remove trailing colons or dashes
-                note = note.TrimEnd(':', '-', ' ');
-
-                // Final check - if note contains system keywords, clear it
-                var systemKeywords = new[] { "ยอดคงเหลือ", "ค่าธรรมเนียม", "เลขที่รายการ", "สแกน", "ตรวจสอบ" };
-                if (systemKeywords.Any(keyword => note.Contains(keyword)))
-                {
-                    _logger.LogDebug("Clearing note containing system keywords: '{Note}'", note);
-                    note = "";
-                }
+                _logger.LogDebug("Rejecting invalid note text: '{Note}'", note);
+                return "";
             }
 
             return note;
+        }
+
+        private bool IsNoteIncompleteOrInvalid(string note)
+        {
+            if (string.IsNullOrWhiteSpace(note)) return true;
+            if (note.Length < 3) return true;
+
+            // Check for common OCR fragments that indicate incomplete extraction
+            var ocrNoise = new[] { "ช่วย", "จ่า", "จํา", "ช่วยจำ", "ช่วยจํา" };
+            if (ocrNoise.Any(noise => note.Equals(noise, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            // Check if it's just part of the keyword itself
+            var noteKeywords = new[] { "บันทึก", "หมายเหตุ" };
+            if (noteKeywords.Any(keyword => note.Equals(keyword, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool ShouldSkipLineForNote(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 2) return true;
+
+            var skipPatterns = new[]
+            {
+                "บาท", "ยอดคงเหลือ", "ค่าธรรมเนียม", "เลขที่รายการ",
+                "สแกน", "ตรวจสอบ", "Mobile Banking", "ATM", "Online",
+                "สำเร็จ", "เสร็จสิ้น", "completed", "จํานวน:", "จำนวน:",
+                "รหัสพร้อมเพย์", "พร้อมเพย์", "PromptPay"
+            };
+
+            // Skip if contains skip patterns
+            if (skipPatterns.Any(pattern => line.Contains(pattern))) return true;
+
+            // Skip if it looks like a date
+            if (IsDateLine(line)) return true;
+
+            // Skip if it looks like an account number
+            if (IsAccountNumber(line)) return true;
+
+            // Skip if it's mostly numbers
+            if (line.Count(char.IsDigit) > line.Length / 2) return true;
+
+            return false;
+        }
+
+        private bool IsValidNoteContent(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
+
+            // Should not be mostly numbers
+            if (line.Count(char.IsDigit) > line.Length / 2) return false;
+
+            // Should not contain system keywords
+            var systemKeywords = new[]
+            {
+                "บาท", "ยอดคงเหลือ", "ค่าธรรมเนียม", "สแกน", "ตรวจสอบ",
+                "เลขที่", "รายการ", "ATM", "Mobile", "Online"
+            };
+
+            if (systemKeywords.Any(keyword => line.Contains(keyword))) return false;
+
+            // Should not be account numbers or dates
+            if (IsAccountNumber(line) || IsDateLine(line)) return false;
+
+            // Should contain meaningful Thai text or common note content
+            // Look for Thai characters or common words that indicate real note content
+            var validNoteIndicators = new[]
+            {
+                "ค่า", "ซื้อ", "จ่าย", "ชื่อ", "สำหรับ", "เพื่อ", "ให้", "แล้ว",
+                "งาน", "บริการ", "สินค้า", "อาหาร", "เงิน", "ผ่อน", "ดอกเบี้ย"
+            };
+
+            // If it contains valid indicators, it's likely a real note
+            if (validNoteIndicators.Any(indicator => line.Contains(indicator)))
+            {
+                return true;
+            }
+
+            // If it's mostly Thai characters and reasonable length, consider it valid
+            var thaiCharCount = line.Count(c => c >= '\u0E00' && c <= '\u0E7F');
+            if (thaiCharCount > line.Length / 2 && line.Length >= 5)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private string CleanupNoteText(string note)
+        {
+            if (string.IsNullOrEmpty(note)) return "";
+
+            // Remove common prefixes that might have been included
+            var prefixesToRemove = new[]
+            {
+                "บันทึกช่วยจำ", "บันทึกช่วยจํา", "หมายเหตุ", "บันทึก",
+                ":", "-", "ช่วยจำ", "ช่วยจํา", "ช่วย", "จ่า", "จํา"
+            };
+
+            foreach (var prefix in prefixesToRemove)
+            {
+                if (note.StartsWith(prefix))
+                {
+                    note = note.Substring(prefix.Length).Trim();
+                }
+            }
+
+            // Remove trailing punctuation
+            note = note.TrimEnd(':', '-', ' ', '.', ',');
+
+            // Remove leading punctuation
+            note = note.TrimStart(':', '-', ' ', '.', ',');
+
+            return note.Trim();
+        }
+
+        private bool IsNoteTextInvalid(string note)
+        {
+            if (string.IsNullOrWhiteSpace(note) || note.Length < 3) return true;
+
+            // Reject if it's just OCR noise or fragments
+            var invalidTexts = new[]
+            {
+                "ช่วย", "จ่า", "จํา", "ช่วยจำ", "ช่วยจํา", "บันทึก", "หมายเหตุ",
+                "เค", "สแกน", "ตรวจ", "เลข", "รหัส"
+            };
+
+            if (invalidTexts.Any(invalid => note.Equals(invalid, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            // Reject if it still contains system keywords
+            var systemKeywords = new[]
+            {
+                "ยอดคงเหลือ", "ค่าธรรมเนียม", "เลขที่รายการ",
+                "สแกนตรวจสอบ", "รหัสพร้อมเพย์", "Mobile Banking"
+            };
+
+            if (systemKeywords.Any(keyword => note.Contains(keyword)))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private bool IsAccountNumber(string line)
