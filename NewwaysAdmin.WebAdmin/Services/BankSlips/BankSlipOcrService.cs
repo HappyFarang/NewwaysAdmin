@@ -50,25 +50,57 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         public async Task<List<SlipCollection>> GetUserCollectionsAsync(string username)
         {
             await EnsureStorageInitializedAsync();
-            var collections = await _collectionsStorage!.LoadAsync(username) ?? new List<SlipCollection>();
-            return collections.Where(c => c.IsActive).ToList();
+
+            // Load all collections from admin storage
+            var allCollections = await _collectionsStorage!.LoadAsync("admin") ?? new List<SlipCollection>();
+
+            // Check if user is admin - if so, return all active collections
+            var user = await _authService.GetUserByNameAsync(username);
+
+            if (user?.IsAdmin == true)
+            {
+                _logger.LogInformation("Admin user {Username} accessing all {Count} collections", username, allCollections.Count);
+                return allCollections.Where(c => c.IsActive).ToList();
+            }
+
+            // For non-admin users, filter by accessible collections
+            var accessibleCollectionIds = new List<string>();
+
+            if (user?.ModuleConfigs.TryGetValue("accounting.bankslips", out var moduleConfig) == true)
+            {
+                accessibleCollectionIds = moduleConfig.AccessibleCollectionIds ?? new List<string>();
+            }
+
+            var accessibleCollections = allCollections
+                .Where(c => c.IsActive && accessibleCollectionIds.Contains(c.Id))
+                .ToList();
+
+            _logger.LogInformation("User {Username} has access to {Count} of {Total} collections",
+                username, accessibleCollections.Count, allCollections.Count);
+
+            return accessibleCollections;
         }
+
+
 
         public async Task<SlipCollection?> GetCollectionAsync(string collectionId, string username)
         {
-            var collections = await GetUserCollectionsAsync(username);
-            return collections.FirstOrDefault(c => c.Id == collectionId);
+            var userCollections = await GetUserCollectionsAsync(username);
+            return userCollections.FirstOrDefault(c => c.Id == collectionId);
         }
+
+
 
         public async Task SaveCollectionAsync(SlipCollection collection, string username)
         {
             try
             {
                 await EnsureStorageInitializedAsync();
-                _logger.LogInformation("Saving collection {CollectionName} for user {Username}",
+                _logger.LogInformation("Saving collection {CollectionName} by user {Username}",
                     collection.Name, username);
 
-                var collections = await _collectionsStorage!.LoadAsync(username) ?? new List<SlipCollection>();
+                // All collections are saved under "admin" storage
+                var collections = await _collectionsStorage!.LoadAsync("admin") ?? new List<SlipCollection>();
                 var existingIndex = collections.FindIndex(c => c.Id == collection.Id);
 
                 if (existingIndex >= 0)
@@ -86,8 +118,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     _logger.LogInformation("Added new collection");
                 }
 
-                await _collectionsStorage.SaveAsync(username, collections);
-                _logger.LogInformation("Collection saved successfully");
+                await _collectionsStorage.SaveAsync("admin", collections);
+                _logger.LogInformation("Collection saved successfully to admin storage");
             }
             catch (Exception ex)
             {
@@ -96,17 +128,27 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             }
         }
 
+
         public async Task DeleteCollectionAsync(string collectionId, string username)
         {
             await EnsureStorageInitializedAsync();
-            var collections = await _collectionsStorage!.LoadAsync(username) ?? new List<SlipCollection>();
+
+            // Load from admin storage
+            var collections = await _collectionsStorage!.LoadAsync("admin") ?? new List<SlipCollection>();
             var collection = collections.FirstOrDefault(c => c.Id == collectionId);
 
             if (collection != null)
             {
                 collection.IsActive = false;
-                await _collectionsStorage.SaveAsync(username, collections);
+                await _collectionsStorage.SaveAsync("admin", collections);
+                _logger.LogInformation("Collection {CollectionId} marked as inactive by {Username}", collectionId, username);
             }
+        }
+        public async Task<List<SlipCollection>> GetAllCollectionsAsync()
+        {
+            await EnsureStorageInitializedAsync();
+            var collections = await _collectionsStorage!.LoadAsync("admin") ?? new List<SlipCollection>();
+            return collections.Where(c => c.IsActive).ToList();
         }
 
         public async Task<BankSlipProcessingResult> ProcessSlipCollectionAsync(

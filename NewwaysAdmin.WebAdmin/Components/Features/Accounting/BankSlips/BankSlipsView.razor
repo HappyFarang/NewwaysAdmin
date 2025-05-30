@@ -526,7 +526,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadCurrentUser();
         await LoadAvailableCollections();
     }
 
@@ -557,21 +556,18 @@
         try
         {
             _isLoadingCollections = true;
-            _availableCollections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
 
-            // Auto-select first available collection
-            if (_availableCollections.Any() && _selectedCollection == null)
+            // Load all collections for admin to assign access
+            var bankSlipService = ServiceProvider.GetService<IBankSlipOcrService>();
+            if (bankSlipService != null)
             {
-                _selectedCollection = _availableCollections.First();
+                _availableCollections = await bankSlipService.GetAllCollectionsAsync();
             }
-
-            Logger.LogInformation("Loaded {Count} collections for user {Username}",
-                _availableCollections.Count, _currentUsername);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading collections");
-            SetStatusMessage($"Error loading collections: {ex.Message}", "error");
+            // Log error but don't break the UI
+            _availableCollections = new List<SlipCollection>();
         }
         finally
         {

@@ -156,40 +156,61 @@
                                         <div class="module-settings">
                                             @if (module.Id == "accounting.bankslips")
                                             {
-                                                <div class="row">
-                                                    <div class="col-md-6">
-                                                        <label class="form-label">Source Directory</label>
-                                                        <input type="text" class="form-control"
-                                                               value="@(moduleConfig?.Settings.GetValueOrDefault("SourceDirectory", ""))"
-                                                               @onchange="@(e => UpdateModuleSetting(module.Id, "SourceDirectory", e.Value?.ToString() ?? ""))"
-                                                               placeholder="e.g., G:\transfers\slips" />
-                                                        <small class="form-text text-muted">Directory where bank slip images are stored</small>
+                                                <!-- Bank Slips Collection Access -->
+                                                <div class="card bg-light">
+                                                    <div class="card-header">
+                                                        <h6 class="mb-0">
+                                                            <i class="bi bi-collection me-2"></i>
+                                                            Collection Access
+                                                        </h6>
+                                                        <small class="text-muted">Select which bank slip collections this user can access</small>
                                                     </div>
-                                                    <div class="col-md-6">
-                                                        <label class="form-label">Output Directory</label>
-                                                        <input type="text" class="form-control"
-                                                               value="@(moduleConfig?.Settings.GetValueOrDefault("OutputDirectory", ""))"
-                                                               @onchange="@(e => UpdateModuleSetting(module.Id, "OutputDirectory", e.Value?.ToString() ?? ""))"
-                                                               placeholder="e.g., G:\transfers\processed" />
-                                                        <small class="form-text text-muted">Directory for processed files and CSV outputs</small>
-                                                    </div>
-                                                </div>
-                                                <div class="row mt-3">
-                                                    <div class="col-md-6">
-                                                        <label class="form-label">Google Cloud Credentials Path</label>
-                                                        <input type="text" class="form-control"
-                                                               value="@(moduleConfig?.Settings.GetValueOrDefault("CredentialsPath", ""))"
-                                                               @onchange="@(e => UpdateModuleSetting(module.Id, "CredentialsPath", e.Value?.ToString() ?? ""))"
-                                                               placeholder="e.g., C:\keys\vision-api-key.json" />
-                                                        <small class="form-text text-muted">Path to Google Cloud Vision API credentials</small>
-                                                    </div>
-                                                    <div class="col-md-6">
-                                                        <label class="form-label">Date Range (Days Back)</label>
-                                                        <input type="number" class="form-control"
-                                                               value="@(moduleConfig?.Settings.GetValueOrDefault("DaysBack", "30"))"
-                                                               @onchange="@(e => UpdateModuleSetting(module.Id, "DaysBack", e.Value?.ToString() ?? "30"))"
-                                                               min="1" max="365" />
-                                                        <small class="form-text text-muted">How many days back to process bank slips</small>
+                                                    <div class="card-body">
+                                                        @if (_availableCollections?.Any() == true)
+                                                        {
+                                                            <div class="row">
+                                                                @foreach (var collection in _availableCollections)
+                                                                {
+                                                                    var isAccessible = moduleConfig?.AccessibleCollectionIds?.Contains(collection.Id) ?? false;
+
+                                                                    <div class="col-md-6 mb-3">
+                                                                        <div class="form-check">
+                                                                            <input class="form-check-input" type="checkbox"
+                                                                                   id="collection_@collection.Id"
+                                                                                   checked="@isAccessible"
+                                                                                   @onchange="@(e => ToggleCollectionAccess(module.Id, collection.Id, (bool)e.Value!))" />
+                                                                            <label class="form-check-label" for="collection_@collection.Id">
+                                                                                <strong>@collection.Name</strong>
+                                                                                <br />
+                                                                                <small class="text-muted">@collection.Description</small>
+                                                                                <br />
+                                                                                <small class="text-muted">
+                                                                                    <i class="bi bi-folder me-1"></i>
+                                                                                    @collection.SourceDirectory
+                                                                                </small>
+                                                                            </label>
+                                                                        </div>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        else if (_isLoadingCollections)
+                                                        {
+                                                            <div class="text-center">
+                                                                <div class="spinner-border spinner-border-sm" role="status">
+                                                                    <span class="visually-hidden">Loading collections...</span>
+                                                                </div>
+                                                                <span class="ms-2">Loading available collections...</span>
+                                                            </div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="alert alert-info mb-0">
+                                                                <i class="bi bi-info-circle me-2"></i>
+                                                                No bank slip collections are currently available.
+                                                                Collections must be created by an administrator in the Bank Slips module.
+                                                            </div>
+                                                        }
                                                     </div>
                                                 </div>
                                             }
@@ -205,7 +226,6 @@
                             }
                         </div>
                     </div>
-                </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" @onclick="OnCancel">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save</button>
@@ -223,6 +243,8 @@
 
     private string Password { get; set; } = string.Empty;
     private string? _validationMessage;
+    private List<SlipCollection>? _availableCollections;
+    private bool _isLoadingCollections = false;
 
     // Define which modules need specific configurations
     private readonly HashSet<string> _modulesWithConfigs = new() { "accounting.bankslips" };
@@ -318,6 +340,38 @@
         }
 
         Model.ModuleConfigs[moduleId].Settings[settingKey] = value;
+    }
+    private void ToggleCollectionAccess(string moduleId, string collectionId, bool hasAccess)
+    {
+        if (!Model.ModuleConfigs.ContainsKey(moduleId))
+        {
+            Model.ModuleConfigs[moduleId] = new UserModuleConfig
+                {
+                    ModuleId = moduleId,
+                    IsEnabled = true,
+                    ConfiguredAt = DateTime.UtcNow,
+                    ConfiguredBy = "Admin",
+                    Settings = new Dictionary<string, string>(),
+                    AccessibleCollectionIds = new List<string>()
+                };
+        }
+
+        var moduleConfig = Model.ModuleConfigs[moduleId];
+        moduleConfig.AccessibleCollectionIds ??= new List<string>();
+
+        if (hasAccess)
+        {
+            if (!moduleConfig.AccessibleCollectionIds.Contains(collectionId))
+            {
+                moduleConfig.AccessibleCollectionIds.Add(collectionId);
+            }
+        }
+        else
+        {
+            moduleConfig.AccessibleCollectionIds.Remove(collectionId);
+        }
+
+        StateHasChanged();
     }
 
     private async Task HandleValidSubmit()
