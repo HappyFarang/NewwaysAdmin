@@ -526,7 +526,16 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Logger.LogInformation("BankSlipsView: Starting initialization");
+
+        // FIRST: Load current user to set _currentUsername and _isAdmin
+        await LoadCurrentUser();
+
+        // THEN: Load collections (which may depend on user context)
         await LoadAvailableCollections();
+
+        Logger.LogInformation("BankSlipsView: Initialization complete. Username: {Username}, IsAdmin: {IsAdmin}, Collections: {Count}",
+            _currentUsername, _isAdmin, _availableCollections?.Count ?? 0);
     }
 
     #region User Management
@@ -535,11 +544,21 @@
     {
         try
         {
+            Logger.LogInformation("LoadCurrentUser: Starting");
+
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
             _currentUsername = authState.User.Identity?.Name ?? string.Empty;
             _isAdmin = authState.User.IsInRole("Admin");
 
-            Logger.LogInformation("Current user: {Username}, IsAdmin: {IsAdmin}", _currentUsername, _isAdmin);
+            Logger.LogInformation("LoadCurrentUser: Current user: {Username}, IsAdmin: {IsAdmin}", _currentUsername, _isAdmin);
+
+            // Additional debugging
+            var claims = authState.User.Claims.ToList();
+            Logger.LogInformation("LoadCurrentUser: User has {ClaimCount} claims", claims.Count);
+            foreach (var claim in claims)
+            {
+                Logger.LogDebug("LoadCurrentUser: Claim - {Type}: {Value}", claim.Type, claim.Value);
+            }
         }
         catch (Exception ex)
         {
@@ -556,12 +575,39 @@
         try
         {
             _isLoadingCollections = true;
+            Logger.LogInformation("LoadAvailableCollections: Starting for user {Username}", _currentUsername);
 
-            // Load all collections for admin to assign access
-            _availableCollections = await BankSlipService.GetAllCollectionsAsync();
+            // Use GetUserCollectionsAsync instead of GetAllCollectionsAsync
+            // This method properly filters collections based on user permissions
+            if (!string.IsNullOrEmpty(_currentUsername))
+            {
+                _availableCollections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
+            }
+            else
+            {
+                _availableCollections = new List<SlipCollection>();
+                Logger.LogWarning("LoadAvailableCollections: No username available, cannot load collections");
+            }
+
+            Logger.LogInformation("LoadAvailableCollections: User {Username} has access to {Count} collections",
+                _currentUsername, _availableCollections?.Count ?? 0);
+
+            if (_availableCollections?.Any() == true)
+            {
+                foreach (var collection in _availableCollections)
+                {
+                    Logger.LogDebug("LoadAvailableCollections: Accessible collection - {Name} (ID: {Id})",
+                        collection.Name, collection.Id);
+                }
+            }
+            else
+            {
+                Logger.LogInformation("LoadAvailableCollections: User {Username} has no accessible collections", _currentUsername);
+            }
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "Error loading available collections for user {Username}", _currentUsername);
             // Log error but don't break the UI
             _availableCollections = new List<SlipCollection>();
         }

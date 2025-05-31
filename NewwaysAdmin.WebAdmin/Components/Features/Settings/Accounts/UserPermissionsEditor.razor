@@ -3,6 +3,7 @@
 @using NewwaysAdmin.WebAdmin.Services.Modules
 @using NewwaysAdmin.WebAdmin.Services.Auth
 @using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
 @namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.Accounts
 
 <div class="modal fade show" style="display: block" tabindex="-1">
@@ -243,6 +244,9 @@
     [Parameter] public EventCallback<User> OnSave { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    // Add IBankSlipOcrService injection
+    [Inject] public IBankSlipOcrService BankSlipService { get; set; } = null!;
+
     private string Password { get; set; } = string.Empty;
     private string? _validationMessage;
     private List<SlipCollection>? _availableCollections;
@@ -250,6 +254,36 @@
 
     // Define which modules need specific configurations
     private readonly HashSet<string> _modulesWithConfigs = new() { "accounting.bankslips" };
+
+    // ADD THIS: OnInitializedAsync method to load collections
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAvailableCollectionsAsync();
+    }
+
+    // ADD THIS: Method to load available collections
+    private async Task LoadAvailableCollectionsAsync()
+    {
+        try
+        {
+            _isLoadingCollections = true;
+            StateHasChanged();
+
+            // Load all collections (admin can see all, users will see filtered list in the actual module)
+            _availableCollections = await BankSlipService.GetAllCollectionsAsync();
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't break the UI
+            _availableCollections = new List<SlipCollection>();
+            // You might want to inject ILogger here too for logging
+        }
+        finally
+        {
+            _isLoadingCollections = false;
+            StateHasChanged();
+        }
+    }
 
     private IEnumerable<NavigationItem> GetModulesWithConfigs()
     {
@@ -343,6 +377,7 @@
 
         Model.ModuleConfigs[moduleId].Settings[settingKey] = value;
     }
+
     private void ToggleCollectionAccess(string moduleId, string collectionId, bool hasAccess)
     {
         if (!Model.ModuleConfigs.ContainsKey(moduleId))

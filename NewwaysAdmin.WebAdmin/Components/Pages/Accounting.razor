@@ -63,51 +63,51 @@
             else
             {
                 @* Render the appropriate sub-module component *@
-                @switch (_currentSubModule.ToLower())
-                {
-                    case "bankslips":
-                        @if (HasSubModuleAccess("accounting.bankslips"))
-                        {
-                            <BankSlipsView Config="_bankSlipsConfig" />
-                        }
-                        else
-                        {
-                            <AccessDeniedMessage ModuleName="Bank Slips" />
-                        }
-                        break;
-                        
-                    case "reports":
-                        @if (HasSubModuleAccess("accounting.reports"))
-                        {
-                            <AccountingReportsView />
-                        }
-                        else
-                        {
-                            <AccessDeniedMessage ModuleName="Reports" />
-                        }
-                        break;
-                        
-                    case "reconcile":
-                        @if (HasSubModuleAccess("accounting.reconcile"))
-                        {
-                            <ReconciliationView />
-                        }
-                        else
-                        {
-                            <AccessDeniedMessage ModuleName="Reconciliation" />
-                        }
-                        break;
-                        
-                    default:
-                        <div class="alert alert-warning">
-                            <h4>Module Not Found</h4>
-                            <p>The requested accounting module was not found.</p>
-                            <button class="btn btn-primary" @onclick="() => NavigateToSubModule(null)">
-                                Return to Accounting Dashboard
-                            </button>
-                        </div>
-                        break;
-                }
+@switch (_currentSubModule.ToLower())
+{
+    case "bankslips":
+        @if (HasSubModuleAccess("accounting.bankslips"))
+        {
+            <BankSlipsView />
+        }
+        else
+        {
+            <AccessDeniedMessage ModuleName="Bank Slips" />
+        }
+        break;
+        
+    case "reports":
+        @if (HasSubModuleAccess("accounting.reports"))
+        {
+            <AccountingReportsView />
+        }
+        else
+        {
+            <AccessDeniedMessage ModuleName="Reports" />
+        }
+        break;
+        
+    case "reconcile":
+        @if (HasSubModuleAccess("accounting.reconcile"))
+        {
+            <ReconciliationView />
+        }
+        else
+        {
+            <AccessDeniedMessage ModuleName="Reconciliation" />
+        }
+        break;
+        
+    default:
+        <div class="alert alert-warning">
+            <h4>Module Not Found</h4>
+            <p>The requested accounting module was not found.</p>
+            <button class="btn btn-primary" @onclick="() => NavigateToSubModule(null)">
+                Return to Accounting Dashboard
+            </button>
+        </div>
+        break;
+}
             }
         </div>
     </div>
@@ -163,7 +163,7 @@
 
         var authState = await AuthState;
         var username = authState.User.Identity?.Name;
-        
+
         if (!string.IsNullOrEmpty(username))
         {
             _currentUser = await AuthService.GetUserByNameAsync(username);
@@ -176,6 +176,22 @@
 
                 // Load module-specific configurations
                 _currentUser.ModuleConfigs.TryGetValue("accounting.bankslips", out _bankSlipsConfig);
+
+                // If no config exists for bankslips, create a default one for admin users
+                if (_bankSlipsConfig == null && _currentUser.IsAdmin)
+                {
+                    _bankSlipsConfig = new UserModuleConfig
+                        {
+                            ModuleId = "accounting.bankslips",
+                            IsEnabled = true,
+                            ConfiguredAt = DateTime.UtcNow,
+                            ConfiguredBy = username,
+                            Settings = new Dictionary<string, string>(),
+                            AccessibleCollectionIds = new List<string>()
+                        };
+
+                    Logger.LogInformation("Created default bankslips config for admin user {Username}", username);
+                }
             }
         }
     }
