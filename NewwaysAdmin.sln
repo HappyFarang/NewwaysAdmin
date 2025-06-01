@@ -19,6 +19,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.IO.Manager", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.DevTools", "NewwaysAdmin.DevTools\NewwaysAdmin.DevTools.csproj", "{F1218011-EC95-462E-8D50-AA2A68B6E4FF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.GoogleSheets", "NewwaysAdmin.GoogleSheets\NewwaysAdmin.GoogleSheets.csproj", "{5F1C638A-B081-44E3-B2C0-318A793C5BB4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -53,6 +55,10 @@ Global
 		{F1218011-EC95-462E-8D50-AA2A68B6E4FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F1218011-EC95-462E-8D50-AA2A68B6E4FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F1218011-EC95-462E-8D50-AA2A68B6E4FF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F1C638A-B081-44E3-B2C0-318A793C5BB4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F1C638A-B081-44E3-B2C0-318A793C5BB4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F1C638A-B081-44E3-B2C0-318A793C5BB4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F1C638A-B081-44E3-B2C0-318A793C5BB4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -64,6 +70,7 @@ Global
 		{FB1F73CA-EAC3-440A-9908-757EAE2C854B} = {9D891BAB-1AA9-4209-858B-21008E638C83}
 		{E0843F58-2A36-45EC-B272-9ACF0C10E9FD} = {9D891BAB-1AA9-4209-858B-21008E638C83}
 		{4DADEC96-C11E-44B6-8FB1-629388547242} = {9D891BAB-1AA9-4209-858B-21008E638C83}
+		{5F1C638A-B081-44E3-B2C0-318A793C5BB4} = {9D891BAB-1AA9-4209-858B-21008E638C83}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C5FBDE86-E784-4E16-B583-AA530545371D}
