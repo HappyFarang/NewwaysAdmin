@@ -121,7 +121,34 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     IsShared = true, // Shared for audit purposes
                     CreateBackups = true,
                     MaxBackupCount = 50
+                },
+
+                // ===== GOOGLE SHEETS FOLDERS =====
+
+                    // Google Sheets User Configurations
+                new StorageFolder
+                {
+                    Name = "GoogleSheets_UserConfigs",
+                    Description = "User checkbox preferences for Google Sheets exports",
+                    Type = StorageType.Binary, // Using binary for efficient storage of MessagePack data
+                    Path = "GoogleSheets",
+                    IsShared = false, // Per-admin storage, but accessible by admin interface
+                    CreateBackups = true,
+                    MaxBackupCount = 10
+                },
+
+                // Google Sheets Export History (optional - for tracking exports)
+                new StorageFolder
+                {
+                    Name = "GoogleSheets_ExportHistory",
+                    Description = "History of Google Sheets exports for audit trail",
+                    Type = StorageType.Json,
+                    Path = "GoogleSheets",
+                    IsShared = true, // Shared for audit purposes
+                    CreateBackups = true,
+                    MaxBackupCount = 30
                 }
+
 
                 // Add new folders here as needed...
             );

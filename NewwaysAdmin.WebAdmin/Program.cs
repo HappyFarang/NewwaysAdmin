@@ -182,6 +182,23 @@ public class Program
 
         // Bank slip service
         services.AddScoped<IBankSlipOcrService, BankSlipOcrService>();
+
+        // Google Sheets Configuration
+        var googleSheetsConfig = new GoogleSheetsConfig
+        {
+            CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json", // Use your existing key!
+            ApplicationName = "NewwaysAdmin Google Sheets",
+            AutoShareWithUser = true // Automatically share sheets with users
+        };
+
+        // Add Google Sheets services
+        services.AddGoogleSheetsServices(googleSheetsConfig);
+
+        // Register the Bank Slip layout
+        services.AddSheetLayout(new BankSlipSheetLayout());
+
+        // Register the Bank Slip export service
+        services.AddScoped<BankSlipExportService>();
     }
 
     private static async Task ConfigureApplication(WebApplication app)

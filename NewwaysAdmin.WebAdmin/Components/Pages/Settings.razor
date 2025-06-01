@@ -19,6 +19,10 @@
                         @onclick="() => SwitchView(ViewType.Accounts)">
                     Accounts
                 </button>
+                <button class="btn @(ActiveView == ViewType.GoogleSheets ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.GoogleSheets)">
+                    Google Sheets
+                </button>
                 <button class="btn @(ActiveView == ViewType.PdfProcessor ? "active" : "")"
                         @onclick="() => SwitchView(ViewType.PdfProcessor)">
                     PDF Processor
@@ -49,6 +53,25 @@
                 case ViewType.PdfAnalyzer:
                     <PdfAnalyzer />
                     break;
+                    case ViewType.GoogleSheets:
+                        <div class="container-fluid">
+                            <div class="row">
+                                <div class="col-12">
+                                    <UserSheetConfigEditor ModuleName="BankSlip" />
+                                </div>
+                            </div>
+        
+                            @if (isAdmin)
+                            {
+                                <div class="row mt-4">
+                                    <div class="col-12">
+                                        <AdminSheetConfigManager ModuleName="BankSlip" />
+                                    </div>
+                                </div>
+                            }
+    </div>
+    break;
+
             }
         }
     </div>
@@ -58,7 +81,7 @@
     [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
     private ProcessorConfig? _config;
     private bool isAdmin = false;
-    private enum ViewType { Accounts, PdfProcessor, PdfAnalyzer }
+    private enum ViewType { Accounts, PdfProcessor, PdfAnalyzer, GoogleSheets }
     private ViewType ActiveView { get; set; } = ViewType.Accounts;
 
     protected override async Task OnInitializedAsync()
