@@ -1,8 +1,12 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Configuration;
+﻿// NewwaysAdmin.GoogleSheets/Extensions/ServiceCollectionExtensions.cs
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using NewwaysAdmin.GoogleSheets.Interfaces;
+using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Models;
 using NewwaysAdmin.GoogleSheets.Services;
 using NewwaysAdmin.SharedModels.BankSlips;
+using NewwaysAdmin.Shared.IO;
 
 namespace NewwaysAdmin.GoogleSheets.Extensions
 {
@@ -11,48 +15,123 @@ namespace NewwaysAdmin.GoogleSheets.Extensions
         /// <summary>
         /// Add Google Sheets services to the service collection
         /// </summary>
-        public static IServiceCollection AddGoogleSheets(
+        public static IServiceCollection AddGoogleSheetsServices(
             this IServiceCollection services,
-            IConfiguration configuration)
+            GoogleSheetsConfig config)
         {
-            // Configure options
-            services.Configure<GoogleSheetsOptions>(
-                configuration.GetSection(GoogleSheetsOptions.SectionName));
+            if (config == null)
+                throw new ArgumentNullException(nameof(config));
 
-            // Register core services
-            services.AddScoped<IGoogleSheetsService, GoogleSheetsService>();
-            services.AddScoped<ISheetBuilder<BankSlipData>, BankSlipSheetBuilder>();
+            // Register the configuration
+            services.AddSingleton(config);
+
+            // Register the core Google Sheets service
+            services.AddScoped<GoogleSheetsService>();
+
+            // Note: UserSheetConfigService will be registered in the main application
+            // where storage dependencies are available
+
+            // Register the layout registry
+            services.AddSingleton<ISheetLayoutRegistry, SheetLayoutRegistry>();
 
             return services;
         }
 
         /// <summary>
-        /// Add Google Sheets services with custom options
+        /// Register a specific sheet layout
         /// </summary>
-        public static IServiceCollection AddGoogleSheets(
+        public static IServiceCollection AddSheetLayout<T>(
             this IServiceCollection services,
-            Action<GoogleSheetsOptions> configureOptions)
+            ISheetLayout<T> layout)
         {
-            services.Configure(configureOptions);
+            // Register the layout as a singleton
+            services.AddSingleton(layout);
 
-            // Register core services
-            services.AddScoped<IGoogleSheetsService, GoogleSheetsService>();
-            services.AddScoped<ISheetBuilder<BankSlipData>, BankSlipSheetBuilder>();
+            // Register it with the registry (this will be called when the registry is created)
+            services.Configure<SheetLayoutRegistrationOptions>(options =>
+            {
+                options.LayoutRegistrations.Add(serviceProvider =>
+                {
+                    var registry = serviceProvider.GetRequiredService<ISheetLayoutRegistry>();
+                    registry.RegisterLayout(layout);
+                });
+            });
 
             return services;
         }
 
         /// <summary>
-        /// Add user checkbox management services with storage
+        /// Add Bank Slip specific services
         /// </summary>
-        public static IServiceCollection AddUserCheckboxServices<TStorage>(
-            this IServiceCollection services)
-            where TStorage : class, NewwaysAdmin.Shared.IO.IDataStorage<List<UserCheckboxConfig>>
+        public static IServiceCollection AddBankSlipGoogleSheetsServices(this IServiceCollection services)
         {
-            services.AddScoped<NewwaysAdmin.Shared.IO.IDataStorage<List<UserCheckboxConfig>>, TStorage>();
-            services.AddScoped<IUserCheckboxService, UserCheckboxService>();
+            // Register the bank slip layout
+            services.AddSheetLayout<BankSlipData>(new BankSlipSheetLayout());
+
+            // Register the bank slip export service
+            services.AddScoped<BankSlipExportService>();
 
             return services;
         }
+    }
+
+    /// <summary>
+    /// Layout registry implementation
+    /// </summary>
+    internal class SheetLayoutRegistry : ISheetLayoutRegistry
+    {
+        private readonly Dictionary<Type, object> _layouts = new();
+        private readonly ILogger<SheetLayoutRegistry> _logger;
+
+        public SheetLayoutRegistry(ILogger<SheetLayoutRegistry> logger, IServiceProvider serviceProvider)
+        {
+            _logger = logger;
+
+            // Apply any registered layouts
+            var options = serviceProvider.GetService<Microsoft.Extensions.Options.IOptions<SheetLayoutRegistrationOptions>>();
+            if (options?.Value?.LayoutRegistrations != null)
+            {
+                foreach (var registration in options.Value.LayoutRegistrations)
+                {
+                    try
+                    {
+                        registration(serviceProvider);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error registering sheet layout");
+                    }
+                }
+            }
+        }
+
+        public void RegisterLayout<T>(ISheetLayout<T> layout)
+        {
+            _layouts[typeof(T)] = layout;
+            _logger.LogInformation("Registered sheet layout: {LayoutName} for type {TypeName}",
+                layout.LayoutName, typeof(T).Name);
+        }
+
+        public ISheetLayout<T>? GetLayout<T>()
+        {
+            if (_layouts.TryGetValue(typeof(T), out var layout))
+            {
+                return layout as ISheetLayout<T>;
+            }
+            return null;
+        }
+
+        public IEnumerable<string> GetRegisteredLayouts()
+        {
+            return _layouts.Values.OfType<ISheetLayout<object>>().Select(l => l.LayoutName);
+        }
+    }
+
+    /// <summary>
+    /// Options for layout registration
+    /// </summary>
+    internal class SheetLayoutRegistrationOptions
+    {
+        public List<Action<IServiceProvider>> LayoutRegistrations { get; } = new();
     }
 }

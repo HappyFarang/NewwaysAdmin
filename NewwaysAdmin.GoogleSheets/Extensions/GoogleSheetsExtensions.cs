@@ -1,77 +1,55 @@
-﻿using NewwaysAdmin.GoogleSheets.Models;
-using NewwaysAdmin.SharedModels.BankSlips;
+﻿// NewwaysAdmin.GoogleSheets/Exceptions/GoogleSheetsException.cs
+using System;
 
-namespace NewwaysAdmin.GoogleSheets.Extensions
+namespace NewwaysAdmin.GoogleSheets.Exceptions
 {
-    public static class GoogleSheetsExtensions
+    public class GoogleSheetsException : Exception
     {
-        /// <summary>
-        /// Create a SheetExportRequest from bank slip processing result
-        /// </summary>
-        public static SheetExportRequest ToSheetExportRequest(
-            this BankSlipProcessingResult result,
-            string username,
-            string googleEmail,
-            string collectionName,
-            DateTime startDate,
-            DateTime endDate,
-            List<CheckboxColumn> checkboxColumns)
+        public string? SheetId { get; }
+        public string? Operation { get; }
+
+        public GoogleSheetsException(string message) : base(message)
         {
-            return new SheetExportRequest
-            {
-                Username = username,
-                GoogleEmail = googleEmail,
-                BankSlips = result.ProcessedSlips,
-                StartDate = startDate,
-                EndDate = endDate,
-                CollectionName = collectionName,
-                CheckboxColumns = checkboxColumns
-            };
         }
 
-        /// <summary>
-        /// Create a basic checkbox column
-        /// </summary>
-        public static CheckboxColumn CreateCheckboxColumn(string title, int order = 0)
+        public GoogleSheetsException(string message, Exception innerException) : base(message, innerException)
         {
-            return new CheckboxColumn
-            {
-                Id = Guid.NewGuid().ToString("N")[..8],
-                Title = title,
-                Order = order,
-                IsEnabled = true,
-                CreatedAt = DateTime.UtcNow
-            };
         }
 
-        /// <summary>
-        /// Get enabled checkbox columns in order
-        /// </summary>
-        public static List<CheckboxColumn> GetEnabledColumns(this UserCheckboxConfig config)
+        public GoogleSheetsException(string message, string? sheetId, string? operation) : base(message)
         {
-            return config.Columns
-                .Where(c => c.IsEnabled)
-                .OrderBy(c => c.Order)
-                .ToList();
+            SheetId = sheetId;
+            Operation = operation;
         }
 
-        /// <summary>
-        /// Validate Google email format
-        /// </summary>
-        public static bool IsValidGoogleEmail(this string email)
+        public GoogleSheetsException(string message, string? sheetId, string? operation, Exception innerException)
+            : base(message, innerException)
         {
-            if (string.IsNullOrWhiteSpace(email))
-                return false;
+            SheetId = sheetId;
+            Operation = operation;
+        }
+    }
 
-            try
-            {
-                var addr = new System.Net.Mail.MailAddress(email);
-                return addr.Address == email;
-            }
-            catch
-            {
-                return false;
-            }
+    public class GoogleSheetsAuthenticationException : GoogleSheetsException
+    {
+        public GoogleSheetsAuthenticationException(string message) : base(message)
+        {
+        }
+
+        public GoogleSheetsAuthenticationException(string message, Exception innerException) : base(message, innerException)
+        {
+        }
+    }
+
+    public class GoogleSheetsPermissionException : GoogleSheetsException
+    {
+        public GoogleSheetsPermissionException(string message, string? sheetId) : base(message, sheetId, "Permission")
+        {
+        }
+
+        public GoogleSheetsPermissionException(string message, string? sheetId, Exception innerException)
+            : base(message, sheetId, "Permission", innerException)
+        {
         }
     }
 }

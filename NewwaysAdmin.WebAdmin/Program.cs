@@ -21,6 +21,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Authorization;
 using NewwaysAdmin.WebAdmin.Authorization;
 using NewwaysAdmin.WebAdmin.Services.BankSlips;
+using NewwaysAdmin.GoogleSheets.Services;
+
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -186,9 +188,9 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json", // Use your existing key!
+            CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json",
             ApplicationName = "NewwaysAdmin Google Sheets",
-            AutoShareWithUser = true // Automatically share sheets with users
+            AutoShareWithUser = true
         };
 
         // Add Google Sheets services
@@ -199,6 +201,18 @@ public class Program
 
         // Register the Bank Slip export service
         services.AddScoped<BankSlipExportService>();
+
+        services.AddScoped<UserSheetConfigService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<UserSheetConfigService>>();
+
+            // Get the storage instances - these will be resolved at runtime
+            var userConfigStorage = storageManager.GetStorageSync<List<UserSheetConfig>>("GoogleSheets_UserConfigs");
+            var adminConfigStorage = storageManager.GetStorageSync<List<AdminSheetConfig>>("GoogleSheets_AdminConfigs");
+
+            return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
+        });
     }
 
     private static async Task ConfigureApplication(WebApplication app)
