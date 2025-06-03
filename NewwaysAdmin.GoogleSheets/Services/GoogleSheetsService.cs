@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using NewwaysAdmin.GoogleSheets.Exceptions;
 using NewwaysAdmin.GoogleSheets.Models;
 using System.Drawing;
+using Color = Google.Apis.Sheets.v4.Data.Color;
 
 namespace NewwaysAdmin.GoogleSheets.Services
 {

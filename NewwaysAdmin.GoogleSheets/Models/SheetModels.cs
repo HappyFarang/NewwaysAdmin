@@ -1,6 +1,7 @@
 ﻿// NewwaysAdmin.GoogleSheets/Models/SheetModels.cs
 using MessagePack;
 using System.ComponentModel.DataAnnotations;
+using Key = MessagePack.KeyAttribute;
 
 namespace NewwaysAdmin.GoogleSheets.Models
 {

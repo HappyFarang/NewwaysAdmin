@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.Authorization;
 using NewwaysAdmin.WebAdmin.Authorization;
 using NewwaysAdmin.WebAdmin.Services.BankSlips;
 using NewwaysAdmin.GoogleSheets.Services;
+using NewwaysAdmin.GoogleSheets.Models;
 
 
 namespace NewwaysAdmin.WebAdmin;
@@ -208,8 +209,8 @@ public class Program
             var logger = sp.GetRequiredService<ILogger<UserSheetConfigService>>();
 
             // Get the storage instances - these will be resolved at runtime
-            var userConfigStorage = storageManager.GetStorageSync<List<UserSheetConfig>>("GoogleSheets_UserConfigs");
-            var adminConfigStorage = storageManager.GetStorageSync<List<AdminSheetConfig>>("GoogleSheets_AdminConfigs");
+            var userConfigStorage = storageManager.GetStorageSync<List<NewwaysAdmin.GoogleSheets.Models.UserSheetConfig>>("GoogleSheets_UserConfigs");
+            var adminConfigStorage = storageManager.GetStorageSync<List<NewwaysAdmin.GoogleSheets.Models.AdminSheetConfig>>("GoogleSheets_AdminConfigs");
 
             return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
         });
