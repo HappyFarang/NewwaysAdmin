@@ -101,11 +101,21 @@ namespace NewwaysAdmin.GoogleSheets.Models
     public class SheetCell
     {
         public object? Value { get; set; }
+        public string? Formula { get; set; }  // Add this
         public string? Format { get; set; }
         public string? BackgroundColor { get; set; }
         public string? FontColor { get; set; }
         public bool IsBold { get; set; }
         public string? Note { get; set; }
+        public CellType Type { get; set; } = CellType.Value; // Add this
+    }
+
+    public enum CellType
+    {
+        Value,
+        Formula,
+        Header,
+        Summary
     }
 
     /// <summary>

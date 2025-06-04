@@ -1,0 +1,351 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/GoogleSheets/AdminSheetConfigManager.razor *@
+@using NewwaysAdmin.GoogleSheets.Models
+@using NewwaysAdmin.GoogleSheets.Services
+@inject ISheetTemplateService TemplateService
+@inject UserSheetConfigService ConfigService
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-gear-wide-connected me-2"></i>
+            Sheet Template Management
+        </h5>
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrEmpty(_statusMessage))
+        {
+            <div class="alert @(_statusIsError ? "alert-danger" : "alert-success") alert-dismissible">
+                @_statusMessage
+                <button type="button" class="btn-close" @onclick="() => _statusMessage = string.Empty"></button>
+            </div>
+        }
+
+        <!-- Action Buttons -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <button class="btn btn-primary" @onclick="ShowCreateTemplate">
+                    <i class="bi bi-plus-circle me-1"></i>Create New Template
+                </button>
+                <button class="btn btn-outline-secondary ms-2" @onclick="LoadTemplates">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
+            
+            <div>
+                <select class="form-select" @bind="_filterDataType" @onchange="FilterTemplates" style="width: auto;">
+                    <option value="">All Data Types</option>
+                    <option value="BankSlipData">Bank Slip Data</option>
+                    <option value="SalesData">Sales Data</option>
+                    <option value="ReturnsData">Returns Data</option>
+                    <option value="CustomData">Custom Data</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Templates List -->
+        @if (_isLoading)
+        {
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading templates...</span>
+                </div>
+                <p class="mt-2 text-muted">Loading sheet templates...</p>
+            </div>
+        }
+        else if (_filteredTemplates.Any())
+        {
+            <div class="row">
+                @foreach (var template in _filteredTemplates)
+                {
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card h-100">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">@template.Name</h6>
+                                <span class="badge bg-info">@template.DataType</span>
+                            </div>
+                            <div class="card-body">
+                                <p class="card-text text-muted">@template.Description</p>
+                                
+                                <div class="small text-muted mb-2">
+                                    <i class="bi bi-columns me-1"></i>@template.Columns.Count columns
+                                    @if (template.Formulas.Any())
+                                    {
+                                        <span class="ms-2">
+                                            <i class="bi bi-calculator me-1"></i>@template.Formulas.Count formulas
+                                        </span>
+                                    }
+                                </div>
+                                
+                                <div class="small text-muted">
+                                    Created: @template.CreatedAt.ToString("yyyy-MM-dd")<br />
+                                    By: @template.CreatedBy
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <div class="btn-group w-100" role="group">
+                                    <button class="btn btn-outline-primary btn-sm" @onclick="() => EditTemplate(template)">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </button>
+                                    <button class="btn btn-outline-success btn-sm" @onclick="() => CloneTemplate(template)">
+                                        <i class="bi bi-files"></i> Clone
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteTemplate(template)">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="text-center py-5">
+                <i class="bi bi-table display-1 text-muted"></i>
+                <h4 class="mt-3 text-muted">No Templates Found</h4>
+                <p class="text-muted">
+                    @if (string.IsNullOrEmpty(_filterDataType))
+                    {
+                        <span>No sheet templates have been created yet.</span>
+                    }
+                    else
+                    {
+                        <span>No templates found for @_filterDataType data type.</span>
+                    }
+                </p>
+                <button class="btn btn-primary" @onclick="ShowCreateTemplate">
+                    <i class="bi bi-plus-circle me-1"></i>Create Your First Template
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Template Designer Modal -->
+@if (_showDesigner)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @if (_editingTemplate != null)
+                        {
+                            <span>Edit Template: @_editingTemplate.Name</span>
+                        }
+                        else
+                        {
+                            <span>Create New Template</span>
+                        }
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HideDesigner"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <SheetDesigner Template="_editingTemplate" 
+                                   OnSaved="HandleTemplateSaved" 
+                                   OnCancel="HideDesigner" />
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_showDeleteConfirm && _templateToDelete != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Delete</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showDeleteConfirm = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the template <strong>"@_templateToDelete.Name"</strong>?</p>
+                    <p class="text-muted">This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showDeleteConfirm = false">
+                        Cancel
+                    </button>
+                    <button type="button" class="btn btn-danger" @onclick="DeleteTemplate">
+                        <i class="bi bi-trash me-1"></i>Delete Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public string ModuleName { get; set; } = "BankSlip";
+
+    private List<SheetTemplate> _allTemplates = new();
+    private List<SheetTemplate> _filteredTemplates = new();
+    private bool _isLoading = true;
+    private string _statusMessage = string.Empty;
+    private bool _statusIsError = false;
+    private string _filterDataType = string.Empty;
+
+    // Designer modal
+    private bool _showDesigner = false;
+    private SheetTemplate? _editingTemplate;
+
+    // Delete confirmation
+    private bool _showDeleteConfirm = false;
+    private SheetTemplate? _templateToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTemplates();
+    }
+
+    private async Task LoadTemplates()
+    {
+        try
+        {
+            _isLoading = true;
+            StateHasChanged();
+
+            _allTemplates = await TemplateService.GetTemplatesAsync();
+            FilterTemplates();
+
+            ShowStatus($"Loaded {_allTemplates.Count} templates", false);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error loading templates: {ex.Message}", true);
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void FilterTemplates()
+    {
+        if (string.IsNullOrEmpty(_filterDataType))
+        {
+            _filteredTemplates = _allTemplates.OrderBy(t => t.Name).ToList();
+        }
+        else
+        {
+            _filteredTemplates = _allTemplates
+                .Where(t => t.DataType.Equals(_filterDataType, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(t => t.Name)
+                .ToList();
+        }
+        StateHasChanged();
+    }
+
+    private void ShowCreateTemplate()
+    {
+        _editingTemplate = null;
+        _showDesigner = true;
+    }
+
+    private void EditTemplate(SheetTemplate template)
+    {
+        _editingTemplate = template;
+        _showDesigner = true;
+    }
+
+    private async Task CloneTemplate(SheetTemplate template)
+    {
+        try
+        {
+            var clonedTemplate = new SheetTemplate
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = $"{template.Name} (Copy)",
+                Description = template.Description,
+                DataType = template.DataType,
+                Columns = new List<ColumnTemplate>(template.Columns),
+                Formulas = new List<FormulaTemplate>(template.Formulas),
+                Formatting = new SheetFormatting
+                {
+                    FreezeHeaderRow = template.Formatting.FreezeHeaderRow,
+                    AutoFilter = template.Formatting.AutoFilter,
+                    AlternateRowColors = template.Formatting.AlternateRowColors,
+                    AddSummarySection = template.Formatting.AddSummarySection,
+                    HeaderBackgroundColor = template.Formatting.HeaderBackgroundColor,
+                    AlternateColor = template.Formatting.AlternateColor
+                },
+                CreatedAt = DateTime.UtcNow,
+                CreatedBy = "Admin" // TODO: Get from auth service
+            };
+
+            var success = await TemplateService.SaveTemplateAsync(clonedTemplate);
+            if (success)
+            {
+                ShowStatus($"Template '{template.Name}' cloned successfully!", false);
+                await LoadTemplates();
+            }
+            else
+            {
+                ShowStatus("Failed to clone template", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error cloning template: {ex.Message}", true);
+        }
+    }
+
+    private void ConfirmDeleteTemplate(SheetTemplate template)
+    {
+        _templateToDelete = template;
+        _showDeleteConfirm = true;
+    }
+
+    private async Task DeleteTemplate()
+    {
+        if (_templateToDelete == null) return;
+
+        try
+        {
+            var success = await TemplateService.DeleteTemplateAsync(_templateToDelete.Id);
+            if (success)
+            {
+                ShowStatus($"Template '{_templateToDelete.Name}' deleted successfully!", false);
+                await LoadTemplates();
+            }
+            else
+            {
+                ShowStatus("Failed to delete template", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"Error deleting template: {ex.Message}", true);
+        }
+        finally
+        {
+            _showDeleteConfirm = false;
+            _templateToDelete = null;
+        }
+    }
+
+    private void HideDesigner()
+    {
+        _showDesigner = false;
+        _editingTemplate = null;
+    }
+
+    private async Task HandleTemplateSaved(SheetTemplate template)
+    {
+        HideDesigner();
+        await LoadTemplates();
+    }
+
+    private void ShowStatus(string message, bool isError)
+    {
+        _statusMessage = message;
+        _statusIsError = isError;
+        StateHasChanged();
+    }
+}

@@ -147,10 +147,31 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     IsShared = true, // Shared for audit purposes
                     CreateBackups = true,
                     MaxBackupCount = 30
+                },
+                new StorageFolder
+                {
+                    Name = "GoogleSheets_Templates",
+                    Description = "Sheet layout templates for different data types",
+                    Type = StorageType.Binary, // Using MessagePack for efficient storage
+                    Path = "GoogleSheets",
+                    IsShared = true, // Templates are shared across all users
+                    CreateBackups = true,
+                    MaxBackupCount = 15
+                },
+
+                // Google Sheets Admin Configurations
+                new StorageFolder
+                {
+                    Name = "GoogleSheets_AdminConfigs",
+                    Description = "Admin-level Google Sheets configurations",
+                    Type = StorageType.Binary,
+                    Path = "GoogleSheets",
+                    IsShared = false, // Admin-only storage
+                    CreateBackups = true,
+                    MaxBackupCount = 10
                 }
 
-
-                // Add new folders here as needed...
+            // Add new folders here as needed...
             );
         }
 

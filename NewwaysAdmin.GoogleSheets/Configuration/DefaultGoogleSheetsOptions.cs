@@ -1,4 +1,6 @@
-﻿namespace NewwaysAdmin.GoogleSheets.Configuration
+﻿using NewwaysAdmin.GoogleSheets.Models; 
+
+namespace NewwaysAdmin.GoogleSheets.Configuration
 {
     public static class DefaultGoogleSheetsOptions
     {

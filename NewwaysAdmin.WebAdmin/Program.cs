@@ -23,6 +23,8 @@ using NewwaysAdmin.WebAdmin.Authorization;
 using NewwaysAdmin.WebAdmin.Services.BankSlips;
 using NewwaysAdmin.GoogleSheets.Services;
 using NewwaysAdmin.GoogleSheets.Models;
+using NewwaysAdmin.GoogleSheets.Extensions;
+using NewwaysAdmin.GoogleSheets.Layouts;
 
 
 namespace NewwaysAdmin.WebAdmin;
@@ -189,7 +191,7 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json",
+            CredentialsPath = @"C:\Keys\purrfectaircounter-33e40376baff.json", // Updated filename
             ApplicationName = "NewwaysAdmin Google Sheets",
             AutoShareWithUser = true
         };
@@ -203,14 +205,23 @@ public class Program
         // Register the Bank Slip export service
         services.AddScoped<BankSlipExportService>();
 
+        // Register Sheet Template Service
+        services.AddScoped<ISheetTemplateService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<SheetTemplateService>>();
+            var templateStorage = storageManager.GetStorageSync<List<SheetTemplate>>("GoogleSheets_Templates");
+            return new SheetTemplateService(templateStorage, logger);
+        });
+
+        // Register User Sheet Config Service
         services.AddScoped<UserSheetConfigService>(sp =>
         {
             var storageManager = sp.GetRequiredService<StorageManager>();
             var logger = sp.GetRequiredService<ILogger<UserSheetConfigService>>();
 
-            // Get the storage instances - these will be resolved at runtime
-            var userConfigStorage = storageManager.GetStorageSync<List<NewwaysAdmin.GoogleSheets.Models.UserSheetConfig>>("GoogleSheets_UserConfigs");
-            var adminConfigStorage = storageManager.GetStorageSync<List<NewwaysAdmin.GoogleSheets.Models.AdminSheetConfig>>("GoogleSheets_AdminConfigs");
+            var userConfigStorage = storageManager.GetStorageSync<List<UserSheetConfig>>("GoogleSheets_UserConfigs");
+            var adminConfigStorage = storageManager.GetStorageSync<List<AdminSheetConfig>>("GoogleSheets_AdminConfigs");
 
             return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
         });
