@@ -134,7 +134,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
             {
                 var sheetData = new SheetData
                 {
-                    Title = GenerateSheetTitle(template, data, startDate, endDate)
+                    Title = GenerateSheetTitle(template, data.Cast<object>(), startDate, endDate)
                 };
 
                 // Add header row based on template

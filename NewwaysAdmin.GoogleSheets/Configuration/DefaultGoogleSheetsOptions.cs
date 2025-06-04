@@ -1,26 +1,25 @@
-﻿using NewwaysAdmin.GoogleSheets.Models; 
+﻿using NewwaysAdmin.GoogleSheets.Models;
 
 namespace NewwaysAdmin.GoogleSheets.Configuration
 {
-    public static class DefaultGoogleSheetsOptions
+    public static class DefaultGoogleSheetsConfig
     {
-        public static GoogleSheetsOptions Create(string serviceAccountKeyPath)
+        public static GoogleSheetsConfig Create(string credentialsPath)
         {
-            return new GoogleSheetsOptions
+            return new GoogleSheetsConfig
             {
-                ServiceAccountKeyPath = serviceAccountKeyPath,
+                CredentialsPath = credentialsPath,
                 ApplicationName = "NewwaysAdmin Google Sheets",
-                DefaultScope = "https://www.googleapis.com/auth/spreadsheets",
-                DriveScope = "https://www.googleapis.com/auth/drive"
+                AutoShareWithUser = false
             };
         }
 
-        public static GoogleSheetsOptions CreateForDevelopment()
+        public static GoogleSheetsConfig CreateForDevelopment()
         {
-            return Create(@"C:\Keys\newwaysadmin-sheets-service-account.json");
+            return Create(@"C:\Keys\purrfectocr-db2d9d796b58.json");
         }
 
-        public static GoogleSheetsOptions CreateForProduction(string keyPath)
+        public static GoogleSheetsConfig CreateForProduction(string keyPath)
         {
             return Create(keyPath);
         }
