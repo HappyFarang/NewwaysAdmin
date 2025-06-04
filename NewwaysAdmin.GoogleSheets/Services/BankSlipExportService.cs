@@ -11,17 +11,20 @@ namespace NewwaysAdmin.GoogleSheets.Services
         private readonly GoogleSheetsService _googleSheetsService;
         private readonly UserSheetConfigService _configService;
         private readonly ISheetLayout<BankSlipData> _bankSlipLayout;
+        private readonly GoogleSheetsConfig _config;
         private readonly ILogger<BankSlipExportService> _logger;
 
         public BankSlipExportService(
             GoogleSheetsService googleSheetsService,
             UserSheetConfigService configService,
             ISheetLayout<BankSlipData> bankSlipLayout,
+            GoogleSheetsConfig config,
             ILogger<BankSlipExportService> logger)
         {
             _googleSheetsService = googleSheetsService ?? throw new ArgumentNullException(nameof(googleSheetsService));
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
             _bankSlipLayout = bankSlipLayout ?? throw new ArgumentNullException(nameof(bankSlipLayout));
+            _config = config ?? throw new ArgumentNullException(nameof(config));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -53,44 +56,19 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _logger.LogDebug("Converted {Count} bank slips to sheet data with title: {Title}",
                     bankSlips.Count(), sheetData.Title);
 
-                // Check if user wants to create a new sheet or use existing
-                var createNewSheet = await _configService.GetSettingAsync(username, "BankSlip", "CreateNewSheet", true);
-
-                string spreadsheetId;
-
-                if (createNewSheet)
-                {
-                    // Create new spreadsheet
-                    spreadsheetId = await _googleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
-                    _logger.LogInformation("Created new spreadsheet {SpreadsheetId} for user {Username}",
-                        spreadsheetId, username);
-                }
-                else
-                {
-                    // Try to get existing spreadsheet ID from user config
-                    var existingSpreadsheetId = await _configService.GetSettingAsync<string>(username, "BankSlip", "DefaultSpreadsheetId");
-
-                    if (string.IsNullOrEmpty(existingSpreadsheetId))
-                    {
-                        // No existing sheet, create new one and save for next time
-                        spreadsheetId = await _googleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
-                        await _configService.SetUserSettingAsync(username, "BankSlip", "DefaultSpreadsheetId", spreadsheetId, username);
-                        _logger.LogInformation("Created new default spreadsheet {SpreadsheetId} for user {Username}",
-                            spreadsheetId, username);
-                    }
-                    else
-                    {
-                        spreadsheetId = existingSpreadsheetId;
-                        _logger.LogDebug("Using existing spreadsheet {SpreadsheetId} for user {Username}",
-                            spreadsheetId, username);
-                    }
-                }
+                // Always create a new spreadsheet for simplicity
+                var spreadsheetId = await _googleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
+                _logger.LogInformation("Created new spreadsheet {SpreadsheetId} for user {Username}",
+                    spreadsheetId, username);
 
                 // Write data to sheet
                 var writeResult = await _googleSheetsService.WriteDataToSheetAsync(spreadsheetId, sheetData);
 
                 if (writeResult.Success)
                 {
+                    // AUTOMATICALLY SHARE THE SPREADSHEET - This is the key fix!
+                    await ShareSpreadsheetWithUsers(spreadsheetId, username);
+
                     result.Success = true;
                     result.SheetId = writeResult.SheetId;
                     result.SheetUrl = writeResult.SheetUrl;
@@ -119,6 +97,68 @@ namespace NewwaysAdmin.GoogleSheets.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Automatically share the spreadsheet with all relevant users
+        /// </summary>
+        private async Task ShareSpreadsheetWithUsers(string spreadsheetId, string username)
+        {
+            var emailsToShare = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                // 1. Always share with the default owner email from config
+                if (!string.IsNullOrEmpty(_config.DefaultShareEmail))
+                {
+                    emailsToShare.Add(_config.DefaultShareEmail);
+                    _logger.LogDebug("Added default share email: {Email}", _config.DefaultShareEmail);
+                }
+
+                // 2. Get user's personal email from their settings
+                var userEmail = await _configService.GetSettingAsync<string>(username, "BankSlip", "UserShareEmail", "");
+                if (!string.IsNullOrEmpty(userEmail))
+                {
+                    emailsToShare.Add(userEmail);
+                    _logger.LogDebug("Added user email: {Email}", userEmail);
+                }
+
+                // 3. Share with each unique email
+                foreach (var email in emailsToShare)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Sharing spreadsheet {SpreadsheetId} with {Email}", spreadsheetId, email);
+
+                        var shareSuccess = await _googleSheetsService.ShareSpreadsheetAsync(spreadsheetId, email, "writer");
+
+                        if (shareSuccess)
+                        {
+                            _logger.LogInformation("✅ Successfully shared spreadsheet {SpreadsheetId} with {Email}",
+                                spreadsheetId, email);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("⚠️ Failed to share spreadsheet {SpreadsheetId} with {Email}",
+                                spreadsheetId, email);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "❌ Error sharing spreadsheet {SpreadsheetId} with {Email}: {Error}",
+                            spreadsheetId, email, ex.Message);
+                        // Don't throw - sharing failure shouldn't break the export
+                    }
+                }
+
+                _logger.LogInformation("Completed sharing process for spreadsheet {SpreadsheetId}. Shared with {Count} emails: {Emails}",
+                    spreadsheetId, emailsToShare.Count, string.Join(", ", emailsToShare));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in sharing process for spreadsheet {SpreadsheetId}", spreadsheetId);
+                // Don't throw - sharing failure shouldn't break the export
+            }
         }
 
         /// <summary>
@@ -186,7 +226,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
         }
 
         /// <summary>
-        /// Test the export functionality with sample data
+        /// Test the export functionality with sample data and automatic sharing
         /// </summary>
         public async Task<ExportResult> TestExportAsync(string username)
         {
@@ -206,7 +246,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                         AccountNumber = "xxx-1234-567",
                         ReceiverName = "Test Receiver",
                         ReceiverAccount = "xxx-9876-543",
-                        Note = "Test bank slip export",
+                        Note = "Test bank slip export with auto-sharing",
                         SlipCollectionName = "Test Collection",
                         ProcessedBy = username,
                         ProcessedAt = DateTime.UtcNow,
@@ -222,7 +262,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                         AccountNumber = "xxx-1234-567",
                         ReceiverName = "Another Receiver",
                         ReceiverAccount = "xxx-5555-666",
-                        Note = "Second test bank slip",
+                        Note = "Second test bank slip with auto-sharing",
                         SlipCollectionName = "Test Collection",
                         ProcessedBy = username,
                         ProcessedAt = DateTime.UtcNow,

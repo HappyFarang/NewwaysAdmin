@@ -25,6 +25,8 @@ using NewwaysAdmin.GoogleSheets.Services;
 using NewwaysAdmin.GoogleSheets.Models;
 using NewwaysAdmin.GoogleSheets.Extensions;
 using NewwaysAdmin.GoogleSheets.Layouts;
+using NewwaysAdmin.GoogleSheets.Interfaces;
+using NewwaysAdmin.SharedModels.BankSlips;
 
 
 namespace NewwaysAdmin.WebAdmin;
@@ -191,11 +193,12 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json", // Updated path
-            ApplicationName = "NewwaysAdmin Google Sheets Integration",     // More specific name
-            AutoShareWithUser = true,
+            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json",
+            ApplicationName = "NewwaysAdmin Google Sheets Integration",
+            AutoShareWithUser = true,  // Make sure this is enabled
             DefaultShareEmail = "superfox75@gmail.com"
         };
+
 
         // Add Google Sheets services
         services.AddGoogleSheetsServices(googleSheetsConfig);
@@ -203,8 +206,17 @@ public class Program
         // Register the Bank Slip layout
         services.AddSheetLayout(new BankSlipSheetLayout());
 
-        // Register the Bank Slip export service
-        services.AddScoped<BankSlipExportService>();
+        // Register the Bank Slip export service with explicit config
+        services.AddScoped<BankSlipExportService>(sp =>
+        {
+            var googleSheetsService = sp.GetRequiredService<GoogleSheetsService>();
+            var userConfigService = sp.GetRequiredService<UserSheetConfigService>();
+            var bankSlipLayout = sp.GetRequiredService<ISheetLayout<BankSlipData>>();
+            var config = sp.GetRequiredService<GoogleSheetsConfig>();
+            var logger = sp.GetRequiredService<ILogger<BankSlipExportService>>();
+
+            return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger);
+        });
 
         // Register Sheet Template Service
         services.AddScoped<ISheetTemplateService>(sp =>

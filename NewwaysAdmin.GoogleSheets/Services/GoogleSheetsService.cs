@@ -17,8 +17,8 @@ namespace NewwaysAdmin.GoogleSheets.Services
         private readonly GoogleSheetsConfig _config;
         private readonly ILogger<GoogleSheetsService> _logger;
         private SheetsService? _sheetsService;
-        private bool _disposed = false;
         private DriveService? _driveService;
+        private bool _disposed = false;
 
         public GoogleSheetsService(GoogleSheetsConfig config, ILogger<GoogleSheetsService> logger)
         {
@@ -42,7 +42,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 using (var stream = new FileStream(_config.CredentialsPath, FileMode.Open, FileAccess.Read))
                 {
                     credential = GoogleCredential.FromStream(stream)
-                        .CreateScoped(SheetsService.Scope.Spreadsheets);
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
                 }
 
                 _sheetsService = new SheetsService(new BaseClientService.Initializer()
@@ -58,6 +58,41 @@ namespace NewwaysAdmin.GoogleSheets.Services
             {
                 _logger.LogError(ex, "Failed to initialize Google Sheets service");
                 throw new GoogleSheetsAuthenticationException("Failed to initialize Google Sheets service", ex);
+            }
+        }
+
+        private async Task<DriveService> GetDriveServiceAsync()
+        {
+            if (_driveService != null)
+                return _driveService;
+
+            try
+            {
+                if (!File.Exists(_config.CredentialsPath))
+                {
+                    throw new GoogleSheetsAuthenticationException($"Credentials file not found: {_config.CredentialsPath}");
+                }
+
+                GoogleCredential credential;
+                using (var stream = new FileStream(_config.CredentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                _driveService = new DriveService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = _config.ApplicationName,
+                });
+
+                _logger.LogInformation("Google Drive service initialized successfully");
+                return _driveService;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to initialize Google Drive service");
+                throw new GoogleSheetsAuthenticationException("Failed to initialize Google Drive service", ex);
             }
         }
 
@@ -225,31 +260,12 @@ namespace NewwaysAdmin.GoogleSheets.Services
         {
             try
             {
-                _logger.LogInformation("Attempting to share spreadsheet {SpreadsheetId} with {Email} as {Role}",
+                _logger.LogInformation("🔄 Attempting to share spreadsheet {SpreadsheetId} with {Email} as {Role}",
                     spreadsheetId, email, role);
 
-                // Get or create the Drive service
-                if (_driveService == null)
-                {
-                    if (!File.Exists(_config.CredentialsPath))
-                    {
-                        throw new GoogleSheetsAuthenticationException($"Credentials file not found: {_config.CredentialsPath}");
-                    }
+                var driveService = await GetDriveServiceAsync();
 
-                    GoogleCredential credential;
-                    using (var stream = new FileStream(_config.CredentialsPath, FileMode.Open, FileAccess.Read))
-                    {
-                        credential = GoogleCredential.FromStream(stream)
-                            .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
-                    }
-
-                    _driveService = new DriveService(new BaseClientService.Initializer()
-                    {
-                        HttpClientInitializer = credential,
-                        ApplicationName = _config.ApplicationName,
-                    });
-                }
-
+                // Create permission object
                 var permission = new Google.Apis.Drive.v3.Data.Permission()
                 {
                     Type = "user",
@@ -257,27 +273,73 @@ namespace NewwaysAdmin.GoogleSheets.Services
                     EmailAddress = email
                 };
 
-                var request = _driveService.Permissions.Create(permission, spreadsheetId);
-                request.SendNotificationEmail = false; // Don't send email notification
+                var request = driveService.Permissions.Create(permission, spreadsheetId);
+
+                // IMPORTANT: Disable email notifications to avoid spam
+                request.SendNotificationEmail = false;
+
+                // IMPORTANT: Transfer ownership to the user if they're the main user
+                request.TransferOwnership = false; // Keep service account as owner for control
 
                 var response = await request.ExecuteAsync();
 
-                _logger.LogInformation("Successfully shared spreadsheet {SpreadsheetId} with {Email}. Permission ID: {PermissionId}",
+                _logger.LogInformation("✅ Successfully shared spreadsheet {SpreadsheetId} with {Email}. Permission ID: {PermissionId}",
                     spreadsheetId, email, response.Id);
 
                 return true;
             }
             catch (Google.GoogleApiException ex)
             {
-                _logger.LogError(ex, "Google API error sharing spreadsheet {SpreadsheetId} with {Email}: {Error}",
-                    spreadsheetId, email, ex.Message);
+                _logger.LogError(ex, "❌ Google API error sharing spreadsheet {SpreadsheetId} with {Email}: {Error} (Status: {StatusCode})",
+                    spreadsheetId, email, ex.Message, ex.HttpStatusCode);
+
+                // Log more details for debugging
+                if (ex.Error?.Errors != null)
+                {
+                    foreach (var error in ex.Error.Errors)
+                    {
+                        _logger.LogError("API Error Detail - Domain: {Domain}, Reason: {Reason}, Message: {Message}",
+                            error.Domain, error.Reason, error.Message);
+                    }
+                }
+
                 return false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to share spreadsheet {SpreadsheetId} with {Email}", spreadsheetId, email);
+                _logger.LogError(ex, "❌ Unexpected error sharing spreadsheet {SpreadsheetId} with {Email}", spreadsheetId, email);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Share spreadsheet with multiple users at once
+        /// </summary>
+        public async Task<Dictionary<string, bool>> ShareSpreadsheetWithMultipleUsersAsync(
+            string spreadsheetId,
+            IEnumerable<string> emails,
+            string role = "writer")
+        {
+            var results = new Dictionary<string, bool>();
+
+            foreach (var email in emails.Where(e => !string.IsNullOrWhiteSpace(e)))
+            {
+                try
+                {
+                    var success = await ShareSpreadsheetAsync(spreadsheetId, email.Trim(), role);
+                    results[email] = success;
+
+                    // Small delay to avoid rate limiting
+                    await Task.Delay(100);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error sharing with {Email}", email);
+                    results[email] = false;
+                }
+            }
+
+            return results;
         }
 
         public async Task<SheetInfo?> GetSheetInfoAsync(string spreadsheetId)
@@ -307,11 +369,62 @@ namespace NewwaysAdmin.GoogleSheets.Services
             }
         }
 
+        /// <summary>
+        /// Test the complete workflow: create, write, and share
+        /// </summary>
+        public async Task<(bool success, string? spreadsheetId, List<string> errors)> TestCompleteWorkflowAsync(
+            string testTitle,
+            IEnumerable<string> emailsToShare)
+        {
+            var errors = new List<string>();
+            string? spreadsheetId = null;
+
+            try
+            {
+                // 1. Create spreadsheet
+                spreadsheetId = await CreateSpreadsheetAsync(testTitle);
+
+                // 2. Add some test data
+                var testData = new SheetData
+                {
+                    Title = testTitle
+                };
+                testData.AddHeaderRow("Test Column 1", "Test Column 2", "Test Column 3");
+                testData.AddDataRow("Test Value 1", "Test Value 2", "Test Value 3");
+
+                var writeResult = await WriteDataToSheetAsync(spreadsheetId, testData);
+                if (!writeResult.Success)
+                {
+                    errors.AddRange(writeResult.Errors);
+                    return (false, spreadsheetId, errors);
+                }
+
+                // 3. Share with all emails
+                var shareResults = await ShareSpreadsheetWithMultipleUsersAsync(spreadsheetId, emailsToShare);
+                foreach (var shareResult in shareResults)
+                {
+                    if (!shareResult.Value)
+                    {
+                        errors.Add($"Failed to share with {shareResult.Key}");
+                    }
+                }
+
+                return (true, spreadsheetId, errors);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in test workflow");
+                errors.Add($"Test workflow failed: {ex.Message}");
+                return (false, spreadsheetId, errors);
+            }
+        }
+
         public void Dispose()
         {
             if (!_disposed)
             {
                 _sheetsService?.Dispose();
+                _driveService?.Dispose();
                 _disposed = true;
             }
         }
