@@ -719,36 +719,29 @@
                 return;
             }
 
-            // Create sheet data
-            var sheetData = _bankSlipLayout.ConvertToSheetData(_lastResult.ProcessedSlips, _startDate, _endDate);
+            // Use the BankSlipExportService instead of accessing layout directly
+            var exportResult = await GoogleSheetsExportService.ExportBankSlipsAsync(
+                _currentUsername,
+                _lastResult.ProcessedSlips,
+                _startDate,
+                _endDate);
 
-            // Create spreadsheet
-            var spreadsheetId = await _googleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
-
-            // Write data
-            var writeResult = await _googleSheetsService.WriteDataToSheetAsync(spreadsheetId, sheetData);
-
-            if (writeResult.Success)
+            if (exportResult.Success)
             {
-                // Share with the user's email (from the input field)
-                var shareSuccess = await _googleSheetsService.ShareSpreadsheetAsync(spreadsheetId, _userShareEmail, "writer");
-
-                if (shareSuccess)
-                {
-                    SetStatusMessage($"✅ Success! Exported {writeResult.RowsExported} rows and shared with {_userShareEmail}", "info");
-                }
-                else
-                {
-                    SetStatusMessage($"⚠️ Exported {writeResult.RowsExported} rows but failed to share. You may need to request access.", "info");
-                }
+                SetStatusMessage($"✅ Success! Exported {exportResult.RowsExported} rows to Google Sheets", "info");
 
                 // Open the sheet
-                var sheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
-                await JSRuntime.InvokeVoidAsync("window.open", sheetUrl, "_blank");
+                if (!string.IsNullOrEmpty(exportResult.SheetUrl))
+                {
+                    await JSRuntime.InvokeVoidAsync("window.open", exportResult.SheetUrl, "_blank");
+                }
             }
             else
             {
-                SetStatusMessage("❌ Export failed", "error");
+                var errorMessage = exportResult.Errors.Any()
+                    ? string.Join(", ", exportResult.Errors)
+                    : "Unknown error occurred";
+                SetStatusMessage($"❌ Export failed: {errorMessage}", "error");
             }
         }
         catch (Exception ex)

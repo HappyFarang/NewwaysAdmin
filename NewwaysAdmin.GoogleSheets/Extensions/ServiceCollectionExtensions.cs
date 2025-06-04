@@ -44,8 +44,9 @@ namespace NewwaysAdmin.GoogleSheets.Extensions
             this IServiceCollection services,
             ISheetLayout<T> layout)
         {
-            // Register the layout as a singleton
+            // Register the layout as a singleton - both as concrete type and interface
             services.AddSingleton(layout);
+            services.AddSingleton<ISheetLayout<T>>(layout);
 
             // Register it with the registry (this will be called when the registry is created)
             services.Configure<SheetLayoutRegistrationOptions>(options =>
