@@ -8,10 +8,16 @@
 @using Google.Cloud.Vision.V1
 @using NewwaysAdmin.GoogleSheets.Models
 @using NewwaysAdmin.GoogleSheets.Services
+@using Google.Apis.Auth.OAuth2
+@using Google.Apis.Services
+@using Google.Apis.Sheets.v4
+@using Google.Apis.Drive.v3
 @inject IBankSlipOcrService BankSlipService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
 @inject ILogger<BankSlipsView> Logger
+@inject BankSlipExportService GoogleSheetsExportService
+@inject UserSheetConfigService UserConfigService
 
 <PageTitle>Bank Slip OCR</PageTitle>
 
@@ -119,6 +125,51 @@
                             </div>
                         </div>
 
+                        <!-- Google Sheets Configuration Section -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-google me-2"></i>Google Sheets Configuration
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <!-- Service Account Info (Read-only) -->
+                                <div class="row mb-3">
+                                    <div class="col-12">
+                                        <div class="alert alert-info py-2">
+                                            <small class="d-block"><strong>Service Account (API Access):</strong></small>
+                                            <small class="text-muted font-monospace">newwaysadmin-sheets-service@newwaysadmin-intergration.iam.gserviceaccount.com</small>
+                                            <small class="d-block mt-1 text-muted">This account creates spreadsheets via API</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- User Email Configuration -->
+                                <div class="row align-items-center">
+                                    <div class="col-md-8">
+                                        <label class="form-label fw-bold">Your Personal Gmail Address</label>
+                                        <input type="email" class="form-control" @bind="_userShareEmail"
+                                               placeholder="your-personal-email@gmail.com"
+                                               disabled="@_isProcessing" />
+                                        <div class="form-text">
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            Enter the Gmail address you use to log into Google. Spreadsheets will be shared with this email.
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 d-flex flex-column gap-2">
+                                        <button class="btn btn-outline-primary" @onclick="SaveUserShareEmail"
+                                                disabled="@_isProcessing">
+                                            <i class="bi bi-save me-1"></i>Save Email
+                                        </button>
+                                        <button class="btn btn-outline-info" @onclick="VerifyGoogleSheetsSetup"
+                                                disabled="@_isProcessing">
+                                            <i class="bi bi-shield-check me-1"></i>Verify Setup
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Date Range Selection -->
                         <div class="row mb-4">
                             <div class="col-md-6">
@@ -153,11 +204,20 @@
                                 </button>
                             }
                             @if (_lastResult?.ProcessedSlips.Any() == true)
-                                {
-                                    <button class="btn btn-success" @onclick="ExportToGoogleSheets">
-                                        <i class="bi bi-google me-2"></i>Export to Google Sheets (@_lastResult.ProcessedSlips.Count slips)
-                                    </button>
-                                }
+                            {
+                                <button class="btn btn-success" @onclick="ExportToGoogleSheets" disabled="@_isExportingToSheets">
+                                    @if (_isExportingToSheets)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                        <span>Exporting...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-google me-2"></i>
+                                        <span>Export to Google Sheets (@_lastResult.ProcessedSlips.Count slips)</span>
+                                    }
+                                </button>
+                            }
                             <button class="btn btn-secondary" @onclick="TestSingleFile" disabled="@_isProcessing">
                                 <i class="bi bi-gear me-2"></i>Test Single File
                             </button>
@@ -483,54 +543,6 @@
 }
 
 @code {
-    @inject BankSlipExportService GoogleSheetsExportService
-
-    private bool _isExportingToSheets = false;
-
-    private async Task ExportToGoogleSheets()
-    {
-        if (_lastResult?.ProcessedSlips.Any() != true) return;
-
-        try
-        {
-            _isExportingToSheets = true;
-            SetStatusMessage("Exporting to Google Sheets...", "info");
-
-            Logger.LogInformation("Starting Google Sheets export for {Count} bank slips", _lastResult.ProcessedSlips.Count);
-
-            var result = await GoogleSheetsExportService.ExportBankSlipsAsync(
-                _currentUsername,
-                _lastResult.ProcessedSlips,
-                _startDate,
-                _endDate);
-
-            if (result.Success)
-            {
-                SetStatusMessage($"✓ Successfully exported to Google Sheets! {result.RowsExported} rows exported.", "info");
-
-                // Optionally open the sheet
-                if (!string.IsNullOrEmpty(result.SheetUrl))
-                {
-                    await JSRuntime.InvokeVoidAsync("window.open", result.SheetUrl, "_blank");
-                }
-            }
-            else
-            {
-                var errors = string.Join(", ", result.Errors);
-                SetStatusMessage($"✗ Export failed: {errors}", "error");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error during Google Sheets export");
-            SetStatusMessage($"Export failed: {ex.Message}", "error");
-        }
-        finally
-        {
-            _isExportingToSheets = false;
-            StateHasChanged();
-        }
-    }
     // Progress reporter implementation
     private class BlazorProgressReporter : IProgressReporter
     {
@@ -579,6 +591,10 @@
     private string _statusMessage = string.Empty;
     private string _statusMessageType = "info"; // "info" or "error"
 
+    // Google Sheets variables
+    private bool _isExportingToSheets = false;
+    private string _userShareEmail = string.Empty;
+
     protected override async Task OnInitializedAsync()
     {
         Logger.LogInformation("BankSlipsView: Starting initialization");
@@ -588,6 +604,9 @@
 
         // THEN: Load collections (which may depend on user context)
         await LoadAvailableCollections();
+
+        // Load user's share email preference
+        await LoadUserShareEmail();
 
         Logger.LogInformation("BankSlipsView: Initialization complete. Username: {Username}, IsAdmin: {IsAdmin}, Collections: {Count}",
             _currentUsername, _isAdmin, _availableCollections?.Count ?? 0);
@@ -618,6 +637,280 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading current user");
+        }
+    }
+
+    #endregion
+
+    #region Google Sheets Configuration
+
+    private async Task LoadUserShareEmail()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(_currentUsername))
+            {
+                _userShareEmail = await UserConfigService.GetSettingAsync<string>(_currentUsername, "BankSlip", "UserShareEmail", "");
+                Logger.LogInformation("Loaded user share email: {Email} for user {Username}",
+                    string.IsNullOrEmpty(_userShareEmail) ? "None" : _userShareEmail, _currentUsername);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading user share email");
+        }
+    }
+
+    private async Task SaveUserShareEmail()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_currentUsername))
+            {
+                SetStatusMessage("No current user found", "error");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_userShareEmail))
+            {
+                SetStatusMessage("Please enter a valid email address", "error");
+                return;
+            }
+
+            // Basic email validation
+            if (!_userShareEmail.Contains("@") || !_userShareEmail.Contains("."))
+            {
+                SetStatusMessage("Please enter a valid email address", "error");
+                return;
+            }
+
+            var success = await UserConfigService.SetUserSettingAsync(_currentUsername, "BankSlip", "UserShareEmail", _userShareEmail, _currentUsername);
+
+            if (success)
+            {
+                SetStatusMessage($"✓ Email saved successfully: {_userShareEmail}", "info");
+                Logger.LogInformation("Saved user share email: {Email} for user {Username}", _userShareEmail, _currentUsername);
+            }
+            else
+            {
+                SetStatusMessage("Failed to save email address", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving user share email");
+            SetStatusMessage($"Error saving email: {ex.Message}", "error");
+        }
+    }
+
+    private async Task ExportToGoogleSheets()
+    {
+        if (_lastResult?.ProcessedSlips.Any() != true) return;
+
+        try
+        {
+            _isExportingToSheets = true;
+            SetStatusMessage("Exporting to Google Sheets...", "info");
+
+            Logger.LogInformation("Starting Google Sheets export for {Count} bank slips", _lastResult.ProcessedSlips.Count);
+
+            var result = await GoogleSheetsExportService.ExportBankSlipsAsync(
+                _currentUsername,
+                _lastResult.ProcessedSlips,
+                _startDate,
+                _endDate);
+
+            if (result.Success)
+            {
+                SetStatusMessage($"✓ Successfully exported to Google Sheets! {result.RowsExported} rows exported.", "info");
+
+                // Optionally open the sheet
+                if (!string.IsNullOrEmpty(result.SheetUrl))
+                {
+                    await JSRuntime.InvokeVoidAsync("window.open", result.SheetUrl, "_blank");
+                }
+            }
+            else
+            {
+                var errors = string.Join(", ", result.Errors);
+                SetStatusMessage($"✗ Export failed: {errors}", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during Google Sheets export");
+            SetStatusMessage($"Export failed: {ex.Message}", "error");
+        }
+        finally
+        {
+            _isExportingToSheets = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task VerifyGoogleSheetsSetup()
+    {
+        try
+        {
+            SetStatusMessage("🔍 Verifying Google Sheets setup...", "info");
+            StateHasChanged();
+            await Task.Delay(500); // Give UI time to update
+
+            // Step 1: Check credentials file
+            var credentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json";
+            if (!File.Exists(credentialsPath))
+            {
+                SetStatusMessage($"❌ Step 1 FAILED: Credentials file not found at {credentialsPath}", "error");
+                return;
+            }
+
+            // Step 2: Parse and validate credentials
+            string serviceAccountEmail;
+            string projectId;
+            try
+            {
+                var credentialsJson = await File.ReadAllTextAsync(credentialsPath);
+                var credentials = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(credentialsJson);
+                serviceAccountEmail = credentials.client_email;
+                projectId = credentials.project_id;
+
+                SetStatusMessage($"✅ Step 1 PASSED: Found service account: {serviceAccountEmail}", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 2 FAILED: Invalid credentials file: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 3: Test API initialization
+            try
+            {
+                GoogleCredential credential;
+                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                var sheetsService = new SheetsService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                var driveService = new DriveService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                SetStatusMessage($"✅ Step 2 PASSED: API services initialized successfully", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 3 FAILED: Could not initialize Google APIs: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 4: Test spreadsheet creation
+            string spreadsheetId;
+            try
+            {
+                GoogleCredential credential;
+                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                var sheetsService = new SheetsService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                var spreadsheet = new Google.Apis.Sheets.v4.Data.Spreadsheet
+                    {
+                        Properties = new Google.Apis.Sheets.v4.Data.SpreadsheetProperties
+                        {
+                            Title = $"🧪 Verification Test - {DateTime.Now:yyyy-MM-dd HH:mm:ss}"
+                        }
+                    };
+
+                var createRequest = sheetsService.Spreadsheets.Create(spreadsheet);
+                var response = await createRequest.ExecuteAsync();
+                spreadsheetId = response.SpreadsheetId;
+
+                SetStatusMessage($"✅ Step 3 PASSED: Created test spreadsheet: {spreadsheetId}", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 4 FAILED: Could not create spreadsheet: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 5: Test sharing with user's email
+            var shareEmail = !string.IsNullOrEmpty(_userShareEmail) ? _userShareEmail : "superfox75@gmail.com";
+
+            try
+            {
+                GoogleCredential credential;
+                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                var driveService = new DriveService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                var permission = new Google.Apis.Drive.v3.Data.Permission()
+                    {
+                        Type = "user",
+                        Role = "writer",
+                        EmailAddress = shareEmail
+                    };
+
+                var shareRequest = driveService.Permissions.Create(permission, spreadsheetId);
+                shareRequest.SendNotificationEmail = false;
+                await shareRequest.ExecuteAsync();
+
+                SetStatusMessage($"✅ Step 4 PASSED: Shared spreadsheet with {shareEmail}", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 5 FAILED: Could not share with {shareEmail}: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 6: Final success
+            var sheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
+            SetStatusMessage($"🎉 ALL TESTS PASSED! \n" +
+                            $"✅ Service Account: {serviceAccountEmail}\n" +
+                            $"✅ Project: {projectId}\n" +
+                            $"✅ Shared with: {shareEmail}\n" +
+                            $"✅ Sheet URL: {sheetUrl}", "info");
+
+            // Open the test sheet
+            await JSRuntime.InvokeVoidAsync("window.open", sheetUrl, "_blank");
+
+            Logger.LogInformation("Google Sheets verification completed successfully");
+        }
+        catch (Exception ex)
+        {
+            SetStatusMessage($"❌ VERIFICATION FAILED: {ex.Message}", "error");
+            Logger.LogError(ex, "Google Sheets verification failed");
         }
     }
 
@@ -953,176 +1246,6 @@
         {
             Logger.LogError(ex, "Error generating CSV export");
             SetStatusMessage($"CSV export failed: {ex.Message}", "error");
-        }
-    }
-
-    private async Task VerifyGoogleSheetsSetup()
-    {
-        try
-        {
-            SetStatusMessage("🔍 Verifying Google Sheets setup...", "info");
-            StateHasChanged();
-            await Task.Delay(500); // Give UI time to update
-
-            // Step 1: Check credentials file
-            var credentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json";
-            if (!File.Exists(credentialsPath))
-            {
-                SetStatusMessage($"❌ Step 1 FAILED: Credentials file not found at {credentialsPath}", "error");
-                return;
-            }
-
-            // Step 2: Parse and validate credentials
-            string serviceAccountEmail;
-            string projectId;
-            try
-            {
-                var credentialsJson = await File.ReadAllTextAsync(credentialsPath);
-                var credentials = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(credentialsJson);
-                serviceAccountEmail = credentials.client_email;
-                projectId = credentials.project_id;
-
-                SetStatusMessage($"✅ Step 1 PASSED: Found service account: {serviceAccountEmail}", "info");
-                StateHasChanged();
-                await Task.Delay(1000);
-            }
-            catch (Exception ex)
-            {
-                SetStatusMessage($"❌ Step 2 FAILED: Invalid credentials file: {ex.Message}", "error");
-                return;
-            }
-
-            // Step 3: Test API initialization
-            try
-            {
-                GoogleCredential credential;
-                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
-                {
-                    credential = GoogleCredential.FromStream(stream)
-                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
-                }
-
-                var sheetsService = new SheetsService(new BaseClientService.Initializer()
-                    {
-                        HttpClientInitializer = credential,
-                        ApplicationName = "NewwaysAdmin Verification Test",
-                    });
-
-                var driveService = new DriveService(new BaseClientService.Initializer()
-                    {
-                        HttpClientInitializer = credential,
-                        ApplicationName = "NewwaysAdmin Verification Test",
-                    });
-
-                SetStatusMessage($"✅ Step 2 PASSED: API services initialized successfully", "info");
-                StateHasChanged();
-                await Task.Delay(1000);
-            }
-            catch (Exception ex)
-            {
-                SetStatusMessage($"❌ Step 3 FAILED: Could not initialize Google APIs: {ex.Message}", "error");
-                return;
-            }
-
-            // Step 4: Test spreadsheet creation
-            string spreadsheetId;
-            try
-            {
-                GoogleCredential credential;
-                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
-                {
-                    credential = GoogleCredential.FromStream(stream)
-                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
-                }
-
-                var sheetsService = new SheetsService(new BaseClientService.Initializer()
-                    {
-                        HttpClientInitializer = credential,
-                        ApplicationName = "NewwaysAdmin Verification Test",
-                    });
-
-                var spreadsheet = new Google.Apis.Sheets.v4.Data.Spreadsheet
-                    {
-                        Properties = new Google.Apis.Sheets.v4.Data.SpreadsheetProperties
-                        {
-                            Title = $"🧪 Verification Test - {DateTime.Now:yyyy-MM-dd HH:mm:ss}"
-                        }
-                    };
-
-                var createRequest = sheetsService.Spreadsheets.Create(spreadsheet);
-                var response = await createRequest.ExecuteAsync();
-                spreadsheetId = response.SpreadsheetId;
-
-                SetStatusMessage($"✅ Step 3 PASSED: Created test spreadsheet: {spreadsheetId}", "info");
-                StateHasChanged();
-                await Task.Delay(1000);
-            }
-            catch (Exception ex)
-            {
-                SetStatusMessage($"❌ Step 4 FAILED: Could not create spreadsheet: {ex.Message}", "error");
-                return;
-            }
-
-            // Step 5: Test sharing with your email
-            var shareEmail = _userShareEmail;
-            if (string.IsNullOrEmpty(shareEmail))
-            {
-                shareEmail = "your-email@gmail.com"; // Fallback - you should set this
-            }
-
-            try
-            {
-                GoogleCredential credential;
-                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
-                {
-                    credential = GoogleCredential.FromStream(stream)
-                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
-                }
-
-                var driveService = new DriveService(new BaseClientService.Initializer()
-                    {
-                        HttpClientInitializer = credential,
-                        ApplicationName = "NewwaysAdmin Verification Test",
-                    });
-
-                var permission = new Google.Apis.Drive.v3.Data.Permission()
-                    {
-                        Type = "user",
-                        Role = "writer",
-                        EmailAddress = shareEmail
-                    };
-
-                var shareRequest = driveService.Permissions.Create(permission, spreadsheetId);
-                shareRequest.SendNotificationEmail = false;
-                await shareRequest.ExecuteAsync();
-
-                SetStatusMessage($"✅ Step 4 PASSED: Shared spreadsheet with {shareEmail}", "info");
-                StateHasChanged();
-                await Task.Delay(1000);
-            }
-            catch (Exception ex)
-            {
-                SetStatusMessage($"❌ Step 5 FAILED: Could not share with {shareEmail}: {ex.Message}", "error");
-                return;
-            }
-
-            // Step 6: Final success
-            var sheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
-            SetStatusMessage($"🎉 ALL TESTS PASSED! \n" +
-                            $"✅ Service Account: {serviceAccountEmail}\n" +
-                            $"✅ Project: {projectId}\n" +
-                            $"✅ Shared with: {shareEmail}\n" +
-                            $"✅ Sheet URL: {sheetUrl}", "info");
-
-            // Open the test sheet
-            await JSRuntime.InvokeVoidAsync("window.open", sheetUrl, "_blank");
-
-            Logger.LogInformation("Google Sheets verification completed successfully");
-        }
-        catch (Exception ex)
-        {
-            SetStatusMessage($"❌ VERIFICATION FAILED: {ex.Message}", "error");
-            Logger.LogError(ex, "Google Sheets verification failed");
         }
     }
 

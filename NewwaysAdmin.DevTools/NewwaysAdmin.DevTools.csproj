@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Apis.Drive.v3" Version="1.69.0.3783" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
   </ItemGroup>
 
