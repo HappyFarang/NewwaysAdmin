@@ -6,6 +6,7 @@
 @using NewwaysAdmin.WebAdmin.Components.Security
 @using Microsoft.AspNetCore.Components.Authorization
 @using NewwaysAdmin.WebAdmin.Models.Navigation
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips
 @inject IAuthenticationService AuthService
 @inject NavigationManager Navigation
 @inject ILogger<Accounting> Logger
@@ -63,58 +64,57 @@
             else
             {
                 @* Render the appropriate sub-module component *@
-@switch (_currentSubModule.ToLower())
-{
-    case "bankslips":
-        @if (HasSubModuleAccess("accounting.bankslips"))
-        {
-            <BankSlipsView />
-        }
-        else
-        {
-            <AccessDeniedMessage ModuleName="Bank Slips" />
-        }
-        break;
-        
-    case "reports":
-        @if (HasSubModuleAccess("accounting.reports"))
-        {
-            <AccountingReportsView />
-        }
-        else
-        {
-            <AccessDeniedMessage ModuleName="Reports" />
-        }
-        break;
-        
-    case "reconcile":
-        @if (HasSubModuleAccess("accounting.reconcile"))
-        {
-            <ReconciliationView />
-        }
-        else
-        {
-            <AccessDeniedMessage ModuleName="Reconciliation" />
-        }
-        break;
-        
-    default:
-        <div class="alert alert-warning">
-            <h4>Module Not Found</h4>
-            <p>The requested accounting module was not found.</p>
-            <button class="btn btn-primary" @onclick="() => NavigateToSubModule(null)">
-                Return to Accounting Dashboard
-            </button>
-        </div>
-        break;
-}
+                @switch (_currentSubModule.ToLower())
+                {
+                    case "bankslips":
+                        @if (HasSubModuleAccess("accounting.bankslips"))
+                        {
+                            <BankSlipsView />
+                        }
+                        else
+                        {
+                            <AccessDeniedMessage ModuleName="Bank Slips" />
+                        }
+                        break;
+                        
+                    case "reports":
+                        @if (HasSubModuleAccess("accounting.reports"))
+                        {
+                            <ComingSoonMessage ModuleName="Reports" />
+                        }
+                        else
+                        {
+                            <AccessDeniedMessage ModuleName="Reports" />
+                        }
+                        break;
+                        
+                    case "reconcile":
+                        @if (HasSubModuleAccess("accounting.reconcile"))
+                        {
+                            <ComingSoonMessage ModuleName="Reconciliation" />
+                        }
+                        else
+                        {
+                            <AccessDeniedMessage ModuleName="Reconciliation" />
+                        }
+                        break;
+                        
+                    default:
+                        <div class="alert alert-warning">
+                            <h4>Module Not Found</h4>
+                            <p>The requested accounting module was not found.</p>
+                            <button class="btn btn-primary" @onclick="() => NavigateToSubModule(null)">
+                                Return to Accounting Dashboard
+                            </button>
+                        </div>
+                        break;
+                }
             }
         </div>
     </div>
 </AuthorizePage>
 
-@* Access Denied Component *@
-<div style="display: none;">
+@* Helper Components *@
 @code {
     private static RenderFragment<string> AccessDeniedMessage = (moduleName) => __builder =>
     {
@@ -124,8 +124,16 @@
             <p>Please contact your administrator to request access.</p>
         </div>
     };
+
+    private static RenderFragment<string> ComingSoonMessage = (moduleName) => __builder =>
+    {
+        <div class="alert alert-info">
+            <h4>@moduleName - Coming Soon</h4>
+            <p>The @moduleName module is currently under development.</p>
+            <p>This feature will be available in a future update.</p>
+        </div>
+    };
 }
-</div>
 
 @code {
     [Parameter] public string? SubModule { get; set; }
@@ -218,11 +226,3 @@
         }
     }
 }
-
-@* Placeholder components - you'll create these separately *@
-<div style="display: none;">
-    @* These will be separate components you'll create *@
-    @* <BankSlipsView /> *@
-    @* <AccountingReportsView /> *@
-    @* <ReconciliationView /> *@
-</div>
