@@ -1,5 +1,6 @@
 ﻿// NewwaysAdmin.GoogleSheets/Services/GoogleSheetsService.cs
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Drive.v3;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
@@ -17,6 +18,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
         private readonly ILogger<GoogleSheetsService> _logger;
         private SheetsService? _sheetsService;
         private bool _disposed = false;
+        private DriveService? _driveService;
 
         public GoogleSheetsService(GoogleSheetsConfig config, ILogger<GoogleSheetsService> logger)
         {
@@ -219,14 +221,57 @@ namespace NewwaysAdmin.GoogleSheets.Services
             }
         }
 
-        public async Task<bool> ShareSpreadsheetAsync(string spreadsheetId, string email, string role = "reader")
+        public async Task<bool> ShareSpreadsheetAsync(string spreadsheetId, string email, string role = "writer")
         {
             try
             {
-                // Note: This would require Google Drive API as well
-                // For now, we'll just log and return true
-                _logger.LogInformation("Sharing spreadsheet {SpreadsheetId} with {Email} as {Role}", spreadsheetId, email, role);
+                _logger.LogInformation("Attempting to share spreadsheet {SpreadsheetId} with {Email} as {Role}",
+                    spreadsheetId, email, role);
+
+                // Get or create the Drive service
+                if (_driveService == null)
+                {
+                    if (!File.Exists(_config.CredentialsPath))
+                    {
+                        throw new GoogleSheetsAuthenticationException($"Credentials file not found: {_config.CredentialsPath}");
+                    }
+
+                    GoogleCredential credential;
+                    using (var stream = new FileStream(_config.CredentialsPath, FileMode.Open, FileAccess.Read))
+                    {
+                        credential = GoogleCredential.FromStream(stream)
+                            .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                    }
+
+                    _driveService = new DriveService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = _config.ApplicationName,
+                    });
+                }
+
+                var permission = new Google.Apis.Drive.v3.Data.Permission()
+                {
+                    Type = "user",
+                    Role = role, // "reader", "writer", or "owner"
+                    EmailAddress = email
+                };
+
+                var request = _driveService.Permissions.Create(permission, spreadsheetId);
+                request.SendNotificationEmail = false; // Don't send email notification
+
+                var response = await request.ExecuteAsync();
+
+                _logger.LogInformation("Successfully shared spreadsheet {SpreadsheetId} with {Email}. Permission ID: {PermissionId}",
+                    spreadsheetId, email, response.Id);
+
                 return true;
+            }
+            catch (Google.GoogleApiException ex)
+            {
+                _logger.LogError(ex, "Google API error sharing spreadsheet {SpreadsheetId} with {Email}: {Error}",
+                    spreadsheetId, email, ex.Message);
+                return false;
             }
             catch (Exception ex)
             {

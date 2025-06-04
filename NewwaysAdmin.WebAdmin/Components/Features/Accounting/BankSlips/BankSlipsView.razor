@@ -712,34 +712,49 @@
             _isExportingToSheets = true;
             SetStatusMessage("Exporting to Google Sheets...", "info");
 
-            Logger.LogInformation("Starting Google Sheets export for {Count} bank slips", _lastResult.ProcessedSlips.Count);
-
-            var result = await GoogleSheetsExportService.ExportBankSlipsAsync(
-                _currentUsername,
-                _lastResult.ProcessedSlips,
-                _startDate,
-                _endDate);
-
-            if (result.Success)
+            // Simple validation - just check if email is entered
+            if (string.IsNullOrWhiteSpace(_userShareEmail))
             {
-                SetStatusMessage($"✓ Successfully exported to Google Sheets! {result.RowsExported} rows exported.", "info");
+                SetStatusMessage("❌ Please enter your Gmail address first", "error");
+                return;
+            }
 
-                // Optionally open the sheet
-                if (!string.IsNullOrEmpty(result.SheetUrl))
+            // Create sheet data
+            var sheetData = _bankSlipLayout.ConvertToSheetData(_lastResult.ProcessedSlips, _startDate, _endDate);
+
+            // Create spreadsheet
+            var spreadsheetId = await _googleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
+
+            // Write data
+            var writeResult = await _googleSheetsService.WriteDataToSheetAsync(spreadsheetId, sheetData);
+
+            if (writeResult.Success)
+            {
+                // Share with the user's email (from the input field)
+                var shareSuccess = await _googleSheetsService.ShareSpreadsheetAsync(spreadsheetId, _userShareEmail, "writer");
+
+                if (shareSuccess)
                 {
-                    await JSRuntime.InvokeVoidAsync("window.open", result.SheetUrl, "_blank");
+                    SetStatusMessage($"✅ Success! Exported {writeResult.RowsExported} rows and shared with {_userShareEmail}", "info");
                 }
+                else
+                {
+                    SetStatusMessage($"⚠️ Exported {writeResult.RowsExported} rows but failed to share. You may need to request access.", "info");
+                }
+
+                // Open the sheet
+                var sheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
+                await JSRuntime.InvokeVoidAsync("window.open", sheetUrl, "_blank");
             }
             else
             {
-                var errors = string.Join(", ", result.Errors);
-                SetStatusMessage($"✗ Export failed: {errors}", "error");
+                SetStatusMessage("❌ Export failed", "error");
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error during Google Sheets export");
-            SetStatusMessage($"Export failed: {ex.Message}", "error");
+            SetStatusMessage($"❌ Export failed: {ex.Message}", "error");
         }
         finally
         {
