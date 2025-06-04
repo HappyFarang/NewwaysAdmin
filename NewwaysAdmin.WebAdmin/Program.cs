@@ -191,9 +191,10 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\purrfectaircounter-33e40376baff.json", // Updated filename
-            ApplicationName = "NewwaysAdmin Google Sheets",
-            AutoShareWithUser = true
+            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json", // Updated path
+            ApplicationName = "NewwaysAdmin Google Sheets Integration",     // More specific name
+            AutoShareWithUser = true,
+            DefaultShareEmail = "superfox75@gmail.com"
         };
 
         // Add Google Sheets services

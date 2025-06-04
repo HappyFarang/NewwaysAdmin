@@ -690,7 +690,9 @@
                 IsActive = true,
                 ProcessingSettings = new ProcessingParameters(),
                 CreatedAt = DateTime.UtcNow,
-                CreatedBy = _currentUsername
+                CreatedBy = _currentUsername,
+                // Updated default credentials path
+                CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json"
             };
         _showCollectionModal = true;
         _saveErrorMessage = string.Empty;
@@ -754,7 +756,7 @@
 
             if (string.IsNullOrWhiteSpace(_editingCollection.CredentialsPath))
             {
-                _editingCollection.CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json";
+                _editingCollection.CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json";
             }
 
             await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
@@ -951,6 +953,176 @@
         {
             Logger.LogError(ex, "Error generating CSV export");
             SetStatusMessage($"CSV export failed: {ex.Message}", "error");
+        }
+    }
+
+    private async Task VerifyGoogleSheetsSetup()
+    {
+        try
+        {
+            SetStatusMessage("🔍 Verifying Google Sheets setup...", "info");
+            StateHasChanged();
+            await Task.Delay(500); // Give UI time to update
+
+            // Step 1: Check credentials file
+            var credentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json";
+            if (!File.Exists(credentialsPath))
+            {
+                SetStatusMessage($"❌ Step 1 FAILED: Credentials file not found at {credentialsPath}", "error");
+                return;
+            }
+
+            // Step 2: Parse and validate credentials
+            string serviceAccountEmail;
+            string projectId;
+            try
+            {
+                var credentialsJson = await File.ReadAllTextAsync(credentialsPath);
+                var credentials = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(credentialsJson);
+                serviceAccountEmail = credentials.client_email;
+                projectId = credentials.project_id;
+
+                SetStatusMessage($"✅ Step 1 PASSED: Found service account: {serviceAccountEmail}", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 2 FAILED: Invalid credentials file: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 3: Test API initialization
+            try
+            {
+                GoogleCredential credential;
+                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                var sheetsService = new SheetsService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                var driveService = new DriveService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                SetStatusMessage($"✅ Step 2 PASSED: API services initialized successfully", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 3 FAILED: Could not initialize Google APIs: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 4: Test spreadsheet creation
+            string spreadsheetId;
+            try
+            {
+                GoogleCredential credential;
+                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                var sheetsService = new SheetsService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                var spreadsheet = new Google.Apis.Sheets.v4.Data.Spreadsheet
+                    {
+                        Properties = new Google.Apis.Sheets.v4.Data.SpreadsheetProperties
+                        {
+                            Title = $"🧪 Verification Test - {DateTime.Now:yyyy-MM-dd HH:mm:ss}"
+                        }
+                    };
+
+                var createRequest = sheetsService.Spreadsheets.Create(spreadsheet);
+                var response = await createRequest.ExecuteAsync();
+                spreadsheetId = response.SpreadsheetId;
+
+                SetStatusMessage($"✅ Step 3 PASSED: Created test spreadsheet: {spreadsheetId}", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 4 FAILED: Could not create spreadsheet: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 5: Test sharing with your email
+            var shareEmail = _userShareEmail;
+            if (string.IsNullOrEmpty(shareEmail))
+            {
+                shareEmail = "your-email@gmail.com"; // Fallback - you should set this
+            }
+
+            try
+            {
+                GoogleCredential credential;
+                using (var stream = new FileStream(credentialsPath, FileMode.Open, FileAccess.Read))
+                {
+                    credential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                var driveService = new DriveService(new BaseClientService.Initializer()
+                    {
+                        HttpClientInitializer = credential,
+                        ApplicationName = "NewwaysAdmin Verification Test",
+                    });
+
+                var permission = new Google.Apis.Drive.v3.Data.Permission()
+                    {
+                        Type = "user",
+                        Role = "writer",
+                        EmailAddress = shareEmail
+                    };
+
+                var shareRequest = driveService.Permissions.Create(permission, spreadsheetId);
+                shareRequest.SendNotificationEmail = false;
+                await shareRequest.ExecuteAsync();
+
+                SetStatusMessage($"✅ Step 4 PASSED: Shared spreadsheet with {shareEmail}", "info");
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                SetStatusMessage($"❌ Step 5 FAILED: Could not share with {shareEmail}: {ex.Message}", "error");
+                return;
+            }
+
+            // Step 6: Final success
+            var sheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
+            SetStatusMessage($"🎉 ALL TESTS PASSED! \n" +
+                            $"✅ Service Account: {serviceAccountEmail}\n" +
+                            $"✅ Project: {projectId}\n" +
+                            $"✅ Shared with: {shareEmail}\n" +
+                            $"✅ Sheet URL: {sheetUrl}", "info");
+
+            // Open the test sheet
+            await JSRuntime.InvokeVoidAsync("window.open", sheetUrl, "_blank");
+
+            Logger.LogInformation("Google Sheets verification completed successfully");
+        }
+        catch (Exception ex)
+        {
+            SetStatusMessage($"❌ VERIFICATION FAILED: {ex.Message}", "error");
+            Logger.LogError(ex, "Google Sheets verification failed");
         }
     }
 
