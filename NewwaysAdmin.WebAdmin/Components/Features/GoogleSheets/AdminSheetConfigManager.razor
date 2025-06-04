@@ -32,7 +32,7 @@
             </div>
             
             <div>
-                <select class="form-select" @bind="_filterDataType" @onchange="FilterTemplates" style="width: auto;">
+                <select class="form-select" @bind="FilterDataType" style="width: auto;">
                     <option value="">All Data Types</option>
                     <option value="BankSlipData">Bank Slip Data</option>
                     <option value="SalesData">Sales Data</option>
@@ -189,6 +189,15 @@
     private string _statusMessage = string.Empty;
     private bool _statusIsError = false;
     private string _filterDataType = string.Empty;
+    private string FilterDataType
+    {
+        get => _filterDataType;
+        set
+        {
+            _filterDataType = value;
+            FilterTemplates();
+        }
+    }
 
     // Designer modal
     private bool _showDesigner = false;
