@@ -21,4 +21,8 @@
     <PackageReference Include="itext7" Version="9.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Components\Features\NewFolder\" />
+  </ItemGroup>
+
 </Project>
