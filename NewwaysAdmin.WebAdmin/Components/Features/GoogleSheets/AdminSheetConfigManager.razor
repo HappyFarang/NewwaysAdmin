@@ -235,7 +235,7 @@
                         @if (!string.IsNullOrEmpty(_filterDataType))
                         {
                             <br />
-                            No enhanced templates found for @_filterDataType data type.
+                            @($"No enhanced templates found for {_filterDataType} data type.")
                        }
                     </p>
                     <button class="btn btn-success" @onclick="ShowCreateEnhancedTemplate">

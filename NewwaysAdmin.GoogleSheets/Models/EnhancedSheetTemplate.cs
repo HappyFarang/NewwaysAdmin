@@ -285,13 +285,8 @@ namespace NewwaysAdmin.GoogleSheets.Models.Templates
     /// </summary>
     public enum CheckboxType
     {
-        [Key(0)]
         Manual = 0,      // User manually checks/unchecks
-
-        [Key(1)]
         Calculated = 1,  // Auto-checked based on formula
-
-        [Key(2)]
         ReadOnly = 2     // Display only, cannot be changed
     }
 
