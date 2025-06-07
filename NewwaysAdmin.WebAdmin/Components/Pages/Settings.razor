@@ -53,24 +53,28 @@
                 case ViewType.PdfAnalyzer:
                     <PdfAnalyzer />
                     break;
-                    case ViewType.GoogleSheets:
-                        <div class="container-fluid">
-                            <div class="row">
-                                <div class="col-12">
-                                    <UserSheetConfigEditor ModuleName="BankSlip" />
-                                </div>
+                case ViewType.GoogleSheets:
+                    <div class="container-fluid">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5>Google Sheets Templates (Coming Soon)</h5>
                             </div>
-        
-                            @if (isAdmin)
-                            {
-                                <div class="row mt-4">
-                                    <div class="col-12">
-                                        <AdminSheetConfigManager ModuleName="BankSlip" />
-                                    </div>
+                            <div class="card-body">
+                                <p>Template designer will be here soon!</p>
+
+                                <!-- For now, just show a simple form -->
+                                <div class="mb-3">
+                                    <label class="form-label">Your Email:</label>
+                                    <input type="email" class="form-control" placeholder="your-email@gmail.com" />
                                 </div>
-                            }
-    </div>
-    break;
+
+                                <button class="btn btn-primary">Save Settings</button>
+
+                                <!-- TODO: Add template designer back when DI is fixed -->
+                            </div>
+                        </div>
+                    </div>
+                    break;
 
             }
         }

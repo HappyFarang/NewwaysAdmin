@@ -27,6 +27,8 @@ using NewwaysAdmin.GoogleSheets.Extensions;
 using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
+using NewwaysAdmin.GoogleSheets.Models.Templates;
+
 
 
 namespace NewwaysAdmin.WebAdmin;
@@ -50,7 +52,13 @@ public class Program
     {
         // Basic Blazor services
         services.AddRazorPages();
-        services.AddServerSideBlazor();
+        services.AddServerSideBlazor(options =>
+        {
+            options.DetailedErrors = true; // Shows better error messages in development
+            options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
+            options.DisconnectedCircuitMaxRetained = 100;
+            options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(1);
+        });
         services.AddHttpContextAccessor();
         services.AddAuthorizationCore();
 
@@ -203,6 +211,52 @@ public class Program
         // Add Google Sheets services
         services.AddGoogleSheetsServices(googleSheetsConfig);
 
+        services.AddScoped<IEnhancedSheetTemplateService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<EnhancedSheetTemplateService>>();
+
+            var templateStorage = storageManager.GetStorageSync<List<EnhancedSheetTemplate>>("GoogleSheets_Templates");
+            var checkboxStorage = storageManager.GetStorageSync<List<CheckboxColumnTemplate>>("GoogleSheets_Templates"); // Can reuse same storage
+
+            return new EnhancedSheetTemplateService(templateStorage, checkboxStorage, logger);
+        });
+
+
+        // Your existing registrations:
+        // Register Sheet Template Service
+        services.AddScoped<ISheetTemplateService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<SheetTemplateService>>();
+            var templateStorage = storageManager.GetStorageSync<List<SheetTemplate>>("GoogleSheets_Templates");
+            return new SheetTemplateService(templateStorage, logger);
+        });
+
+        // Register User Sheet Config Service
+        services.AddScoped<UserSheetConfigService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<UserSheetConfigService>>();
+
+            var userConfigStorage = storageManager.GetStorageSync<List<UserSheetConfig>>("GoogleSheets_UserConfigs");
+            var adminConfigStorage = storageManager.GetStorageSync<List<AdminSheetConfig>>("GoogleSheets_AdminConfigs");
+
+            return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
+        });
+
+        services.AddScoped<IEnhancedSheetTemplateService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<EnhancedSheetTemplateService>>();
+
+            // Use the same storage folder for both template and checkbox storage
+            var templateStorage = storageManager.GetStorageSync<List<EnhancedSheetTemplate>>("GoogleSheets_Templates");
+            var checkboxStorage = storageManager.GetStorageSync<List<CheckboxColumnTemplate>>("GoogleSheets_Templates");
+
+            return new EnhancedSheetTemplateService(templateStorage, checkboxStorage, logger);
+        });
+
         // Register the Bank Slip layout
         services.AddSheetLayout(new BankSlipSheetLayout());
 
@@ -274,6 +328,7 @@ public class Program
         // Configure CSP
         app.Use(async (context, next) =>
         {
+
             var cspValue = new StringValues(new[]
             {
                 "default-src 'self';" +
