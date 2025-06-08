@@ -1,0 +1,199 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">
+            <i class="bi bi-table me-2"></i>Columns (@Columns.Count)
+        </h6>
+        <button type="button" class="btn btn-outline-primary btn-sm" 
+                @onclick="AddColumn">
+            <i class="bi bi-plus-lg me-1"></i>Add Column
+        </button>
+    </div>
+    <div class="card-body">
+        @if (!Columns.Any())
+        {
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-table display-4 d-block mb-2"></i>
+                <p class="mb-2">No columns defined yet</p>
+                <button class="btn btn-outline-primary btn-sm" @onclick="AddColumn">
+                    <i class="bi bi-plus-lg me-1"></i>Add Your First Column
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="accordion" id="columnAccordion">
+                @for (int i = 0; i < Columns.Count; i++)
+                {
+                    var index = i;
+                    var column = Columns[index];
+                    var collapseId = $"column-{index}";
+                    
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button @(index == 0 ? "" : "collapsed")" 
+                                    type="button" 
+                                    data-bs-toggle="collapse" 
+                                    data-bs-target="#@collapseId">
+                                <div class="d-flex align-items-center w-100">
+                                    <div class="me-3">
+                                        <strong>@(string.IsNullOrWhiteSpace(column.Header) ? $"Column {index + 1}" : column.Header)</strong>
+                                    </div>
+                                    <div class="me-auto">
+                                        <small class="text-muted">@column.DataType</small>
+                                        @if (ShowAdvancedOptions && column.IsRequired)
+                                        {
+                                            <span class="badge bg-warning-subtle text-warning ms-2">Required</span>
+                                        }
+                                    </div>
+                                    <button type="button" class="btn btn-outline-danger btn-sm me-2" 
+                                            @onclick="() => RemoveColumn(index)"
+                                            @onclick:stopPropagation="true">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </button>
+                        </h2>
+                        <div id="@collapseId" class="accordion-collapse collapse @(index == 0 ? "show" : "")" 
+                             data-bs-parent="#columnAccordion">
+                            <div class="accordion-body">
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Header Name</label>
+                                        <input type="text" class="form-control" 
+                                               @bind="column.Header" 
+                                               @oninput="() => NotifyChange()"
+                                               placeholder="Enter column header">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Data Type</label>
+                                        <select class="form-select" 
+                                                @bind="column.DataType" 
+                                                @onchange="() => NotifyChange()">
+                                            <option value="Text">Text</option>
+                                            <option value="Number">Number</option>
+                                            <option value="Currency">Currency</option>
+                                            <option value="Percentage">Percentage</option>
+                                            <option value="Date">Date</option>
+                                            <option value="DateTime">Date & Time</option>
+                                            <option value="Checkbox">Checkbox</option>
+                                            <option value="Dropdown">Dropdown</option>
+                                        </select>
+                                    </div>
+                                    
+                                    @if (ShowAdvancedOptions)
+                                    {
+                                        <div class="col-md-6">
+                                            <label class="form-label">Default Value</label>
+                                            <input type="text" class="form-control" 
+                                                   @bind="column.DefaultValue" 
+                                                   @oninput="() => NotifyChange()"
+                                                   placeholder="Optional default value">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Validation Rule</label>
+                                            <input type="text" class="form-control" 
+                                                   @bind="column.ValidationRule" 
+                                                   @oninput="() => NotifyChange()"
+                                                   placeholder="e.g., >0, contains 'text'">
+                                        </div>
+                                        
+                                        <div class="col-12">
+                                            <div class="row">
+                                                <div class="col-md-4">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" 
+                                                               @bind="column.IsRequired" 
+                                                               @onchange="() => NotifyChange()"
+                                                               id="required-@index">
+                                                        <label class="form-check-label" for="required-@index">
+                                                            Required field
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <div class="form-check">
+                                                        <input class="form-check-input" type="checkbox" 
+                                                               @bind="column.AllowEdit" 
+                                                               @onchange="() => NotifyChange()"
+                                                               id="editable-@index">
+                                                        <label class="form-check-label" for="editable-@index">
+                                                            Allow editing
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .bg-warning-subtle {
+        background-color: rgba(255, 193, 7, 0.1) !important;
+    }
+    
+    .text-warning {
+        color: #ffc107 !important;
+    }
+</style>
+
+@code {
+    [Parameter] public List<ColumnDefinition> Columns { get; set; } = new();
+    [Parameter] public EventCallback<List<ColumnDefinition>> ColumnsChanged { get; set; }
+    [Parameter] public EventCallback OnColumnChanged { get; set; }
+    [Parameter] public bool ShowAdvancedOptions { get; set; } = false;
+
+    private void AddColumn()
+    {
+        var newColumn = new ColumnDefinition
+        {
+            Header = $"Column {Columns.Count + 1}",
+            DataType = "Text",
+            Format = "Default"
+        };
+        
+        if (ShowAdvancedOptions)
+        {
+            newColumn.AllowEdit = true;
+            newColumn.IsRequired = false;
+        }
+        
+        Columns.Add(newColumn);
+        NotifyChange();
+    }
+
+    private void RemoveColumn(int index)
+    {
+        if (index >= 0 && index < Columns.Count)
+        {
+            Columns.RemoveAt(index);
+            NotifyChange();
+        }
+    }
+
+    private async Task NotifyChange()
+    {
+        await ColumnsChanged.InvokeAsync(Columns);
+        await OnColumnChanged.InvokeAsync();
+    }
+
+    public class ColumnDefinition
+    {
+        public string Header { get; set; } = string.Empty;
+        public string DataType { get; set; } = "Text";
+        public string Format { get; set; } = "Default";
+        public bool IsRequired { get; set; } = false;
+        public string ValidationRule { get; set; } = string.Empty;
+        public string DefaultValue { get; set; } = string.Empty;
+        public bool AllowEdit { get; set; } = true;
+    }
+}

@@ -1,0 +1,129 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
+
+<div class="welcome-panel">
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+            <div class="text-center mb-5">
+                <div class="mb-4">
+                    <i class="bi bi-file-earmark-spreadsheet display-1 text-success"></i>
+                </div>
+                <h3 class="mb-3">Welcome to Google Sheets Templates</h3>
+                <p class="lead text-muted">
+                    Create reusable templates for your Google Sheets to streamline your workflow
+                    and ensure consistency across your reports.
+                </p>
+            </div>
+
+            <div class="row g-4 mb-5">
+                <div class="col-md-6">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body text-center p-4">
+                            <div class="mb-3">
+                                <i class="bi bi-lightning-charge display-4 text-primary"></i>
+                            </div>
+                            <h5 class="card-title">Basic Templates</h5>
+                            <p class="card-text text-muted">
+                                Quick and simple templates for common spreadsheet layouts with
+                                basic formatting and structure.
+                            </p>
+                            <button class="btn btn-primary" @onclick="OnCreateBasic">
+                                Create Basic Template
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body text-center p-4">
+                            <div class="mb-3">
+                                <i class="bi bi-gear-wide-connected display-4 text-success"></i>
+                            </div>
+                            <h5 class="card-title">Enhanced Templates</h5>
+                            <p class="card-text text-muted">
+                                Advanced templates with formulas, conditional formatting,
+                                data validation, and complex layouts.
+                            </p>
+                            <button class="btn btn-success" @onclick="OnCreateEnhanced">
+                                Create Enhanced Template
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-light rounded-3 p-4 mb-4">
+                <h6 class="mb-3">What you can do with templates:</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                Define column structures and headers
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                Set up formulas and calculations
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                Apply consistent formatting
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <ul class="list-unstyled">
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                Create reusable layouts
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                Export templates to Google Sheets
+                            </li>
+                            <li class="mb-2">
+                                <i class="bi bi-check-circle text-success me-2"></i>
+                                Share with your team
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <button class="btn btn-outline-primary" @onclick="OnGetStarted">
+                    <i class="bi bi-arrow-right me-2"></i>
+                    Browse Existing Templates
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .welcome-panel {
+        padding: 2rem 0;
+    }
+
+    .welcome-panel .card {
+        transition: transform 0.2s ease-in-out;
+    }
+
+    .welcome-panel .card:hover {
+        transform: translateY(-2px);
+    }
+
+    .welcome-panel .display-1 {
+        font-size: 4rem;
+    }
+
+    .welcome-panel .display-4 {
+        font-size: 2.5rem;
+    }
+</style>
+
+@code {
+    [Parameter] public EventCallback OnGetStarted { get; set; }
+    [Parameter] public EventCallback OnCreateBasic { get; set; }
+    [Parameter] public EventCallback OnCreateEnhanced { get; set; }
+}

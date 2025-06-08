@@ -1,0 +1,215 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+
+<div class="card">
+    <div class="card-header">
+        <h6 class="mb-0">
+            <i class="bi bi-eye me-2"></i>Template Preview
+        </h6>
+    </div>
+    <div class="card-body">
+        @if (Columns.Any())
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered preview-table">
+                    <thead class="table-light">
+                        <tr>
+                            @foreach (var column in Columns)
+                            {
+                                <th class="small position-relative">
+                                    @(string.IsNullOrWhiteSpace(column.Header) ? "Column" : column.Header)
+                                    @if (column.IsRequired)
+                                    {
+                                        <span class="text-danger">*</span>
+                                    }
+                                    @if (HasFormulaForColumn(column.Header))
+                                    {
+                                        <i class="bi bi-calculator text-success ms-1"
+                                           title="Has formula"></i>
+                                    }
+                                </th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int row = 0; row < 3; row++)
+                        {
+                            <tr>
+                                @foreach (var column in Columns)
+                                {
+                                    <td class="small">
+                                        @if (HasFormulaForColumn(column.Header))
+                                        {
+                                            <span class="text-success font-monospace">
+                                                =@GetFormulaPreview(column.Header)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">
+                                                @GetSampleData(column, row)
+                                            </span>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-3">
+                <div class="row g-2 small">
+                    <div class="col-6">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-primary me-2">@Columns.Count</span>
+                            <span>Columns</span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-success me-2">@Formulas.Count</span>
+                            <span>Formulas</span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (HasConditionalFormatting || HasDataValidation)
+                {
+                    <div class="mt-2">
+                        <div class="row g-2 small">
+                            @if (HasConditionalFormatting)
+                            {
+                                <div class="col-6">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-palette text-warning me-2"></i>
+                                        <span>Conditional Formatting</span>
+                                    </div>
+                                </div>
+                            }
+                            @if (HasDataValidation)
+                            {
+                                <div class="col-6">
+                                    <div class="d-flex align-items-center">
+                                        <i class="bi bi-shield-check text-info me-2"></i>
+                                        <span>Data Validation</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-eye-slash display-4 d-block mb-2"></i>
+                <p class="mb-0">Add columns to see preview</p>
+            </div>
+        }
+    </div>
+
+    @if (Columns.Any())
+    {
+        <div class="card-footer bg-light">
+            <div class="d-flex justify-content-between align-items-center">
+                <small class="text-muted">
+                    This preview shows how your template will look in Google Sheets
+                </small>
+                <button class="btn btn-outline-primary btn-sm" @onclick="ShowFullPreview">
+                    <i class="bi bi-arrows-fullscreen me-1"></i>Full Preview
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .preview-table th {
+        background-color: #e9ecef !important;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .preview-table td {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .font-monospace {
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.85em;
+    }
+
+    .display-4 {
+        font-size: 2.5rem;
+    }
+</style>
+
+@code {
+    [Parameter] public List<ColumnDefinition> Columns { get; set; } = new();
+    [Parameter] public List<FormulaDefinition> Formulas { get; set; } = new();
+    [Parameter] public bool HasConditionalFormatting { get; set; } = false;
+    [Parameter] public bool HasDataValidation { get; set; } = false;
+
+    private bool HasFormulaForColumn(string columnHeader)
+    {
+        return Formulas.Any(f => f.TargetColumn == columnHeader);
+    }
+
+    private string GetFormulaPreview(string columnHeader)
+    {
+        var formula = Formulas.FirstOrDefault(f => f.TargetColumn == columnHeader);
+        return formula?.Formula ?? "SUM()";
+    }
+
+    private string GetSampleData(ColumnDefinition column, int rowIndex)
+    {
+        if (!string.IsNullOrEmpty(column.DefaultValue))
+        {
+            return column.DefaultValue;
+        }
+
+        return column.DataType switch
+        {
+            "Number" => (100 + rowIndex * 50).ToString(),
+            "Currency" => $"${(100 + rowIndex * 50):F2}",
+            "Percentage" => $"{(50 + rowIndex * 10)}%",
+            "Date" => DateTime.Now.AddDays(rowIndex).ToString("MM/dd/yyyy"),
+            "DateTime" => DateTime.Now.AddDays(rowIndex).ToString("MM/dd/yyyy HH:mm"),
+            "Checkbox" => rowIndex % 2 == 0 ? "☑" : "☐",
+            "Dropdown" => rowIndex switch
+            {
+                0 => "Option A",
+                1 => "Option B",
+                _ => "Option C"
+            },
+            _ => $"Sample {rowIndex + 1}"
+        };
+    }
+
+    private void ShowFullPreview()
+    {
+        // TODO: Implement full preview modal or page
+        Console.WriteLine("Showing full preview...");
+    }
+
+    public class ColumnDefinition
+    {
+        public string Header { get; set; } = string.Empty;
+        public string DataType { get; set; } = "Text";
+        public string Format { get; set; } = "Default";
+        public bool IsRequired { get; set; } = false;
+        public string DefaultValue { get; set; } = string.Empty;
+    }
+
+    public class FormulaDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Formula { get; set; } = string.Empty;
+        public string TargetColumn { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

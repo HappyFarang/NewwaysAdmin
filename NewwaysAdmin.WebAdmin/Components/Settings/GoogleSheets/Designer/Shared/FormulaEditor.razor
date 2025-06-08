@@ -1,0 +1,195 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">
+            <i class="bi bi-calculator me-2"></i>Formulas (@Formulas.Count)
+        </h6>
+        <button type="button" class="btn btn-outline-success btn-sm" 
+                @onclick="AddFormula" disabled="@(!Columns.Any())">
+            <i class="bi bi-plus-lg me-1"></i>Add Formula
+        </button>
+    </div>
+    <div class="card-body">
+        @if (!Columns.Any())
+        {
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-exclamation-triangle display-4 d-block mb-2"></i>
+                <p class="mb-0">Add columns first to create formulas</p>
+            </div>
+        }
+        else if (!Formulas.Any())
+        {
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-calculator display-4 d-block mb-2"></i>
+                <p class="mb-2">No formulas defined yet</p>
+                <button class="btn btn-outline-success btn-sm" @onclick="AddFormula">
+                    <i class="bi bi-plus-lg me-1"></i>Add Your First Formula
+                </button>
+            </div>
+        }
+        else
+        {
+            @for (int i = 0; i < Formulas.Count; i++)
+            {
+                var index = i;
+                var formula = Formulas[index];
+                
+                <div class="card border mb-3">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>@(string.IsNullOrWhiteSpace(formula.Name) ? $"Formula {index + 1}" : formula.Name)</strong>
+                                @if (!string.IsNullOrWhiteSpace(formula.TargetColumn))
+                                {
+                                    <small class="text-muted ms-2">→ @formula.TargetColumn</small>
+                                }
+                            </div>
+                            <button type="button" class="btn btn-outline-danger btn-sm" 
+                                    @onclick="() => RemoveFormula(index)">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Formula Name</label>
+                                <input type="text" class="form-control" 
+                                       @bind="formula.Name" 
+                                       @oninput="() => NotifyChange()"
+                                       placeholder="e.g., Total Amount">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Target Column</label>
+                                <select class="form-select" 
+                                        @bind="formula.TargetColumn" 
+                                        @onchange="() => NotifyChange()">
+                                    <option value="">Select a column...</option>
+                                    @foreach (var column in Columns)
+                                    {
+                                        <option value="@column.Header">@column.Header</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Formula</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">=</span>
+                                    <input type="text" class="form-control font-monospace" 
+                                           @bind="formula.Formula" 
+                                           @oninput="() => NotifyChange()"
+                                           placeholder="SUM(A2:A10)">
+                                    <button class="btn btn-outline-secondary dropdown-toggle" 
+                                            type="button" data-bs-toggle="dropdown">
+                                        <i class="bi bi-list"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <li><h6 class="dropdown-header">Common Functions</h6></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'SUM()')">SUM()</button></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'AVERAGE()')">AVERAGE()</button></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'COUNT()')">COUNT()</button></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'MAX()')">MAX()</button></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'MIN()')">MIN()</button></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'IF()')">IF()</button></li>
+                                        <li><button class="dropdown-item font-monospace" 
+                                                    @onclick="() => InsertFunction(index, 'VLOOKUP()')">VLOOKUP()</button></li>
+                                    </ul>
+                                </div>
+                                <div class="form-text">
+                                    Use column references like A2, B3, or ranges like A2:A10
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="2" 
+                                          @bind="formula.Description"
+                                          @oninput="() => NotifyChange()"
+                                          placeholder="Describe what this formula calculates..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+        
+        @if (Columns.Any() && Formulas.Any())
+        {
+            <div class="border rounded p-3 bg-light">
+                <h6 class="mb-2">
+                    <i class="bi bi-lightbulb me-2"></i>Formula Tips
+                </h6>
+                <ul class="list-unstyled mb-0 small">
+                    <li><i class="bi bi-check-circle text-success me-2"></i>Use column letters (A, B, C) to reference columns</li>
+                    <li><i class="bi bi-check-circle text-success me-2"></i>Start row references from 2 to skip headers (e.g., A2:A10)</li>
+                    <li><i class="bi bi-check-circle text-success me-2"></i>Formulas will be applied to the target column for each row</li>
+                </ul>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<FormulaDefinition> Formulas { get; set; } = new();
+    [Parameter] public EventCallback<List<FormulaDefinition>> FormulasChanged { get; set; }
+    [Parameter] public List<ColumnDefinition> Columns { get; set; } = new();
+    [Parameter] public EventCallback OnFormulaChanged { get; set; }
+
+    private void AddFormula()
+    {
+        Formulas.Add(new FormulaDefinition
+        {
+            Name = $"Formula {Formulas.Count + 1}"
+        });
+        NotifyChange();
+    }
+
+    private void RemoveFormula(int index)
+    {
+        if (index >= 0 && index < Formulas.Count)
+        {
+            Formulas.RemoveAt(index);
+            NotifyChange();
+        }
+    }
+
+    private void InsertFunction(int formulaIndex, string function)
+    {
+        if (formulaIndex >= 0 && formulaIndex < Formulas.Count)
+        {
+            var formula = Formulas[formulaIndex];
+            formula.Formula = string.IsNullOrEmpty(formula.Formula) 
+                ? function 
+                : $"{formula.Formula}{function}";
+            NotifyChange();
+        }
+    }
+
+    private async Task NotifyChange()
+    {
+        await FormulasChanged.InvokeAsync(Formulas);
+        await OnFormulaChanged.InvokeAsync();
+    }
+
+    public class FormulaDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Formula { get; set; } = string.Empty;
+        public string TargetColumn { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+
+    public class ColumnDefinition
+    {
+        public string Header { get; set; } = string.Empty;
+        public string DataType { get; set; } = "Text";
+        public string Format { get; set; } = "Default";
+    }
+}

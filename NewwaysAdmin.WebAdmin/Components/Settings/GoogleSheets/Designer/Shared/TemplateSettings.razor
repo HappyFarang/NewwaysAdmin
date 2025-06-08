@@ -1,0 +1,138 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+@using static NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.GoogleSheetsSettings
+
+<div class="card">
+    <div class="card-header">
+        <h6 class="mb-0">
+            <i class="bi bi-gear-wide-connected me-2"></i>Template Settings
+        </h6>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <label class="form-label">Template Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" 
+                       @bind="Template.Name" 
+                       @oninput="NotifyChange"
+                       placeholder="Enter a descriptive name for your template"
+                       required>
+                <div class="form-text">
+                    Choose a name that clearly describes what this template is for.
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <label class="form-label">Sheet Name</label>
+                <input type="text" class="form-control" 
+                       @bind="SheetName" 
+                       @oninput="NotifyChange"
+                       placeholder="Sheet1">
+                <div class="form-text">
+                    The name of the sheet tab in Google Sheets.
+                </div>
+            </div>
+            
+            <div class="col-12">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" rows="3" 
+                          @bind="Template.Description"
+                          @oninput="NotifyChange"
+                          placeholder="Describe what this template is for, who should use it, and any special instructions..."></textarea>
+                <div class="form-text">
+                    A detailed description helps others understand how to use this template.
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label">Category</label>
+                <select class="form-select" @bind="_selectedCategory" @onchange="NotifyChange">
+                    <option value="">Select a category...</option>
+                    <option value="Financial">Financial Reports</option>
+                    <option value="Sales">Sales & Marketing</option>
+                    <option value="Operations">Operations</option>
+                    <option value="HR">Human Resources</option>
+                    <option value="Project">Project Management</option>
+                    <option value="Inventory">Inventory</option>
+                    <option value="Custom">Custom</option>
+                </select>
+            </div>
+            
+            <div class="col-md-6">
+                <label class="form-label">Tags</label>
+                <input type="text" class="form-control" 
+                       @bind="_tagsInput" 
+                       @oninput="NotifyChange"
+                       placeholder="reporting, monthly, analytics">
+                <div class="form-text">
+                    Comma-separated tags to help organize and find templates.
+                </div>
+            </div>
+        </div>
+        
+        @if (ShowAdvancedSettings)
+        {
+            <hr class="my-4">
+            <h6 class="mb-3">Advanced Settings</h6>
+            
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" 
+                               @bind="_isPublic" @onchange="NotifyChange" id="isPublic">
+                        <label class="form-check-label" for="isPublic">
+                            Make this template public
+                        </label>
+                    </div>
+                    <div class="form-text">
+                        Public templates can be used by all team members.
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" 
+                               @bind="_allowEditing" @onchange="NotifyChange" id="allowEditing">
+                        <label class="form-check-label" for="allowEditing">
+                            Allow others to edit this template
+                        </label>
+                    </div>
+                    <div class="form-text">
+                        Let team members modify and improve this template.
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public GoogleSheetTemplate Template { get; set; } = new();
+    [Parameter] public EventCallback<GoogleSheetTemplate> TemplateChanged { get; set; }
+    
+    [Parameter] public string SheetName { get; set; } = "Sheet1";
+    [Parameter] public EventCallback<string> SheetNameChanged { get; set; }
+    
+    [Parameter] public bool ShowAdvancedSettings { get; set; } = false;
+    [Parameter] public EventCallback OnSettingsChanged { get; set; }
+
+    private string _selectedCategory = string.Empty;
+    private string _tagsInput = string.Empty;
+    private bool _isPublic = false;
+    private bool _allowEditing = false;
+
+    protected override void OnInitialized()
+    {
+        // Initialize any existing settings
+        if (!string.IsNullOrEmpty(Template.Name))
+        {
+            // TODO: Load existing category, tags, and advanced settings from Template
+        }
+    }
+
+    private async Task NotifyChange()
+    {
+        await TemplateChanged.InvokeAsync(Template);
+        await SheetNameChanged.InvokeAsync(SheetName);
+        await OnSettingsChanged.InvokeAsync();
+    }
+}

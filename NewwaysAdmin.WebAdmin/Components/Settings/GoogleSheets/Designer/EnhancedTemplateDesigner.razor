@@ -1,0 +1,208 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer
+@using static NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.GoogleSheetsSettings
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+
+<div class="enhanced-template-designer">
+    <form @onsubmit="HandleSubmit" @onsubmit:preventDefault="true">
+        <div class="row">
+            <div class="col-12">
+                <!-- Template Settings Component -->
+                <TemplateSettings @bind-Template="_template"
+                                  @bind-SheetName="_sheetName" />
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-lg-6">
+                <!-- Column Editor Component -->
+                <ColumnEditor @bind-Columns="_columns"
+                              OnColumnChanged="StateHasChanged"
+                              ShowAdvancedOptions="true" />
+            </div>
+
+            <div class="col-lg-6">
+                <!-- Formula Editor Component -->
+                <FormulaEditor @bind-Formulas="_formulas"
+                               Columns="_columns"
+                               OnFormulaChanged="StateHasChanged" />
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-palette me-2"></i>Advanced Options
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Conditional Formatting</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           @bind="_enableConditionalFormatting" id="conditionalFormat">
+                                    <label class="form-check-label" for="conditionalFormat">
+                                        Enable conditional formatting
+                                    </label>
+                                </div>
+                                @if (_enableConditionalFormatting)
+                                {
+                                    <select class="form-select form-select-sm mt-2"
+                                            @bind="_conditionalFormattingRule">
+                                        <option value="HighlightDuplicates">Highlight Duplicates</option>
+                                        <option value="ColorScale">Color Scale</option>
+                                        <option value="DataBars">Data Bars</option>
+                                        <option value="Custom">Custom Rule</option>
+                                    </select>
+                                }
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Data Validation</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           @bind="_enableDataValidation" id="dataValidation">
+                                    <label class="form-check-label" for="dataValidation">
+                                        Enable data validation
+                                    </label>
+                                </div>
+                                @if (_enableDataValidation)
+                                {
+                                    <select class="form-select form-select-sm mt-2"
+                                            @bind="_dataValidationType">
+                                        <option value="List">Dropdown List</option>
+                                        <option value="NumberRange">Number Range</option>
+                                        <option value="DateRange">Date Range</option>
+                                        <option value="TextLength">Text Length</option>
+                                    </select>
+                                }
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Protected Ranges</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           @bind="_protectHeaders" id="protectHeaders">
+                                    <label class="form-check-label" for="protectHeaders">
+                                        Protect header row from editing
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           @bind="_protectFormulas" id="protectFormulas">
+                                    <label class="form-check-label" for="protectFormulas">
+                                        Protect formula cells from editing
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <!-- Preview Panel Component -->
+                <PreviewPanel Columns="_columns"
+                              Formulas="_formulas"
+                              HasConditionalFormatting="_enableConditionalFormatting"
+                              HasDataValidation="_enableDataValidation" />
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-4">
+            <button type="button" class="btn btn-outline-secondary" @onclick="HandleCancel">
+                Cancel
+            </button>
+            <button type="button" class="btn btn-outline-primary" @onclick="SaveAsDraft">
+                <i class="bi bi-save me-1"></i>Save as Draft
+            </button>
+            <button type="submit" class="btn btn-success" disabled="@(!IsFormValid())">
+                <i class="bi bi-check-lg me-1"></i>Save Template
+            </button>
+        </div>
+    </form>
+</div>
+
+@code {
+    [Parameter] public GoogleSheetTemplate? Template { get; set; }
+    [Parameter] public EventCallback<GoogleSheetTemplate> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private GoogleSheetTemplate _template = new();
+    private string _sheetName = "Sheet1";
+    private List<EnhancedColumnDefinition> _columns = new();
+    private List<FormulaDefinition> _formulas = new();
+
+    private bool _enableConditionalFormatting = false;
+    private string _conditionalFormattingRule = "HighlightDuplicates";
+    private bool _enableDataValidation = false;
+    private string _dataValidationType = "List";
+    private bool _protectHeaders = true;
+    private bool _protectFormulas = true;
+
+    protected override void OnInitialized()
+    {
+        if (Template != null)
+        {
+            _template = new GoogleSheetTemplate
+                {
+                    Id = Template.Id,
+                    Name = Template.Name,
+                    Description = Template.Description,
+                    Type = Template.Type,
+                    CreatedDate = Template.CreatedDate
+                };
+            // TODO: Load existing advanced settings
+        }
+        else
+        {
+            _template = new GoogleSheetTemplate { Type = TemplateType.Enhanced };
+        }
+    }
+
+    private bool IsFormValid()
+    {
+        return !string.IsNullOrWhiteSpace(_template.Name) && _columns.Any();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (!IsFormValid()) return;
+
+        _template.LastModified = DateTime.Now;
+        // TODO: Serialize advanced settings to template
+        await OnSave.InvokeAsync(_template);
+    }
+
+    private async Task SaveAsDraft()
+    {
+        // TODO: Implement draft saving functionality
+        Console.WriteLine("Saving as draft...");
+    }
+
+    private async Task HandleCancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+
+    public class EnhancedColumnDefinition
+    {
+        public string Header { get; set; } = string.Empty;
+        public string DataType { get; set; } = "Text";
+        public string Format { get; set; } = "Default";
+        public bool IsRequired { get; set; } = false;
+        public string ValidationRule { get; set; } = string.Empty;
+        public string DefaultValue { get; set; } = string.Empty;
+        public bool AllowEdit { get; set; } = true;
+    }
+
+    public class FormulaDefinition
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Formula { get; set; } = string.Empty;
+        public string TargetColumn { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

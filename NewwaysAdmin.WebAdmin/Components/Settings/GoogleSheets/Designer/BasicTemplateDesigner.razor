@@ -1,0 +1,319 @@
+﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer
+@using static NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.GoogleSheetsSettings
+
+<div class="basic-template-designer">
+    <form @onsubmit="HandleSubmit" @onsubmit:preventDefault="true">
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-lightning-charge me-2"></i>Basic Template Settings
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Template Name</label>
+                                <input type="text" class="form-control"
+                                       @bind="_template.Name"
+                                       placeholder="Enter template name"
+                                       required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Sheet Name</label>
+                                <input type="text" class="form-control"
+                                       @bind="_sheetName"
+                                       placeholder="Sheet1">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" rows="3"
+                                          @bind="_template.Description"
+                                          placeholder="Describe what this template is for..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="bi bi-table me-2"></i>Columns
+                        </h6>
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                @onclick="AddColumn">
+                            <i class="bi bi-plus-lg me-1"></i>Add Column
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (!_columns.Any())
+                        {
+                            <div class="text-center py-4 text-muted">
+                                <i class="bi bi-table display-4 d-block mb-2"></i>
+                                <p>No columns defined yet. Add your first column to get started.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th width="40%">Header Name</th>
+                                            <th width="25%">Data Type</th>
+                                            <th width="25%">Format</th>
+                                            <th width="10%">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (int i = 0; i < _columns.Count; i++)
+                                        {
+                                            var index = i;
+                                            var column = _columns[index];
+                                            <tr>
+                                                <td>
+                                                    <input type="text" class="form-control form-control-sm"
+                                                           @bind="column.Header"
+                                                           placeholder="Column header">
+                                                </td>
+                                                <td>
+                                                    <select class="form-select form-select-sm"
+                                                            @bind="column.DataType">
+                                                        <option value="Text">Text</option>
+                                                        <option value="Number">Number</option>
+                                                        <option value="Currency">Currency</option>
+                                                        <option value="Percentage">Percentage</option>
+                                                        <option value="Date">Date</option>
+                                                        <option value="Checkbox">Checkbox</option>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    @if (column.DataType == "Number" || column.DataType == "Currency" || column.DataType == "Percentage")
+                                                    {
+                                                        <select class="form-select form-select-sm"
+                                                                @bind="column.Format">
+                                                            <option value="0">0</option>
+                                                            <option value="0.0">0.0</option>
+                                                            <option value="0.00">0.00</option>
+                                                            @if (column.DataType == "Currency")
+                                                            {
+                                                                <option value="$0.00">$0.00</option>
+                                                            }
+                                                            @if (column.DataType == "Percentage")
+                                                            {
+                                                                <option value="0%">0%</option>
+                                                                <option value="0.0%">0.0%</option>
+                                                            }
+                                                        </select>
+                                                    }
+                                                    else if (column.DataType == "Date")
+                                                    {
+                                                        <select class="form-select form-select-sm"
+                                                                @bind="column.Format">
+                                                            <option value="MM/dd/yyyy">MM/dd/yyyy</option>
+                                                            <option value="dd/MM/yyyy">dd/MM/yyyy</option>
+                                                            <option value="yyyy-MM-dd">yyyy-MM-dd</option>
+                                                            <option value="MMM dd, yyyy">MMM dd, yyyy</option>
+                                                        </select>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted small">Default</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm"
+                                                            @onclick="() => RemoveColumn(index)">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-eye me-2"></i>Preview
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        @if (_columns.Any())
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered">
+                                    <thead class="table-light">
+                                        <tr>
+                                            @foreach (var column in _columns)
+                                            {
+                                                <th class="small">@(string.IsNullOrWhiteSpace(column.Header) ? "Column" : column.Header)</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            @foreach (var column in _columns)
+                                            {
+                                                <td class="small text-muted">
+                                                    @GetSampleData(column)
+                                                </td>
+                                            }
+                                        </tr>
+                                        <tr>
+                                            @foreach (var column in _columns)
+                                            {
+                                                <td class="small text-muted">
+                                                    @GetSampleData(column)
+                                                </td>
+                                            }
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-4 text-muted">
+                                <i class="bi bi-eye-slash mb-2 d-block"></i>
+                                <small>Add columns to see preview</small>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <h6 class="card-title">Template Options</h6>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   @bind="_includeHeaderRow" id="includeHeader">
+                            <label class="form-check-label" for="includeHeader">
+                                Include header row
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   @bind="_freezeHeader" id="freezeHeader">
+                            <label class="form-check-label" for="freezeHeader">
+                                Freeze header row
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   @bind="_autoResize" id="autoResize">
+                            <label class="form-check-label" for="autoResize">
+                                Auto-resize columns
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mt-4">
+            <button type="button" class="btn btn-outline-secondary" @onclick="HandleCancel">
+                Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" disabled="@(!IsFormValid())">
+                <i class="bi bi-check-lg me-1"></i>Save Template
+            </button>
+        </div>
+    </form>
+</div>
+
+@code {
+    [Parameter] public GoogleSheetTemplate? Template { get; set; }
+    [Parameter] public EventCallback<GoogleSheetTemplate> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private GoogleSheetTemplate _template = new();
+    private string _sheetName = "Sheet1";
+    private List<ColumnDefinition> _columns = new();
+    private bool _includeHeaderRow = true;
+    private bool _freezeHeader = true;
+    private bool _autoResize = true;
+
+    protected override void OnInitialized()
+    {
+        if (Template != null)
+        {
+            _template = new GoogleSheetTemplate
+                {
+                    Id = Template.Id,
+                    Name = Template.Name,
+                    Description = Template.Description,
+                    Type = Template.Type,
+                    CreatedDate = Template.CreatedDate
+                };
+            // TODO: Load existing column definitions
+        }
+        else
+        {
+            _template = new GoogleSheetTemplate { Type = TemplateType.Basic };
+        }
+    }
+
+    private void AddColumn()
+    {
+        _columns.Add(new ColumnDefinition
+            {
+                Header = $"Column {_columns.Count + 1}",
+                DataType = "Text",
+                Format = "Default"
+            });
+    }
+
+    private void RemoveColumn(int index)
+    {
+        if (index >= 0 && index < _columns.Count)
+        {
+            _columns.RemoveAt(index);
+        }
+    }
+
+    private string GetSampleData(ColumnDefinition column)
+    {
+        return column.DataType switch
+        {
+            "Number" => "123",
+            "Currency" => "$100.00",
+            "Percentage" => "50%",
+            "Date" => DateTime.Now.ToString(column.Format),
+            "Checkbox" => "☑",
+            _ => "Sample"
+        };
+    }
+
+    private bool IsFormValid()
+    {
+        return !string.IsNullOrWhiteSpace(_template.Name) && _columns.Any();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (!IsFormValid()) return;
+
+        _template.LastModified = DateTime.Now;
+        await OnSave.InvokeAsync(_template);
+    }
+
+    private async Task HandleCancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+
+    public class ColumnDefinition
+    {
+        public string Header { get; set; } = string.Empty;
+        public string DataType { get; set; } = "Text";
+        public string Format { get; set; } = "Default";
+    }
+}

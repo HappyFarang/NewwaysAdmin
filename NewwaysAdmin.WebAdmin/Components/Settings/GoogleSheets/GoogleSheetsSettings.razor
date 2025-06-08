@@ -1,0 +1,195 @@
+﻿@page "/settings/google-sheets"
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
+@inject IJSRuntime JSRuntime
+
+<div class="google-sheets-settings">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1">Google Sheets Templates</h4>
+            <p class="text-muted mb-0">Create and manage your Google Sheets templates</p>
+        </div>
+    </div>
+
+    @if (_currentMode == DisplayMode.Welcome)
+    {
+        <WelcomePanel OnGetStarted="HandleGetStarted" 
+                      OnCreateBasic="() => ShowDesigner(TemplateType.Basic)"
+                      OnCreateEnhanced="() => ShowDesigner(TemplateType.Enhanced)" />
+    }
+    else if (_currentMode == DisplayMode.List)
+    {
+        <TemplateList Templates="_templates"
+                      OnCreateNew="HandleCreateNew"
+                      OnEditTemplate="HandleEditTemplate"
+                      OnDeleteTemplate="HandleDeleteTemplate"
+                      OnDuplicateTemplate="HandleDuplicateTemplate" />
+    }
+    else if (_currentMode == DisplayMode.Designer)
+    {
+        <div class="designer-container">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5>@(_isEditing ? "Edit Template" : "Create New Template")</h5>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="ReturnToList">
+                    <i class="bi bi-arrow-left"></i> Back to Templates
+                </button>
+            </div>
+
+            @if (_selectedTemplateType == TemplateType.Basic)
+            {
+                <BasicTemplateDesigner Template="_currentTemplate"
+                                     OnSave="HandleTemplateSaved"
+                                     OnCancel="ReturnToList" />
+            }
+            else
+            {
+                <EnhancedTemplateDesigner Template="_currentTemplate"
+                                        OnSave="HandleTemplateSaved"
+                                        OnCancel="ReturnToList" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private DisplayMode _currentMode = DisplayMode.Welcome;
+    private TemplateType _selectedTemplateType = TemplateType.Basic;
+    private List<GoogleSheetTemplate> _templates = new();
+    private GoogleSheetTemplate? _currentTemplate;
+    private bool _isEditing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTemplates();
+        
+        // If user has templates, show list instead of welcome
+        if (_templates.Any())
+        {
+            _currentMode = DisplayMode.List;
+        }
+    }
+
+    private async Task LoadTemplates()
+    {
+        // TODO: Load templates from storage service
+        // _templates = await TemplateService.GetAllTemplatesAsync();
+        
+        // Mock data for now
+        _templates = new List<GoogleSheetTemplate>();
+    }
+
+    private void HandleGetStarted()
+    {
+        _currentMode = DisplayMode.List;
+    }
+
+    private void HandleCreateNew()
+    {
+        // Show template type selection or default to basic
+        ShowDesigner(TemplateType.Basic);
+    }
+
+    private void ShowDesigner(TemplateType templateType)
+    {
+        _selectedTemplateType = templateType;
+        _currentTemplate = new GoogleSheetTemplate 
+        { 
+            Type = templateType,
+            CreatedDate = DateTime.Now
+        };
+        _isEditing = false;
+        _currentMode = DisplayMode.Designer;
+    }
+
+    private void HandleEditTemplate(GoogleSheetTemplate template)
+    {
+        _currentTemplate = template;
+        _selectedTemplateType = template.Type;
+        _isEditing = true;
+        _currentMode = DisplayMode.Designer;
+    }
+
+    private async Task HandleDeleteTemplate(GoogleSheetTemplate template)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to delete '{template.Name}'?");
+        
+        if (confirmed)
+        {
+            _templates.Remove(template);
+            // TODO: Delete from storage service
+            // await TemplateService.DeleteTemplateAsync(template.Id);
+            StateHasChanged();
+        }
+    }
+
+    private void HandleDuplicateTemplate(GoogleSheetTemplate template)
+    {
+        var duplicate = new GoogleSheetTemplate
+        {
+            Name = $"{template.Name} (Copy)",
+            Description = template.Description,
+            Type = template.Type,
+            CreatedDate = DateTime.Now
+            // TODO: Copy other properties
+        };
+        
+        _currentTemplate = duplicate;
+        _selectedTemplateType = template.Type;
+        _isEditing = false;
+        _currentMode = DisplayMode.Designer;
+    }
+
+    private async Task HandleTemplateSaved(GoogleSheetTemplate template)
+    {
+        if (_isEditing)
+        {
+            var index = _templates.FindIndex(t => t.Id == template.Id);
+            if (index >= 0)
+            {
+                _templates[index] = template;
+            }
+        }
+        else
+        {
+            template.Id = Guid.NewGuid().ToString();
+            _templates.Add(template);
+        }
+
+        // TODO: Save to storage service
+        // await TemplateService.SaveTemplateAsync(template);
+
+        ReturnToList();
+    }
+
+    private void ReturnToList()
+    {
+        _currentMode = DisplayMode.List;
+        _currentTemplate = null;
+        _isEditing = false;
+    }
+
+    private enum DisplayMode
+    {
+        Welcome,
+        List,
+        Designer
+    }
+
+    private enum TemplateType
+    {
+        Basic,
+        Enhanced
+    }
+
+    // TODO: Move to shared models
+    public class GoogleSheetTemplate
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public TemplateType Type { get; set; }
+        public DateTime CreatedDate { get; set; }
+        public DateTime LastModified { get; set; }
+        // Add other template properties as needed
+    }
+}
