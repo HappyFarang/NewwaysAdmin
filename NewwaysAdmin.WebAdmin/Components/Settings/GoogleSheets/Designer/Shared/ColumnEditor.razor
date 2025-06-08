@@ -1,4 +1,5 @@
 ﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -184,16 +185,5 @@
     {
         await ColumnsChanged.InvokeAsync(Columns);
         await OnColumnChanged.InvokeAsync();
-    }
-
-    public class ColumnDefinition
-    {
-        public string Header { get; set; } = string.Empty;
-        public string DataType { get; set; } = "Text";
-        public string Format { get; set; } = "Default";
-        public bool IsRequired { get; set; } = false;
-        public string ValidationRule { get; set; } = string.Empty;
-        public string DefaultValue { get; set; } = string.Empty;
-        public bool AllowEdit { get; set; } = true;
     }
 }

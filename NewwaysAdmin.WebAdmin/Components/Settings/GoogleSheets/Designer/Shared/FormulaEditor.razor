@@ -1,4 +1,5 @@
 ﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
@@ -86,22 +87,50 @@
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end">
                                         <li><h6 class="dropdown-header">Common Functions</h6></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'SUM()')">SUM()</button></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'AVERAGE()')">AVERAGE()</button></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'COUNT()')">COUNT()</button></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'MAX()')">MAX()</button></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'MIN()')">MIN()</button></li>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'IF()')">IF()</button></li>
-                                        <li><button class="dropdown-item font-monospace" 
-                                                    @onclick="() => InsertFunction(index, 'VLOOKUP()')">VLOOKUP()</button></li>
-                                    </ul>
+                                        <li><button class="dropdown-item font-monospace"
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "SUM()")'>
+                                                SUM()
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "AVERAGE()")'>
+                                                AVERAGE()
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "COUNT()")'>
+                                                COUNT()
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "MAX()")'>
+                                                MAX()
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "MIN()")'>
+                                                MIN()
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "IF()")'>
+                                                IF()
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item font-monospace"
+                                                    @onclick='() => InsertFunction(index, "VLOOKUP()")'>
+                                                VLOOKUP()
+                                            </button>
+                                        </li>
+"                                    </ul>
                                 </div>
                                 <div class="form-text">
                                     Use column references like A2, B3, or ranges like A2:A10
