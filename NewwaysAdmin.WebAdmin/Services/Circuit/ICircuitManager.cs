@@ -5,11 +5,13 @@ public interface ICircuitManager
 {
     string? GetCurrentCircuitId();
     void SetCircuitId(string circuitId);
+
+    // ADD THESE TWO NEW METHODS:
     void ClearCircuitId(string circuitId);
     bool IsCircuitActive(string circuitId);
 }
 
-// CircuitManager.cs
+/* CircuitManager.cs
 using Microsoft.AspNetCore.Components.Server.Circuits;
 
 namespace NewwaysAdmin.WebAdmin.Services.Circuit;
@@ -62,3 +64,4 @@ public class CircuitManager : ICircuitManager
         }
     }
 }
+*/
