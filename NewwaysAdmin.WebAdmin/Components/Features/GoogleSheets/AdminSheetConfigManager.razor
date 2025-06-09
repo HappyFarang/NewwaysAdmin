@@ -3,13 +3,13 @@
 @using NewwaysAdmin.GoogleSheets.Services
 @using NewwaysAdmin.GoogleSheets.Models.Templates
 @inject UserSheetConfigService ConfigService
-@inject IUnifiedTemplateService TemplateService
+@inject IEnhancedSheetTemplateService EnhancedTemplateService
 
 <div class="card">
     <div class="card-header">
         <h5 class="mb-0">
             <i class="bi bi-gear-wide-connected me-2"></i>
-            Sheet Template Management
+            Enhanced Template Management
         </h5>
     </div>
     <div class="card-body">
@@ -21,37 +21,12 @@
             </div>
         }
 
-        <!-- Template Type Tabs -->
-        <ul class="nav nav-tabs mb-4" id="templateTypeTabs" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link @(_activeTemplateType == "basic" ? "active" : "")"
-                        @onclick="SetBasicTemplateTab" type="button">
-                    <i class="bi bi-table me-1"></i>Basic Templates (@_filteredTemplates.Count)
-                </button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link @(_activeTemplateType == "enhanced" ? "active" : "")"
-                        @onclick="SetEnhancedTemplateTab" type="button">
-                    <i class="bi bi-grid-3x3-gap me-1"></i>Enhanced Templates (@_filteredEnhancedTemplates.Count)
-                </button>
-            </li>
-        </ul>
-
         <!-- Action Buttons -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
-                @if (_activeTemplateType == "basic")
-                {
-                    <button class="btn btn-primary" @onclick="ShowCreateTemplate">
-                        <i class="bi bi-plus-circle me-1"></i>Create Basic Template
-                    </button>
-                }
-                else
-                {
-                    <button class="btn btn-success" @onclick="ShowCreateEnhancedTemplate">
-                        <i class="bi bi-magic me-1"></i>Create Enhanced Template
-                    </button>
-                }
+                <button class="btn btn-success" @onclick="ShowCreateEnhancedTemplate">
+                    <i class="bi bi-magic me-1"></i>Create Enhanced Template
+                </button>
                 <button class="btn btn-outline-secondary ms-2" @onclick="LoadTemplates">
                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh
                 </button>
@@ -68,186 +43,101 @@
             </div>
         </div>
 
-        <!-- Basic Templates Tab Content -->
-        @if (_activeTemplateType == "basic")
+        <!-- Enhanced Templates Content -->
+        @if (_isLoadingEnhanced)
         {
-            <!-- Templates List -->
-            @if (_isLoading)
-            {
-                <div class="text-center py-4">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading templates...</span>
-                    </div>
-                    <p class="mt-2 text-muted">Loading sheet templates...</p>
+            <div class="text-center py-4">
+                <div class="spinner-border text-success" role="status">
+                    <span class="visually-hidden">Loading enhanced templates...</span>
                 </div>
-            }
-            else if (_filteredTemplates.Any())
-            {
-                <div class="row">
-                    @foreach (var template in _filteredTemplates)
-                    {
-                        <div class="col-md-6 col-lg-4 mb-3">
-                            <div class="card h-100">
-                                <div class="card-header d-flex justify-content-between align-items-center">
-                                    <h6 class="mb-0">@template.Name</h6>
-                                    <span class="badge bg-info">@template.DataType</span>
-                                </div>
-                                <div class="card-body">
-                                    <p class="card-text text-muted">@template.Description</p>
-
-                                    <div class="small text-muted mb-2">
-                                        <i class="bi bi-columns me-1"></i>@template.Columns.Count columns
-                                        @if (template.Formulas.Any())
-                                        {
-                                            <span class="ms-2">
-                                                <i class="bi bi-calculator me-1"></i>@template.Formulas.Count formulas
-                                            </span>
-                                        }
-                                    </div>
-
-                                    <div class="small text-muted">
-                                        Created: @template.CreatedAt.ToString("yyyy-MM-dd")<br />
-                                        By: @template.CreatedBy
-                                    </div>
-                                </div>
-                                <div class="card-footer">
-                                    <div class="btn-group w-100" role="group">
-                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => EditTemplate(template)">
-                                            <i class="bi bi-pencil"></i> Edit
-                                        </button>
-                                        <button class="btn btn-outline-success btn-sm" @onclick="() => CloneTemplate(template)">
-                                            <i class="bi bi-files"></i> Clone
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteTemplate(template)">
-                                            <i class="bi bi-trash"></i> Delete
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-            }
-            else
-            {
-                <div class="text-center py-5">
-                    <i class="bi bi-table display-1 text-muted"></i>
-                    <h4 class="mt-3 text-muted">No Basic Templates Found</h4>
-                    <p class="text-muted">
-                        @if (string.IsNullOrEmpty(_filterDataType))
-                        {
-                            <span>No basic sheet templates have been created yet.</span>
-                        }
-                        else
-                        {
-                            <span>No basic templates found for @_filterDataType data type.</span>
-                        }
-                    </p>
-                    <button class="btn btn-primary" @onclick="ShowCreateTemplate">
-                        <i class="bi bi-plus-circle me-1"></i>Create Your First Basic Template
-                    </button>
-                </div>
-            }
+                <p class="mt-2 text-muted">Loading enhanced templates...</p>
+            </div>
         }
-
-        <!-- Enhanced Templates Tab Content -->
-        @if (_activeTemplateType == "enhanced")
+        else if (_filteredEnhancedTemplates.Any())
         {
-            @if (_isLoadingEnhanced)
-            {
-                <div class="text-center py-4">
-                    <div class="spinner-border text-success" role="status">
-                        <span class="visually-hidden">Loading enhanced templates...</span>
-                    </div>
-                    <p class="mt-2 text-muted">Loading enhanced templates...</p>
-                </div>
-            }
-            else if (_filteredEnhancedTemplates.Any())
-            {
-                <div class="row">
-                    @foreach (var template in _filteredEnhancedTemplates)
-                    {
-                        <div class="col-md-6 col-lg-4 mb-3">
-                            <div class="card h-100 border-success">
-                                <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center">
-                                    <h6 class="mb-0">
-                                        <i class="bi bi-magic me-1 text-success"></i>
-                                        @template.Name
-                                    </h6>
-                                    <span class="badge bg-success">@template.DataType</span>
-                                </div>
-                                <div class="card-body">
-                                    <p class="card-text text-muted">@template.Description</p>
+            <div class="row">
+                @foreach (var template in _filteredEnhancedTemplates)
+                {
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card h-100 border-success">
+                            <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-magic me-1 text-success"></i>
+                                    @template.Name
+                                </h6>
+                                <span class="badge bg-success">@template.DataType</span>
+                            </div>
+                            <div class="card-body">
+                                <p class="card-text text-muted">@template.Description</p>
 
-                                    <div class="small text-muted mb-2">
-                                        <i class="bi bi-columns me-1"></i>@template.DataColumns.Count columns
-                                        @if (template.FormulaRows.Any())
-                                        {
-                                            <span class="ms-2">
-                                                <i class="bi bi-calculator me-1"></i>@template.FormulaRows.Count formula rows
-                                            </span>
-                                        }
-                                        @if (template.CheckboxColumns.Any())
-                                        {
-                                            <span class="ms-2">
-                                                <i class="bi bi-check-square me-1"></i>@template.CheckboxColumns.Count checkboxes
-                                            </span>
-                                        }
-                                    </div>
-
-                                    <div class="small text-muted">
-                                        Version: @template.Version<br />
-                                        Created: @template.CreatedAt.ToString("yyyy-MM-dd")<br />
-                                        By: @template.CreatedBy
-                                    </div>
-
-                                    @if (!template.IsActive)
+                                <div class="small text-muted mb-2">
+                                    <i class="bi bi-columns me-1"></i>@template.DataColumns.Count columns
+                                    @if (template.FormulaRows.Any())
                                     {
-                                        <span class="badge bg-warning mt-2">Inactive</span>
+                                        <span class="ms-2">
+                                            <i class="bi bi-calculator me-1"></i>@template.FormulaRows.Count formula rows
+                                        </span>
+                                    }
+                                    @if (template.CheckboxColumns.Any())
+                                    {
+                                        <span class="ms-2">
+                                            <i class="bi bi-check-square me-1"></i>@template.CheckboxColumns.Count checkboxes
+                                        </span>
                                     }
                                 </div>
-                                <div class="card-footer">
-                                    <div class="btn-group w-100" role="group">
-                                        <button class="btn btn-outline-success btn-sm" @onclick="() => EditEnhancedTemplate(template)">
-                                            <i class="bi bi-magic"></i> Edit
-                                        </button>
-                                        <button class="btn btn-outline-info btn-sm" @onclick="() => CloneEnhancedTemplate(template)">
-                                            <i class="bi bi-files"></i> Clone
-                                        </button>
-                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteEnhancedTemplate(template)">
-                                            <i class="bi bi-trash"></i> Delete
-                                        </button>
-                                    </div>
+
+                                <div class="small text-muted">
+                                    Version: @template.Version<br />
+                                    Created: @template.CreatedAt.ToString("yyyy-MM-dd")<br />
+                                    By: @template.CreatedBy
+                                </div>
+
+                                @if (!template.IsActive)
+                                {
+                                    <span class="badge bg-warning mt-2">Inactive</span>
+                                }
+                            </div>
+                            <div class="card-footer">
+                                <div class="btn-group w-100" role="group">
+                                    <button class="btn btn-outline-success btn-sm" @onclick="() => EditEnhancedTemplate(template)">
+                                        <i class="bi bi-magic"></i> Edit
+                                    </button>
+                                    <button class="btn btn-outline-info btn-sm" @onclick="() => CloneEnhancedTemplate(template)">
+                                        <i class="bi bi-files"></i> Clone
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => ConfirmDeleteEnhancedTemplate(template)">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                    }
-                </div>
-            }
-            else
-            {
-                <div class="text-center py-5">
-                    <i class="bi bi-grid-3x3-gap display-1 text-success"></i>
-                    <h4 class="mt-3 text-success">No Enhanced Templates Found</h4>
-                    <p class="text-muted">
-                        Enhanced templates provide interactive checkboxes, advanced formulas, and sophisticated formatting options.
-                        @if (!string.IsNullOrEmpty(_filterDataType))
-                        {
-                            <br />
-                            @($"No enhanced templates found for {_filterDataType} data type.")
-                       }
-                    </p>
-                    <button class="btn btn-success" @onclick="ShowCreateEnhancedTemplate">
-                        <i class="bi bi-magic me-1"></i>Create Your First Enhanced Template
-                    </button>
-                    <div class="mt-3">
-                        <small class="text-muted">
-                            <i class="bi bi-lightbulb me-1"></i>
-                            Enhanced templates include interactive checkboxes, formula rows, and advanced formatting for professional spreadsheets.
-                        </small>
                     </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="text-center py-5">
+                <i class="bi bi-grid-3x3-gap display-1 text-success"></i>
+                <h4 class="mt-3 text-success">No Enhanced Templates Found</h4>
+                <p class="text-muted">
+                    Enhanced templates provide interactive checkboxes, advanced formulas, and sophisticated formatting options.
+                    @if (!string.IsNullOrEmpty(_filterDataType))
+                    {
+                        <br />
+                        @($"No enhanced templates found for {_filterDataType} data type.")
+                   }
+                </p>
+                <button class="btn btn-success" @onclick="ShowCreateEnhancedTemplate">
+                    <i class="bi bi-magic me-1"></i>Create Your First Enhanced Template
+                </button>
+                <div class="mt-3">
+                    <small class="text-muted">
+                        <i class="bi bi-lightbulb me-1"></i>
+                        Enhanced templates include interactive checkboxes, formula rows, and advanced formatting for professional spreadsheets.
+                    </small>
                 </div>
-            }
+            </div>
         }
     </div>
 </div>
@@ -269,64 +159,6 @@
                     <EnhancedTemplateDesigner Template="_editingEnhancedTemplate"
                                               OnSaved="HandleEnhancedTemplateSaved"
                                               OnCancel="HideEnhancedDesigner" />
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="modal-backdrop fade show"></div>
-}
-
-<!-- Basic Template Designer Modal (existing) -->
-@if (_showDesigner)
-{
-    <div class="modal fade show" style="display: block;" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">
-                        @if (_editingTemplate != null)
-                        {
-                            <span>Edit Template: @_editingTemplate.Name</span>
-                        }
-                        else
-                        {
-                            <span>Create New Template</span>
-                        }
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="HideDesigner"></button>
-                </div>
-                <div class="modal-body p-0">
-                    <SheetDesigner Template="_editingTemplate"
-                                   OnSaved="HandleTemplateSaved"
-                                   OnCancel="HideDesigner" />
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="modal-backdrop fade show"></div>
-}
-
-<!-- Delete Confirmation Modal -->
-@if (_showDeleteConfirm && _templateToDelete != null)
-{
-    <div class="modal fade show" style="display: block;" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Confirm Delete</h5>
-                    <button type="button" class="btn-close" @onclick="() => _showDeleteConfirm = false"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to delete the template <strong>"@_templateToDelete.Name"</strong>?</p>
-                    <p class="text-muted">This action cannot be undone.</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="() => _showDeleteConfirm = false">
-                        Cancel
-                    </button>
-                    <button type="button" class="btn btn-danger" @onclick="DeleteTemplate">
-                        <i class="bi bi-trash me-1"></i>Delete Template
-                    </button>
                 </div>
             </div>
         </div>
@@ -365,20 +197,14 @@
 @code {
     [Parameter] public string ModuleName { get; set; } = "BankSlip";
 
-    // Basic templates (existing)
-    private List<SheetTemplate> _allTemplates = new();
-    private List<SheetTemplate> _filteredTemplates = new();
-
-    // Enhanced templates (new)
+    // Enhanced templates only
     private List<EnhancedSheetTemplate> _allEnhancedTemplates = new();
     private List<EnhancedSheetTemplate> _filteredEnhancedTemplates = new();
 
-    private bool _isLoading = true;
     private bool _isLoadingEnhanced = true;
     private string _statusMessage = string.Empty;
     private bool _statusIsError = false;
     private string _filterDataType = string.Empty;
-    private string _activeTemplateType = "enhanced"; // Default to enhanced
 
     private string FilterDataType
     {
@@ -390,19 +216,11 @@
         }
     }
 
-    // Basic designer modal (existing)
-    private bool _showDesigner = false;
-    private SheetTemplate? _editingTemplate;
-
-    // Enhanced designer modal (new)
+    // Enhanced designer modal
     private bool _showEnhancedDesigner = false;
     private EnhancedSheetTemplate? _editingEnhancedTemplate;
 
-    // Delete confirmation (existing)
-    private bool _showDeleteConfirm = false;
-    private SheetTemplate? _templateToDelete;
-
-    // Enhanced delete confirmation (new)
+    // Enhanced delete confirmation
     private bool _showDeleteEnhancedConfirm = false;
     private EnhancedSheetTemplate? _enhancedTemplateToDelete;
 
@@ -411,44 +229,21 @@
         await LoadTemplates();
     }
 
-    #region Tab Management
-
-    private void SetBasicTemplateTab()
-    {
-        _activeTemplateType = "basic";
-        StateHasChanged();
-    }
-
-    private void SetEnhancedTemplateTab()
-    {
-        _activeTemplateType = "enhanced";
-        StateHasChanged();
-    }
-
-    #endregion
-
     #region Template Loading
 
     private async Task LoadTemplates()
     {
         try
         {
-            _isLoading = true;
             _isLoadingEnhanced = true;
             StateHasChanged();
 
-            // Load both basic and enhanced templates
-            var basicTask = TemplateService.GetTemplatesAsync();
-            var enhancedTask = EnhancedTemplateService.GetTemplatesAsync();
-
-            await Task.WhenAll(basicTask, enhancedTask);
-
-            _allTemplates = await basicTask;
-            _allEnhancedTemplates = await enhancedTask;
+            // Only load enhanced templates
+            _allEnhancedTemplates = await EnhancedTemplateService.GetTemplatesAsync();
 
             FilterTemplates();
 
-            ShowStatus($"Loaded {_allTemplates.Count} basic and {_allEnhancedTemplates.Count} enhanced templates", false);
+            ShowStatus($"Loaded {_allEnhancedTemplates.Count} enhanced templates", false);
         }
         catch (Exception ex)
         {
@@ -456,7 +251,6 @@
         }
         finally
         {
-            _isLoading = false;
             _isLoadingEnhanced = false;
             StateHasChanged();
         }
@@ -464,19 +258,6 @@
 
     private void FilterTemplates()
     {
-        // Filter basic templates
-        if (string.IsNullOrEmpty(_filterDataType))
-        {
-            _filteredTemplates = _allTemplates.OrderBy(t => t.Name).ToList();
-        }
-        else
-        {
-            _filteredTemplates = _allTemplates
-                .Where(t => t.DataType.Equals(_filterDataType, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(t => t.Name)
-                .ToList();
-        }
-
         // Filter enhanced templates
         if (string.IsNullOrEmpty(_filterDataType))
         {
@@ -594,110 +375,6 @@
         HideEnhancedDesigner();
         await LoadTemplates();
         ShowStatus($"Enhanced template '{template.Name}' saved successfully!", false);
-    }
-
-    #endregion
-
-    #region Basic Template Management (existing methods)
-
-    private void ShowCreateTemplate()
-    {
-        _editingTemplate = null;
-        _showDesigner = true;
-    }
-
-    private void EditTemplate(SheetTemplate template)
-    {
-        _editingTemplate = template;
-        _showDesigner = true;
-    }
-
-    private async Task CloneTemplate(SheetTemplate template)
-    {
-        try
-        {
-            var clonedTemplate = new SheetTemplate
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Name = $"{template.Name} (Copy)",
-                    Description = template.Description,
-                    DataType = template.DataType,
-                    Columns = new List<ColumnTemplate>(template.Columns),
-                    Formulas = new List<FormulaTemplate>(template.Formulas),
-                    Formatting = new SheetFormatting
-                    {
-                        FreezeHeaderRow = template.Formatting.FreezeHeaderRow,
-                        AutoFilter = template.Formatting.AutoFilter,
-                        AlternateRowColors = template.Formatting.AlternateRowColors,
-                        AddSummarySection = template.Formatting.AddSummarySection,
-                        HeaderBackgroundColor = template.Formatting.HeaderBackgroundColor,
-                        AlternateColor = template.Formatting.AlternateColor
-                    },
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedBy = "Admin" // TODO: Get from auth service
-                };
-
-            var success = await TemplateService.SaveTemplateAsync(clonedTemplate);
-            if (success)
-            {
-                ShowStatus($"Template '{template.Name}' cloned successfully!", false);
-                await LoadTemplates();
-            }
-            else
-            {
-                ShowStatus("Failed to clone template", true);
-            }
-        }
-        catch (Exception ex)
-        {
-            ShowStatus($"Error cloning template: {ex.Message}", true);
-        }
-    }
-
-    private void ConfirmDeleteTemplate(SheetTemplate template)
-    {
-        _templateToDelete = template;
-        _showDeleteConfirm = true;
-    }
-
-    private async Task DeleteTemplate()
-    {
-        if (_templateToDelete == null) return;
-
-        try
-        {
-            var success = await TemplateService.DeleteTemplateAsync(_templateToDelete.Id);
-            if (success)
-            {
-                ShowStatus($"Template '{_templateToDelete.Name}' deleted successfully!", false);
-                await LoadTemplates();
-            }
-            else
-            {
-                ShowStatus("Failed to delete template", true);
-            }
-        }
-        catch (Exception ex)
-        {
-            ShowStatus($"Error deleting template: {ex.Message}", true);
-        }
-        finally
-        {
-            _showDeleteConfirm = false;
-            _templateToDelete = null;
-        }
-    }
-
-    private void HideDesigner()
-    {
-        _showDesigner = false;
-        _editingTemplate = null;
-    }
-
-    private async Task HandleTemplateSaved(SheetTemplate template)
-    {
-        HideDesigner();
-        await LoadTemplates();
     }
 
     #endregion

@@ -63,9 +63,9 @@
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Target Column</label>
-                                <select class="form-select" 
-                                        @bind="formula.TargetColumn" 
-                                        @onchange="() => NotifyChange()">
+                                <select class="form-select"
+                                        @bind:get="formula.TargetColumn"
+                                        @bind:set="(value) => { formula.TargetColumn = value; NotifyChange(); }">
                                     <option value="">Select a column...</option>
                                     @foreach (var column in Columns)
                                     {
