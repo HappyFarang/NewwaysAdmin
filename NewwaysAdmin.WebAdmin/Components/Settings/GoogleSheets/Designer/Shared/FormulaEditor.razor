@@ -87,7 +87,6 @@
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end">
                                         <li><h6 class="dropdown-header">Common Functions</h6></li>
-                                        <li><button class="dropdown-item font-monospace"
                                         <li>
                                             <button class="dropdown-item font-monospace"
                                                     @onclick='() => InsertFunction(index, "SUM()")'>
@@ -130,7 +129,7 @@
                                                 VLOOKUP()
                                             </button>
                                         </li>
-"                                    </ul>
+                                    </ul>
                                 </div>
                                 <div class="form-text">
                                     Use column references like A2, B3, or ranges like A2:A10
@@ -139,28 +138,14 @@
                             <div class="col-12">
                                 <label class="form-label">Description</label>
                                 <textarea class="form-control" rows="2" 
-                                          @bind="formula.Description"
+                                          @bind="formula.Description" 
                                           @oninput="() => NotifyChange()"
-                                          placeholder="Describe what this formula calculates..."></textarea>
+                                          placeholder="Describe what this formula does..."></textarea>
                             </div>
                         </div>
                     </div>
                 </div>
             }
-        }
-        
-        @if (Columns.Any() && Formulas.Any())
-        {
-            <div class="border rounded p-3 bg-light">
-                <h6 class="mb-2">
-                    <i class="bi bi-lightbulb me-2"></i>Formula Tips
-                </h6>
-                <ul class="list-unstyled mb-0 small">
-                    <li><i class="bi bi-check-circle text-success me-2"></i>Use column letters (A, B, C) to reference columns</li>
-                    <li><i class="bi bi-check-circle text-success me-2"></i>Start row references from 2 to skip headers (e.g., A2:A10)</li>
-                    <li><i class="bi bi-check-circle text-success me-2"></i>Formulas will be applied to the target column for each row</li>
-                </ul>
-            </div>
         }
     </div>
 </div>
@@ -175,7 +160,10 @@
     {
         Formulas.Add(new FormulaDefinition
         {
-            Name = $"Formula {Formulas.Count + 1}"
+            Name = $"Formula {Formulas.Count + 1}",
+            Formula = "",
+            TargetColumn = "",
+            Description = ""
         });
         NotifyChange();
     }
@@ -194,9 +182,7 @@
         if (formulaIndex >= 0 && formulaIndex < Formulas.Count)
         {
             var formula = Formulas[formulaIndex];
-            formula.Formula = string.IsNullOrEmpty(formula.Formula) 
-                ? function 
-                : $"{formula.Formula}{function}";
+            formula.Formula += function;
             NotifyChange();
         }
     }
@@ -205,20 +191,5 @@
     {
         await FormulasChanged.InvokeAsync(Formulas);
         await OnFormulaChanged.InvokeAsync();
-    }
-
-    public class FormulaDefinition
-    {
-        public string Name { get; set; } = string.Empty;
-        public string Formula { get; set; } = string.Empty;
-        public string TargetColumn { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-    }
-
-    public class ColumnDefinition
-    {
-        public string Header { get; set; } = string.Empty;
-        public string DataType { get; set; } = "Text";
-        public string Format { get; set; } = "Default";
     }
 }

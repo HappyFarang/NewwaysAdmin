@@ -69,6 +69,8 @@ public class Program
             logging.AddDebug();
         });
 
+        services.AddGoogleSheetsTemplateServices();
+
         // Pass command line args to MachineConfigProvider for test modes
         services.AddSingleton<MachineConfigProvider>(sp => {
             var logger = sp.GetRequiredService<ILogger<MachineConfigProvider>>();

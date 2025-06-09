@@ -1,49 +1,35 @@
 ﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
-@using static NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.GoogleSheetsSettings
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
 
 <div class="template-list">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h5 class="mb-1">Your Templates</h5>
-            <p class="text-muted mb-0">Manage your Google Sheets templates</p>
-        </div>
-        <div class="dropdown">
-            <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                <i class="bi bi-plus-lg me-2"></i>Create New
-            </button>
-            <ul class="dropdown-menu">
-                <li>
-                    <button class="dropdown-item" @onclick="() => OnCreateNew.InvokeAsync()">
-                        <i class="bi bi-lightning-charge me-2"></i>Basic Template
-                    </button>
-                </li>
-                <li>
-                    <button class="dropdown-item" @onclick="() => OnCreateNew.InvokeAsync()">
-                        <i class="bi bi-gear-wide-connected me-2"></i>Enhanced Template
-                    </button>
-                </li>
-            </ul>
-        </div>
-    </div>
-
     @if (!Templates.Any())
     {
         <div class="empty-state text-center py-5">
-            <div class="mb-4">
-                <i class="bi bi-file-earmark-spreadsheet display-1 text-muted"></i>
-            </div>
-            <h5 class="mb-3">No templates yet</h5>
+            <i class="bi bi-file-earmark-spreadsheet display-1 text-muted"></i>
+            <h4 class="mt-3 text-muted">No Templates Yet</h4>
             <p class="text-muted mb-4">
-                Create your first Google Sheets template to get started
+                Get started by creating your first Google Sheets template.<br />
+                Choose between a basic template for simple data or an enhanced template with advanced features.
             </p>
-            <button class="btn btn-primary" @onclick="() => OnCreateNew.InvokeAsync()">
-                <i class="bi bi-plus-lg me-2"></i>Create Your First Template
-            </button>
+            <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                <button class="btn btn-primary" @onclick="OnCreateNew.InvokeAsync">
+                    <i class="bi bi-plus-lg me-2"></i>Create Template
+                </button>
+            </div>
         </div>
     }
     else
     {
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h6 class="mb-0">@Templates.Count Template@(Templates.Count == 1 ? "" : "s")</h6>
+                <small class="text-muted">Manage your Google Sheets templates</small>
+            </div>
+            <button class="btn btn-primary" @onclick="OnCreateNew.InvokeAsync">
+                <i class="bi bi-plus-lg me-1"></i>New Template
+            </button>
+        </div>
+
         <div class="row g-4">
             @foreach (var template in Templates)
             {
@@ -55,6 +41,10 @@
                                     <h6 class="card-title mb-1">@template.Name</h6>
                                     <small class="text-muted">
                                         @template.Type.ToString() Template
+                                        @if (!string.IsNullOrWhiteSpace(template.DataType))
+                                        {
+                                            <span> • @template.DataType</span>
+                                        }
                                     </small>
                                 </div>
                                 <div class="dropdown">
@@ -65,20 +55,26 @@
                                     <ul class="dropdown-menu dropdown-menu-end">
                                         <li>
                                             <button class="dropdown-item"
-                                                    @onclick="() => OnEditTemplate.InvokeAsync(template)">
+                                                    @onclick="async () => await HandleEditTemplate(template)">
                                                 <i class="bi bi-pencil me-2"></i>Edit
                                             </button>
                                         </li>
                                         <li>
                                             <button class="dropdown-item"
-                                                    @onclick="() => OnDuplicateTemplate.InvokeAsync(template)">
+                                                    @onclick="async () => await HandleDuplicateTemplate(template)">
                                                 <i class="bi bi-files me-2"></i>Duplicate
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item"
+                                                    @onclick="async () => await ExportTemplate(template)">
+                                                <i class="bi bi-download me-2"></i>Export
                                             </button>
                                         </li>
                                         <li><hr class="dropdown-divider"></li>
                                         <li>
                                             <button class="dropdown-item text-danger"
-                                                    @onclick="() => OnDeleteTemplate.InvokeAsync(template)">
+                                                    @onclick="async () => await HandleDeleteTemplate(template)">
                                                 <i class="bi bi-trash me-2"></i>Delete
                                             </button>
                                         </li>
@@ -93,13 +89,47 @@
                                 </p>
                             }
 
+                            <!-- Template Stats -->
+                            <div class="template-stats mb-3">
+                                @if (template.Type == TemplateType.Basic)
+                                {
+                                    <div class="row text-center small">
+                                        <div class="col-6">
+                                            <div class="text-muted">Columns</div>
+                                            <div class="fw-medium">@template.Columns.Count</div>
+                                        </div>
+                                        <div class="col-6">
+                                            <div class="text-muted">Formulas</div>
+                                            <div class="fw-medium">@template.Formulas.Count</div>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="row text-center small">
+                                        <div class="col-4">
+                                            <div class="text-muted">Columns</div>
+                                            <div class="fw-medium">@template.DataColumns.Count</div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="text-muted">Checkboxes</div>
+                                            <div class="fw-medium">@template.CheckboxColumns.Count</div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="text-muted">Formulas</div>
+                                            <div class="fw-medium">@template.FormulaRows.Count</div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
                             <div class="template-info">
                                 <div class="row text-center">
                                     <div class="col-6">
                                         <div class="border-end">
                                             <div class="text-muted small">Created</div>
                                             <div class="fw-medium small">
-                                                @template.CreatedDate.ToString("MMM dd")
+                                                @template.CreatedDate.ToString("MMM dd, yyyy")
                                             </div>
                                         </div>
                                     </div>
@@ -127,11 +157,11 @@
                         <div class="card-footer bg-transparent border-top-0 pt-0">
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <button class="btn btn-outline-primary btn-sm"
-                                        @onclick="() => OnEditTemplate.InvokeAsync(template)">
+                                        @onclick="async () => await HandleEditTemplate(template)">
                                     <i class="bi bi-pencil me-1"></i>Edit
                                 </button>
                                 <button class="btn btn-primary btn-sm"
-                                        @onclick="() => ExportTemplate(template)">
+                                        @onclick="async () => await ExportTemplate(template)">
                                     <i class="bi bi-download me-1"></i>Export
                                 </button>
                             </div>
@@ -158,16 +188,22 @@
         border: 1px solid rgba(0,0,0,0.125);
     }
 
-    .template-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
+        .template-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
 
     .template-info {
         background-color: #f8f9fa;
         border-radius: 0.375rem;
         padding: 0.75rem;
         margin-top: auto;
+    }
+
+    .template-stats {
+        background-color: #f8f9fa;
+        border-radius: 0.375rem;
+        padding: 0.5rem;
     }
 
     .empty-state .display-1 {
@@ -198,11 +234,27 @@
     [Parameter] public EventCallback<GoogleSheetTemplate> OnDeleteTemplate { get; set; }
     [Parameter] public EventCallback<GoogleSheetTemplate> OnDuplicateTemplate { get; set; }
 
+    private async Task HandleEditTemplate(GoogleSheetTemplate template)
+    {
+        await OnEditTemplate.InvokeAsync(template);
+    }
+
+    private async Task HandleDeleteTemplate(GoogleSheetTemplate template)
+    {
+        await OnDeleteTemplate.InvokeAsync(template);
+    }
+
+    private async Task HandleDuplicateTemplate(GoogleSheetTemplate template)
+    {
+        await OnDuplicateTemplate.InvokeAsync(template);
+    }
+
     private async Task ExportTemplate(GoogleSheetTemplate template)
     {
-        // TODO: Implement template export functionality
+        // TODO: Implement template export functionality using the unified service
         // This would generate the actual Google Sheet from the template
         Console.WriteLine($"Exporting template: {template.Name}");
+        // await TemplateService.ExportTemplateAsync(template.Id, $"{template.Name}.json");
     }
 
     private void LoadMoreTemplates()

@@ -1,7 +1,10 @@
 ﻿@page "/settings/google-sheets"
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer
+@using NewwaysAdmin.WebAdmin.Services
 @inject IJSRuntime JSRuntime
+@inject IUnifiedTemplateService TemplateService
 
 <div class="google-sheets-settings">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -14,8 +17,8 @@
     @if (_currentMode == DisplayMode.Welcome)
     {
         <WelcomePanel OnGetStarted="HandleGetStarted" 
-                      OnCreateBasic="() => ShowDesigner(TemplateType.Basic)"
-                      OnCreateEnhanced="() => ShowDesigner(TemplateType.Enhanced)" />
+                      OnCreateBasic="async () => await ShowDesigner(TemplateType.Basic)"
+                      OnCreateEnhanced="async () => await ShowDesigner(TemplateType.Enhanced)" />
     }
     else if (_currentMode == DisplayMode.List)
     {
@@ -71,11 +74,16 @@
 
     private async Task LoadTemplates()
     {
-        // TODO: Load templates from storage service
-        // _templates = await TemplateService.GetAllTemplatesAsync();
-        
-        // Mock data for now
-        _templates = new List<GoogleSheetTemplate>();
+        try
+        {
+            _templates = await TemplateService.GetAllTemplatesAsync();
+        }
+        catch (Exception ex)
+        {
+            // TODO: Show error message to user
+            Console.WriteLine($"Error loading templates: {ex.Message}");
+            _templates = new List<GoogleSheetTemplate>();
+        }
     }
 
     private void HandleGetStarted()
@@ -83,20 +91,47 @@
         _currentMode = DisplayMode.List;
     }
 
-    private void HandleCreateNew()
+    private async Task HandleCreateNew()
     {
         // Show template type selection or default to basic
-        ShowDesigner(TemplateType.Basic);
+        await ShowDesigner(TemplateType.Basic);
     }
 
-    private void ShowDesigner(TemplateType templateType)
+    private async Task ShowDesigner(TemplateType templateType)
     {
         _selectedTemplateType = templateType;
-        _currentTemplate = new GoogleSheetTemplate 
-        { 
-            Type = templateType,
-            CreatedDate = DateTime.Now
-        };
+        
+        // Option to create from default template
+        try
+        {
+            _currentTemplate = await TemplateService.CreateDefaultTemplateAsync(templateType, "New Template");
+            _currentTemplate.Id = ""; // Clear ID so it will be treated as new
+        }
+        catch
+        {
+            // Fallback to manual creation
+            _currentTemplate = new GoogleSheetTemplate 
+            { 
+                Type = templateType,
+                CreatedDate = DateTime.Now,
+                LastModified = DateTime.Now
+            };
+            
+            // Initialize based on template type
+            if (templateType == TemplateType.Enhanced)
+            {
+                _currentTemplate.Formatting = new TemplateFormatting();
+                _currentTemplate.DataColumns = new List<DataColumnTemplate>();
+                _currentTemplate.CheckboxColumns = new List<CheckboxColumnTemplate>();
+                _currentTemplate.FormulaRows = new List<FormulaRowTemplate>();
+            }
+            else
+            {
+                _currentTemplate.Columns = new List<ColumnDefinition>();
+                _currentTemplate.Formulas = new List<FormulaDefinition>();
+            }
+        }
+        
         _isEditing = false;
         _currentMode = DisplayMode.Designer;
     }
@@ -116,50 +151,88 @@
         
         if (confirmed)
         {
-            _templates.Remove(template);
-            // TODO: Delete from storage service
-            // await TemplateService.DeleteTemplateAsync(template.Id);
-            StateHasChanged();
+            try
+            {
+                var success = await TemplateService.DeleteTemplateAsync(template.Id);
+                if (success)
+                {
+                    _templates.Remove(template);
+                    StateHasChanged();
+                }
+                else
+                {
+                    // TODO: Show error message to user
+                    Console.WriteLine("Failed to delete template");
+                }
+            }
+            catch (Exception ex)
+            {
+                // TODO: Show error message to user
+                Console.WriteLine($"Error deleting template: {ex.Message}");
+            }
         }
     }
 
-    private void HandleDuplicateTemplate(GoogleSheetTemplate template)
+    private async Task HandleDuplicateTemplate(GoogleSheetTemplate template)
     {
-        var duplicate = new GoogleSheetTemplate
+        try
         {
-            Name = $"{template.Name} (Copy)",
-            Description = template.Description,
-            Type = template.Type,
-            CreatedDate = DateTime.Now
-            // TODO: Copy other properties
-        };
-        
-        _currentTemplate = duplicate;
-        _selectedTemplateType = template.Type;
-        _isEditing = false;
-        _currentMode = DisplayMode.Designer;
+            var newName = $"{template.Name} (Copy)";
+            var success = await TemplateService.DuplicateTemplateAsync(template.Id, newName);
+            
+            if (success)
+            {
+                // Reload templates to show the new one
+                await LoadTemplates();
+                StateHasChanged();
+            }
+            else
+            {
+                // TODO: Show error message to user
+                Console.WriteLine("Failed to duplicate template");
+            }
+        }
+        catch (Exception ex)
+        {
+            // TODO: Show error message to user
+            Console.WriteLine($"Error duplicating template: {ex.Message}");
+        }
     }
 
     private async Task HandleTemplateSaved(GoogleSheetTemplate template)
     {
-        if (_isEditing)
+        try
         {
-            var index = _templates.FindIndex(t => t.Id == template.Id);
-            if (index >= 0)
+            var success = await TemplateService.SaveTemplateAsync(template);
+            
+            if (success)
             {
-                _templates[index] = template;
+                if (_isEditing)
+                {
+                    var index = _templates.FindIndex(t => t.Id == template.Id);
+                    if (index >= 0)
+                    {
+                        _templates[index] = template;
+                    }
+                }
+                else
+                {
+                    _templates.Add(template);
+                }
+
+                ReturnToList();
+            }
+            else
+            {
+                // TODO: Show error message to user
+                Console.WriteLine("Failed to save template");
             }
         }
-        else
+        catch (Exception ex)
         {
-            template.Id = Guid.NewGuid().ToString();
-            _templates.Add(template);
+            // TODO: Show error message to user
+            Console.WriteLine($"Error saving template: {ex.Message}");
         }
-
-        // TODO: Save to storage service
-        // await TemplateService.SaveTemplateAsync(template);
-
-        ReturnToList();
     }
 
     private void ReturnToList()
