@@ -249,6 +249,7 @@
     [Parameter] public EnhancedSheetTemplate? Template { get; set; }
     [Parameter] public EventCallback<EnhancedSheetTemplate> OnSave { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public bool IsEditing { get; set; } = false;
 
     private EnhancedSheetTemplate _template = new();
     private string _sheetName = "Sheet1";

@@ -106,7 +106,7 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 _logger.LogInformation("Loaded and registered folder definition: {FolderName}", folderName);
             }
 
-            var cacheKey = $"{folderName}_{typeof(T).Name}";
+            var cacheKey = $"{folderName}_{typeof(T).FullName}";
             if (_storageCache.TryGetValue(cacheKey, out var cached))
             {
                 return (IDataStorage<T>)cached;
@@ -162,7 +162,7 @@ namespace NewwaysAdmin.Shared.IO.Structure
                     _logger.LogInformation("Loaded and registered folder definition: {FolderName}", folderName);
                 }
 
-                var cacheKey = $"{folderName}_{typeof(T).Name}";
+                var cacheKey = $"{folderName}_{typeof(T).FullName}";
                 if (_storageCache.TryGetValue(cacheKey, out var cached))
                 {
                     return (IDataStorage<T>)cached;
