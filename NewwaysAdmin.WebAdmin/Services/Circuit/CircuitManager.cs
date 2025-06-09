@@ -7,17 +7,49 @@ public class CircuitManager : ICircuitManager
 {
     private string? _currentCircuitId;
     private readonly ILogger<CircuitManager> _logger;
+    private readonly object _lock = new object();
 
     public CircuitManager(ILogger<CircuitManager> logger)
     {
         _logger = logger;
     }
 
-    public string? GetCurrentCircuitId() => _currentCircuitId;
+    public string? GetCurrentCircuitId()
+    {
+        lock (_lock)
+        {
+            return _currentCircuitId;
+        }
+    }
 
     public void SetCircuitId(string circuitId)
     {
-        _currentCircuitId = circuitId;
-        _logger.LogInformation("Circuit ID set: {CircuitId}", circuitId);
+        lock (_lock)
+        {
+            _currentCircuitId = circuitId;
+            _logger.LogInformation("Circuit ID set: {CircuitId}", circuitId);
+        }
+    }
+
+    // ADD THESE TWO MISSING METHODS:
+
+    public void ClearCircuitId(string circuitId)
+    {
+        lock (_lock)
+        {
+            if (_currentCircuitId == circuitId)
+            {
+                _currentCircuitId = null;
+                _logger.LogInformation("Circuit ID cleared: {CircuitId}", circuitId);
+            }
+        }
+    }
+
+    public bool IsCircuitActive(string circuitId)
+    {
+        lock (_lock)
+        {
+            return _currentCircuitId == circuitId;
+        }
     }
 }
