@@ -4,6 +4,7 @@
 @using NewwaysAdmin.GoogleSheets.Services
 @inject IJSRuntime JSRuntime
 @inject IEnhancedSheetTemplateService TemplateService
+@inject ILogger<GoogleSheetsSettings> Logger
 
 <div class="google-sheets-settings">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -13,7 +14,27 @@
         </div>
     </div>
 
-    @if (_currentMode == DisplayMode.Welcome)
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-muted">Loading templates...</p>
+        </div>
+    }
+    else if (_hasError)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h4 class="alert-heading">Error Loading Templates</h4>
+            <p>@_errorMessage</p>
+            <hr>
+            <button class="btn btn-outline-danger" @onclick="RetryLoad">
+                <i class="bi bi-arrow-clockwise me-1"></i>Try Again
+            </button>
+        </div>
+    }
+    else if (_currentMode == DisplayMode.Welcome)
     {
         <div class="text-center py-5">
             <i class="bi bi-file-earmark-spreadsheet display-1 text-primary"></i>
@@ -51,87 +72,33 @@
                 <p class="text-muted mb-4">
                     Get started by creating your first enhanced Google Sheets template with checkboxes, formulas, and formatting.
                 </p>
-                <button class="btn btn-primary" @onclick="ShowDesigner">
-                    <i class="bi bi-plus-lg me-2"></i>Create First Template
+                <button class="btn btn-success" @onclick="ShowDesigner">
+                    <i class="bi bi-plus-lg me-2"></i>Create Your First Template
                 </button>
             </div>
         }
         else
         {
-            <div class="row g-3">
+            <div class="row">
                 @foreach (var template in _templates)
                 {
-                    <div class="col-md-6 col-lg-4">
-                        <div class="card template-card h-100">
+                    <div class="col-md-6 col-lg-4 mb-4">
+                        <div class="card h-100">
                             <div class="card-body">
-                                <div class="d-flex justify-content-between align-items-start mb-2">
-                                    <h6 class="card-title mb-0">@template.Name</h6>
-                                    <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                                                type="button" data-bs-toggle="dropdown">
-                                            <i class="bi bi-three-dots"></i>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            <li>
-                                                <button class="dropdown-item" @onclick="() => HandleEditTemplate(template)">
-                                                    <i class="bi bi-pencil me-2"></i>Edit
-                                                </button>
-                                            </li>
-                                            <li>
-                                                <button class="dropdown-item" @onclick="() => HandleDuplicateTemplate(template)">
-                                                    <i class="bi bi-files me-2"></i>Duplicate
-                                                </button>
-                                            </li>
-                                            <li><hr class="dropdown-divider"></li>
-                                            <li>
-                                                <button class="dropdown-item text-danger" @onclick="() => HandleDeleteTemplate(template)">
-                                                    <i class="bi bi-trash me-2"></i>Delete
-                                                </button>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
-
-                                @if (!string.IsNullOrWhiteSpace(template.Description))
-                                {
-                                    <p class="card-text text-muted small mb-3">@template.Description</p>
-                                }
-
-                                <div class="template-stats mb-3">
-                                    <div class="row text-center small">
-                                        <div class="col-4">
-                                            <div class="text-muted">Data Columns</div>
-                                            <div class="fw-medium">@template.DataColumns.Count</div>
-                                        </div>
-                                        <div class="col-4">
-                                            <div class="text-muted">Checkboxes</div>
-                                            <div class="fw-medium">@template.CheckboxColumns.Count</div>
-                                        </div>
-                                        <div class="col-4">
-                                            <div class="text-muted">Formulas</div>
-                                            <div class="fw-medium">@template.FormulaRows.Count</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="template-info">
-                                    <small class="text-muted d-block">
-                                        Data Type: <span class="text-dark">@(string.IsNullOrEmpty(template.DataType) ? "General" : template.DataType)</span>
-                                    </small>
-                                    <small class="text-muted d-block">
-                                        Version: @template.Version |
-                                        @if (template.IsActive)
-                                        {
-                                            <span class="text-success">Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-warning">Inactive</span>
-                                        }
-                                    </small>
-                                    <small class="text-muted d-block">
-                                        Created: @template.CreatedAt.ToString("MM/dd/yyyy")
-                                    </small>
+                                <h5 class="card-title">@template.Name</h5>
+                                <p class="card-text">@template.Description</p>
+                                <small class="text-muted">
+                                    Modified: @template.LastModified.ToString("MMM d, yyyy")
+                                </small>
+                            </div>
+                            <div class="card-footer bg-transparent">
+                                <div class="btn-group w-100">
+                                    <button class="btn btn-outline-primary" @onclick="() => HandleEditTemplate(template)">
+                                        <i class="bi bi-pencil me-1"></i>Edit
+                                    </button>
+                                    <button class="btn btn-outline-danger" @onclick="() => HandleDeleteTemplate(template)">
+                                        <i class="bi bi-trash me-1"></i>Delete
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -142,251 +109,207 @@
     }
     else if (_currentMode == DisplayMode.Designer)
     {
-        <div class="designer-container">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5>@(_isEditing ? "Edit Template" : "Create New Template")</h5>
-                <button class="btn btn-outline-secondary btn-sm" @onclick="ReturnToList">
-                    <i class="bi bi-arrow-left"></i> Back to Templates
-                </button>
-            </div>
-
-            <EnhancedTemplateDesigner Template="_currentTemplate"
-                                      OnSave="HandleTemplateSaved"
-                                      OnCancel="ReturnToList" />
-        </div>
+        <EnhancedTemplateDesigner Template="_currentTemplate"
+                                  IsEditing="_isEditing"
+                                  OnSave="HandleTemplateSaved"
+                                  OnCancel="HandleDesignerCancel" />
     }
 </div>
 
-<style>
-    .template-card {
-        transition: all 0.2s ease-in-out;
-        border: 1px solid rgba(0,0,0,0.125);
-    }
-
-        .template-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
-
-    .template-info {
-        background-color: #f8f9fa;
-        border-radius: 0.375rem;
-        padding: 0.75rem;
-        margin-top: auto;
-    }
-
-    .template-stats {
-        background-color: #f8f9fa;
-        border-radius: 0.375rem;
-        padding: 0.5rem;
-    }
-
-    .empty-state .display-1 {
-        font-size: 4rem;
-    }
-</style>
-
 @code {
-    private enum DisplayMode
-    {
-        Welcome,
-        List,
-        Designer
-    }
+    private enum DisplayMode { Welcome, List, Designer }
 
     private DisplayMode _currentMode = DisplayMode.Welcome;
     private List<EnhancedSheetTemplate> _templates = new();
     private EnhancedSheetTemplate? _currentTemplate;
     private bool _isEditing = false;
+    private bool _isLoading = true;
+    private bool _hasError = false;
+    private string _errorMessage = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadTemplates();
-
-        // If user has templates, show list instead of welcome
-        if (_templates.Any())
-        {
-            _currentMode = DisplayMode.List;
-        }
-    }
-
-    private async Task LoadTemplates()
-    {
         try
         {
-            _templates = await TemplateService.GetTemplatesAsync();
+            Logger.LogInformation("GoogleSheetsSettings: Starting initialization");
+
+            // Add timeout and cancellation support
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            await LoadTemplatesWithErrorHandling(cts.Token);
+
+            // If user has templates, show list instead of welcome
+            if (_templates.Any())
+            {
+                _currentMode = DisplayMode.List;
+            }
+
+            Logger.LogInformation("GoogleSheetsSettings: Initialization completed successfully");
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogWarning("GoogleSheetsSettings: Initialization timed out");
+            SetError("The operation timed out. Please try again.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("circuit"))
+        {
+            Logger.LogWarning("GoogleSheetsSettings: Circuit closed during initialization");
+            // Don't call StateHasChanged() here - circuit is closed
+            return;
         }
         catch (Exception ex)
         {
-            // TODO: Show error message to user
-            Console.WriteLine($"Error loading templates: {ex.Message}");
-            _templates = new List<EnhancedSheetTemplate>();
+            Logger.LogError(ex, "GoogleSheetsSettings: Error during initialization");
+            SetError($"Failed to load templates: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+
+            // Only call StateHasChanged if we can
+            await SafeStateHasChanged();
         }
     }
 
-    private void HandleGetStarted()
+    private async Task LoadTemplatesWithErrorHandling(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            Logger.LogDebug("Loading templates from service");
+            _templates = await TemplateService.GetTemplatesAsync();
+            _hasError = false;
+            _errorMessage = string.Empty;
+            Logger.LogDebug("Successfully loaded {Count} templates", _templates.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading templates from service");
+            _templates = new List<EnhancedSheetTemplate>();
+            throw; // Re-throw to be handled by caller
+        }
+    }
+
+    private async Task RetryLoad()
+    {
+        _isLoading = true;
+        _hasError = false;
+        await SafeStateHasChanged();
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await LoadTemplatesWithErrorHandling(cts.Token);
+
+            if (_templates.Any())
+            {
+                _currentMode = DisplayMode.List;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during retry load");
+            SetError($"Failed to load templates: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            await SafeStateHasChanged();
+        }
+    }
+
+    private void SetError(string message)
+    {
+        _hasError = true;
+        _errorMessage = message;
+    }
+
+    private async Task SafeStateHasChanged()
+    {
+        try
+        {
+            StateHasChanged();
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("circuit"))
+        {
+            Logger.LogWarning("Cannot update UI - circuit is closed");
+            // Ignore - circuit is closed
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error calling StateHasChanged");
+        }
+    }
+
+    private async Task HandleGetStarted()
     {
         _currentMode = DisplayMode.List;
+        await SafeStateHasChanged();
     }
 
-    private void ShowDesigner()
+    private async Task ShowDesigner()
     {
-        // Create a new template
-        _currentTemplate = new EnhancedSheetTemplate
-            {
-                CreatedAt = DateTime.UtcNow,
-                LastModified = DateTime.UtcNow,
-                Formatting = new EnhancedSheetFormatting(),
-                DataColumns = new List<DataColumnTemplate>(),
-                CheckboxColumns = new List<CheckboxColumnTemplate>(),
-                FormulaRows = new List<FormulaRowTemplate>(),
-                Metadata = new Dictionary<string, string>()
-            };
+        try
+        {
+            // Create a new template
+            _currentTemplate = new EnhancedSheetTemplate
+                {
+                    CreatedAt = DateTime.UtcNow,
+                    LastModified = DateTime.UtcNow,
+                    Formatting = new EnhancedSheetFormatting(),
+                    DataColumns = new List<DataColumnTemplate>(),
+                    CheckboxColumns = new List<CheckboxColumnTemplate>(),
+                    FormulaRows = new List<FormulaRowTemplate>(),
+                    Metadata = new Dictionary<string, string>()
+                };
 
-        _isEditing = false;
-        _currentMode = DisplayMode.Designer;
+            _isEditing = false;
+            _currentMode = DisplayMode.Designer;
+            await SafeStateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error showing designer");
+            SetError($"Error opening designer: {ex.Message}");
+            await SafeStateHasChanged();
+        }
     }
 
-    private void HandleEditTemplate(EnhancedSheetTemplate template)
+    private async Task HandleEditTemplate(EnhancedSheetTemplate template)
     {
-        _currentTemplate = template;
-        _isEditing = true;
-        _currentMode = DisplayMode.Designer;
+        try
+        {
+            _currentTemplate = template;
+            _isEditing = true;
+            _currentMode = DisplayMode.Designer;
+            await SafeStateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error editing template");
+            SetError($"Error opening template for editing: {ex.Message}");
+            await SafeStateHasChanged();
+        }
     }
 
     private async Task HandleDeleteTemplate(EnhancedSheetTemplate template)
     {
-        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
-            $"Are you sure you want to delete '{template.Name}'?");
-
-        if (confirmed)
-        {
-            try
-            {
-                var success = await TemplateService.DeleteTemplateAsync(template.Id);
-                if (success)
-                {
-                    _templates.Remove(template);
-                    StateHasChanged();
-                }
-                else
-                {
-                    // TODO: Show error message to user
-                    Console.WriteLine("Failed to delete template");
-                }
-            }
-            catch (Exception ex)
-            {
-                // TODO: Show error message to user
-                Console.WriteLine($"Error deleting template: {ex.Message}");
-            }
-        }
-    }
-
-    private async Task HandleDuplicateTemplate(EnhancedSheetTemplate template)
-    {
         try
         {
-            // Create a copy of the template
-            var newTemplate = new EnhancedSheetTemplate
-                {
-                    Name = $"{template.Name} (Copy)",
-                    Description = template.Description,
-                    DataType = template.DataType,
-                    DataColumns = template.DataColumns.Select(c => new DataColumnTemplate
-                    {
-                        Index = c.Index,
-                        Header = c.Header,
-                        DataField = c.DataField,
-                        Format = c.Format,
-                        Width = c.Width,
-                        IsVisible = c.IsVisible,
-                        BackgroundColor = c.BackgroundColor,
-                        FontColor = c.FontColor,
-                        IsBold = c.IsBold,
-                        IsItalic = c.IsItalic,
-                        TextAlignment = c.TextAlignment,
-                        IsLocked = c.IsLocked,
-                        ValidationRule = c.ValidationRule
-                    }).ToList(),
-                    CheckboxColumns = template.CheckboxColumns.Select(c => new CheckboxColumnTemplate
-                    {
-                        Index = c.Index,
-                        Name = c.Name,
-                        Description = c.Description,
-                        Type = c.Type,
-                        Width = c.Width,
-                        IsVisible = c.IsVisible,
-                        BackgroundColor = c.BackgroundColor,
-                        CheckedColor = c.CheckedColor,
-                        UncheckedColor = c.UncheckedColor,
-                        FormulaTemplate = c.FormulaTemplate,
-                        ShowFormulaResult = c.ShowFormulaResult,
-                        FormulaResultFormat = c.FormulaResultFormat,
-                        IsReusable = c.IsReusable,
-                        Category = c.Category
-                    }).ToList(),
-                    FormulaRows = template.FormulaRows.Select(f => new FormulaRowTemplate
-                    {
-                        RowIndex = f.RowIndex,
-                        BackgroundColor = f.BackgroundColor,
-                        FontColor = f.FontColor,
-                        IsBold = f.IsBold,
-                        IsLocked = f.IsLocked,
-                        Height = f.Height,
-                        ColumnFormulas = new Dictionary<int, string>(f.ColumnFormulas),
-                        ColumnLabels = new Dictionary<int, string>(f.ColumnLabels),
-                        ColumnFormats = new Dictionary<int, string>(f.ColumnFormats)
-                    }).ToList(),
-                    Formatting = new EnhancedSheetFormatting
-                    {
-                        FreezeHeaderRow = template.Formatting.FreezeHeaderRow,
-                        FreezeFormulaRow = template.Formatting.FreezeFormulaRow,
-                        HeaderBackgroundColor = template.Formatting.HeaderBackgroundColor,
-                        HeaderFontColor = template.Formatting.HeaderFontColor,
-                        HeaderIsBold = template.Formatting.HeaderIsBold,
-                        HeaderHeight = template.Formatting.HeaderHeight,
-                        AlternateRowColors = template.Formatting.AlternateRowColors,
-                        AlternateColor = template.Formatting.AlternateColor,
-                        AddAutoFilter = template.Formatting.AddAutoFilter,
-                        AddBorders = template.Formatting.AddBorders,
-                        BorderStyle = template.Formatting.BorderStyle,
-                        BorderColor = template.Formatting.BorderColor,
-                        ProtectSheet = template.Formatting.ProtectSheet,
-                        AllowSort = template.Formatting.AllowSort,
-                        AllowFilter = template.Formatting.AllowFilter,
-                        AllowEditCheckboxes = template.Formatting.AllowEditCheckboxes,
-                        AllowEditData = template.Formatting.AllowEditData,
-                        ShowGridlines = template.Formatting.ShowGridlines,
-                        DefaultRowHeight = template.Formatting.DefaultRowHeight,
-                        SheetTabColor = template.Formatting.SheetTabColor,
-                        HideFormulaBar = template.Formatting.HideFormulaBar
-                    },
-                    CreatedAt = DateTime.UtcNow,
-                    LastModified = DateTime.UtcNow,
-                    CreatedBy = "Current User", // TODO: Get from auth service
-                    LastModifiedBy = "Current User",
-                    Metadata = new Dictionary<string, string>(template.Metadata)
-                };
+            var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+                $"Are you sure you want to delete '{template.Name}'?");
 
-            var success = await TemplateService.SaveTemplateAsync(newTemplate);
-
-            if (success)
+            if (confirmed)
             {
-                // Reload templates to show the new one
-                await LoadTemplates();
-                StateHasChanged();
-            }
-            else
-            {
-                // TODO: Show error message to user
-                Console.WriteLine("Failed to duplicate template");
+                await TemplateService.DeleteTemplateAsync(template.Id);
+                await LoadTemplatesWithErrorHandling();
+                await SafeStateHasChanged();
             }
         }
         catch (Exception ex)
         {
-            // TODO: Show error message to user
-            Console.WriteLine($"Error duplicating template: {ex.Message}");
+            Logger.LogError(ex, "Error deleting template");
+            SetError($"Error deleting template: {ex.Message}");
+            await SafeStateHasChanged();
         }
     }
 
@@ -394,42 +317,21 @@
     {
         try
         {
-            var success = await TemplateService.SaveTemplateAsync(template);
-
-            if (success)
-            {
-                if (_isEditing)
-                {
-                    var index = _templates.FindIndex(t => t.Id == template.Id);
-                    if (index >= 0)
-                    {
-                        _templates[index] = template;
-                    }
-                }
-                else
-                {
-                    _templates.Add(template);
-                }
-
-                ReturnToList();
-            }
-            else
-            {
-                // TODO: Show error message to user
-                Console.WriteLine("Failed to save template");
-            }
+            await LoadTemplatesWithErrorHandling();
+            _currentMode = DisplayMode.List;
+            await SafeStateHasChanged();
         }
         catch (Exception ex)
         {
-            // TODO: Show error message to user
-            Console.WriteLine($"Error saving template: {ex.Message}");
+            Logger.LogError(ex, "Error after saving template");
+            SetError($"Template saved but error refreshing list: {ex.Message}");
+            await SafeStateHasChanged();
         }
     }
 
-    private void ReturnToList()
+    private async Task HandleDesignerCancel()
     {
-        _currentMode = DisplayMode.List;
-        _currentTemplate = null;
-        _isEditing = false;
+        _currentMode = _templates.Any() ? DisplayMode.List : DisplayMode.Welcome;
+        await SafeStateHasChanged();
     }
 }
