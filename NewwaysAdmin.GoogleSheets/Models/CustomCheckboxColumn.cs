@@ -133,34 +133,5 @@ namespace NewwaysAdmin.GoogleSheets.Models
             }
             LastUpdated = DateTime.UtcNow;
         }
-    }
-
-    /// <summary>
-    /// Helper class for generating column letters (A, B, C, ... Z, AA, AB, etc.)
-    /// </summary>
-    public static class ColumnLetterHelper
-    {
-        /// <summary>
-        /// Convert column index (0-based) to Excel column letter
-        /// 0 = A, 1 = B, 25 = Z, 26 = AA, etc.
-        /// </summary>
-        public static string GetColumnLetter(int columnIndex)
-        {
-            string columnName = "";
-            while (columnIndex >= 0)
-            {
-                columnName = (char)('A' + columnIndex % 26) + columnName;
-                columnIndex = columnIndex / 26 - 1;
-            }
-            return columnName;
-        }
-
-        /// <summary>
-        /// Get the next available column letter after the data columns
-        /// </summary>
-        public static string GetNextAvailableColumn(int lastDataColumnIndex)
-        {
-            return GetColumnLetter(lastDataColumnIndex + 1);
-        }
-    }
+    }    
 }

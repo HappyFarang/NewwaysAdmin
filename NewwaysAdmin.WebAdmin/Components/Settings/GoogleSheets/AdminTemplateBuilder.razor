@@ -82,9 +82,9 @@
                                         {
                                             <tr class="@(column.IsSelected ? "table-light" : "")">
                                                 <td>
-                                                    <input type="checkbox" class="form-check-input" 
+                                                    <input type="checkbox" class="form-check-input"
                                                            @bind="column.IsSelected"
-                                                           @onchange="OnColumnSelectionChanged" />
+                                                           @bind:after="OnColumnSelectionChanged" />
                                                 </td>
                                                 <td>
                                                     <strong>@column.DisplayName</strong>
