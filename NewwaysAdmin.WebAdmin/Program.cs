@@ -214,7 +214,6 @@ public class Program
 
         // Add Google Sheets services
         services.AddGoogleSheetsServices(googleSheetsConfig);
-
         services.AddSingleton<ModuleColumnRegistry>();
 
 

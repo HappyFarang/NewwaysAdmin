@@ -1,0 +1,526 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Settings/GoogleSheets/Designer/TemplateDesigner.razor *@
+@using NewwaysAdmin.GoogleSheets.Models
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+
+<div class="template-designer">
+    <div class="row">
+        <!-- Left Panel: Template Settings and Column Designer -->
+        <div class="col-lg-6">
+            <!-- Template Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="bi bi-gear me-2"></i>Template Settings
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Template Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control"
+                                   @bind="Template.Name"
+                                   @oninput="OnTemplateChanged"
+                                   placeholder="Enter a descriptive name for your template"
+                                   required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Data Type</label>
+                            <select class="form-select" value="@Template.DataType" @onchange="@((ChangeEventArgs e) => { Template.DataType = e.Value?.ToString() ?? ""; OnTemplateChanged(); })">
+                                <option value="BankSlipData">Bank Slip Data</option>
+                                <option value="SalesData">Sales Data</option>
+                                <option value="InventoryData">Inventory Data</option>
+                                <option value="Custom">Custom</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Version</label>
+                            <input type="number" class="form-control"
+                                   @bind="Template.Version"
+                                   @oninput="OnTemplateChanged"
+                                   min="1">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" rows="3"
+                                      @bind="Template.Description"
+                                      @oninput="OnTemplateChanged"
+                                      placeholder="Describe what this template is for..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column Designer -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="bi bi-columns me-2"></i>Column Configuration
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <ColumnEditor Columns="@_templateColumns"
+                                  ColumnsChanged="@OnColumnsChanged"
+                                  OnColumnChanged="@OnTemplateChanged"
+                                  ShowAdvancedOptions="true" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Row Layout Designer -->
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="bi bi-list-ol me-2"></i>Row Layout Designer
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <RowLayoutDesigner RowTemplates="@Template.RowTemplates"
+                                       RowTemplatesChanged="@OnRowTemplatesChanged"
+                                       Columns="@_templateColumns"
+                                       Formulas="@Template.Formulas"
+                                       FormulasChanged="@OnFormulasChanged"
+                                       OnRowLayoutChanged="@OnTemplateChanged" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Panel: Live Preview -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">
+                        <i class="bi bi-eye me-2"></i>Live Preview
+                    </h6>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn @(_previewMode == PreviewMode.Structure ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => SetPreviewMode(PreviewMode.Structure)">
+                            Structure
+                        </button>
+                        <button class="btn @(_previewMode == PreviewMode.WithData ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => SetPreviewMode(PreviewMode.WithData)">
+                            With Sample Data
+                        </button>
+                        <button class="btn @(_previewMode == PreviewMode.Formulas ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => SetPreviewMode(PreviewMode.Formulas)">
+                            Formula Preview
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (_templateColumns.Any() && Template.RowTemplates.Any())
+                    {
+                        @RenderPreview()
+                    }
+                    else
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-eye-slash display-4 d-block mb-2"></i>
+                            <p class="mb-0">Add columns and configure row layout to see preview</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="d-flex justify-content-between mt-4">
+        <button class="btn btn-outline-secondary" @onclick="OnCancel">
+            <i class="bi bi-arrow-left me-1"></i>Cancel
+        </button>
+        <div>
+            <button class="btn btn-outline-primary me-2" @onclick="PreviewTemplate">
+                <i class="bi bi-eye me-1"></i>Preview
+            </button>
+            <button class="btn btn-success" @onclick="SaveTemplate" disabled="@(!IsValidTemplate())">
+                <i class="bi bi-save me-1"></i>Save Template
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    public enum PreviewMode { Structure, WithData, Formulas }
+
+    [Parameter] public SheetTemplate Template { get; set; } = new();
+    [Parameter] public EventCallback<SheetTemplate> TemplateChanged { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback<SheetTemplate> OnPreview { get; set; }
+
+    private List<ColumnDefinition> _templateColumns = new();
+    private PreviewMode _previewMode = PreviewMode.WithData;
+
+    protected override void OnParametersSet()
+    {
+        // Convert GoogleSheets ColumnTemplate to WebAdmin ColumnDefinition for the editor
+        _templateColumns = Template.Columns.Select(c => new ColumnDefinition
+            {
+                Header = c.Header,
+                DataType = c.DataType,
+                Format = c.Format,
+                DefaultValue = "", // ColumnTemplate doesn't have this, so default
+                IsRequired = false, // ColumnTemplate doesn't have this, so default
+                AllowEdit = true // ColumnTemplate doesn't have this, so default
+            }).ToList();
+
+        // Ensure template has default row layout if empty
+        if (!Template.RowTemplates.Any())
+        {
+            Template.RowTemplates.AddRange(new[]
+            {
+                new RowTemplate
+                {
+                    Type = RowType.Header,
+                    Order = 1,
+                    Name = "Column Headers",
+                    IsBold = true,
+                    BackgroundColor = "#E8E8E8",
+                    IsProtected = true
+                },
+                new RowTemplate
+                {
+                    Type = RowType.Data,
+                    Order = 2,
+                    Name = "Data Records"
+                }
+            });
+        }
+    }
+
+    private async Task OnColumnsChanged(List<ColumnDefinition> columns)
+    {
+        // Convert back to ColumnTemplate for the main template
+        Template.Columns = columns.Select((c, index) => new ColumnTemplate
+            {
+                Index = index,
+                Header = c.Header,
+                DataType = c.DataType,
+                Format = c.Format,
+                Width = GetDefaultColumnWidth(c.DataType),
+                IsVisible = true
+            }).ToList();
+
+        _templateColumns = columns;
+        await OnTemplateChanged();
+    }
+
+    private async Task OnRowTemplatesChanged(List<RowTemplate> rowTemplates)
+    {
+        Template.RowTemplates = rowTemplates;
+        await OnTemplateChanged();
+    }
+
+    private async Task OnFormulasChanged(List<FormulaTemplate> formulas)
+    {
+        Template.Formulas = formulas;
+        await OnTemplateChanged();
+    }
+
+    private async Task OnTemplateChanged()
+    {
+        await TemplateChanged.InvokeAsync(Template);
+        StateHasChanged();
+    }
+
+    private void SetPreviewMode(PreviewMode mode)
+    {
+        _previewMode = mode;
+    }
+
+    private async Task SaveTemplate()
+    {
+        if (IsValidTemplate())
+        {
+            Template.CreatedAt = DateTime.UtcNow;
+            await OnSave.InvokeAsync();
+        }
+    }
+
+    private async Task PreviewTemplate()
+    {
+        await OnPreview.InvokeAsync(Template);
+    }
+
+    private bool IsValidTemplate()
+    {
+        return !string.IsNullOrWhiteSpace(Template.Name) &&
+               _templateColumns.Any() &&
+               Template.RowTemplates.Any();
+    }
+
+    private int GetDefaultColumnWidth(string dataType)
+    {
+        return dataType.ToLower() switch
+        {
+            "date" => 120,
+            "datetime" => 150,
+            "currency" => 100,
+            "number" => 80,
+            "checkbox" => 60,
+            "email" => 200,
+            "phone" => 120,
+            _ => 150
+        };
+    }
+
+    private RenderFragment RenderPreview() => __builder =>
+    {
+        switch (_previewMode)
+        {
+            case PreviewMode.Structure:
+                @RenderStructurePreview()
+                break;
+            case PreviewMode.WithData:
+                @RenderDataPreview()
+                break;
+            case PreviewMode.Formulas:
+                @RenderFormulaPreview()
+                break;
+        }
+    };
+
+    private RenderFragment RenderStructurePreview() => __builder =>
+    {
+        <div class="preview-explanation mb-3">
+            <h6 class="text-primary">Sheet Structure Preview</h6>
+            <p class="small text-muted">This shows how your rows will be organized in the final sheet:</p>
+        </div>
+
+        <div class="structure-preview">
+            @foreach (var row in Template.RowTemplates.Where(r => r.IsVisible).OrderBy(r => r.Order))
+            {
+                var rowIndex = Template.RowTemplates.Where(r => r.IsVisible).OrderBy(r => r.Order).ToList().IndexOf(row) + 1;
+                <div class="structure-row mb-2 p-3 border rounded @GetStructureRowClass(row.Type)">
+                    <div class="d-flex align-items-center">
+                        <div class="row-number me-3">@rowIndex</div>
+                        <div class="flex-grow-1">
+                            <strong>@GetRowTypeIcon(row.Type) @row.Type</strong>
+                            @if (!string.IsNullOrEmpty(row.Name))
+                            {
+                                <span class="text-muted"> - @row.Name</span>
+                            }
+                            <div class="small text-muted mt-1">
+                                @GetRowDescription(row.Type)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="mt-3">
+            <small class="text-info">
+                <i class="bi bi-info-circle me-1"></i>
+                Dynamic formulas will automatically adjust their ranges based on the actual amount of data exported.
+            </small>
+        </div>
+    };
+
+    private RenderFragment RenderDataPreview() => __builder =>
+    {
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm preview-table">
+                @foreach (var row in Template.RowTemplates.Where(r => r.IsVisible).OrderBy(r => r.Order))
+                {
+                    @switch (row.Type)
+                    {
+                        case RowType.Header:
+                            <tr class="table-secondary">
+                                @foreach (var column in _templateColumns)
+                                {
+                                    <th class="fw-bold">@column.Header</th>
+                                }
+                            </tr>
+                            break;
+
+                        case RowType.Formula:
+                            <tr class="table-info">
+                                @foreach (var column in _templateColumns)
+                                {
+                                    var formula = Template.Formulas.FirstOrDefault(f => f.RowTemplateId == row.Id && f.ColumnHeader == column.Header);
+                                    <td class="fw-bold font-monospace small">
+                                        @(formula?.Formula?.Replace("{DATA_RANGE}", "B3:B10") ?? "")
+                                    </td>
+                                }
+                            </tr>
+                            break;
+
+                        case RowType.Data:
+                            @for (int i = 0; i < 3; i++)
+                            {
+                                <tr>
+                                    @foreach (var column in _templateColumns)
+                                    {
+                                        <td>@GetSampleData(column, i)</td>
+                                    }
+                                </tr>
+                            }
+                            break;
+
+                        case RowType.Summary:
+                            <tr class="table-warning">
+                                <td class="fw-bold">Summary:</td>
+                                @for (int i = 1; i < _templateColumns.Count; i++)
+                                {
+                                    <td>@(i == _templateColumns.Count - 1 ? DateTime.Now.ToString("yyyy-MM-dd") : "")</td>
+                                }
+                            </tr>
+                            break;
+
+                        case RowType.Separator:
+                            <tr>
+                                @foreach (var column in _templateColumns)
+                                {
+                                    <td class="bg-light">&nbsp;</td>
+                                }
+                            </tr>
+                            break;
+                    }
+                }
+            </table>
+        </div>
+    };
+
+    private RenderFragment RenderFormulaPreview() => __builder =>
+    {
+        @if (Template.Formulas.Any())
+        {
+            <div class="formula-preview">
+                <h6 class="text-primary mb-3">Formula Analysis</h6>
+
+                @foreach (var rowGroup in Template.Formulas.GroupBy(f => f.RowTemplateId))
+                {
+                    var rowTemplate = Template.RowTemplates.FirstOrDefault(r => r.Id == rowGroup.Key);
+                    if (rowTemplate != null)
+                    {
+                        <div class="mb-4">
+                            <h6 class="text-secondary">@GetRowTypeIcon(rowTemplate.Type) @rowTemplate.Name</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Column</th>
+                                            <th>Formula Template</th>
+                                            <th>Example (with sample data)</th>
+                                            <th>Range Type</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var formula in rowGroup)
+                                        {
+                                            <tr>
+                                                <td><strong>@formula.ColumnHeader</strong></td>
+                                                <td><code>@formula.Formula</code></td>
+                                                <td><code class="text-success">@formula.Formula.Replace("{DATA_RANGE}", "B3:B25")</code></td>
+                                                <td><span class="badge bg-info">@formula.RangeType</span></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+        else
+        {
+            <div class="text-center py-4 text-muted">
+                <i class="bi bi-calculator display-4 d-block mb-2"></i>
+                <p class="mb-0">No formulas configured yet</p>
+            </div>
+        }
+    };
+
+    // Helper Methods
+    private string GetRowTypeIcon(RowType type) => type switch
+    {
+        RowType.Header => "📋",
+        RowType.Formula => "🧮",
+        RowType.Data => "📊",
+        RowType.Summary => "📋",
+        RowType.Separator => "➖",
+        _ => "❓"
+    };
+
+    private string GetStructureRowClass(RowType type) => type switch
+    {
+        RowType.Header => "bg-light border-secondary",
+        RowType.Formula => "bg-info bg-opacity-10 border-info",
+        RowType.Data => "bg-success bg-opacity-10 border-success",
+        RowType.Summary => "bg-warning bg-opacity-10 border-warning",
+        RowType.Separator => "bg-secondary bg-opacity-10 border-secondary",
+        _ => "border-secondary"
+    };
+
+    private string GetRowDescription(RowType type) => type switch
+    {
+        RowType.Header => "Column headers will appear here",
+        RowType.Formula => "Summary formulas that adjust to your data size",
+        RowType.Data => "Your actual data will populate these rows",
+        RowType.Summary => "Summary information and metadata",
+        RowType.Separator => "Empty row for visual spacing",
+        _ => ""
+    };
+
+    private string GetSampleData(ColumnDefinition column, int rowIndex)
+    {
+        return column.DataType switch
+        {
+            "Number" => (100 + rowIndex * 50).ToString(),
+            "Currency" => $"${(100 + rowIndex * 50):F2}",
+            "Percentage" => $"{(50 + rowIndex * 10)}%",
+            "Date" => DateTime.Now.AddDays(rowIndex).ToString("MM/dd/yyyy"),
+            "DateTime" => DateTime.Now.AddDays(rowIndex).ToString("MM/dd/yyyy HH:mm"),
+            "Checkbox" => rowIndex % 2 == 0 ? "☑" : "☐",
+            "Email" => $"user{rowIndex + 1}@example.com",
+            "Phone" => $"(555) {100 + rowIndex:000}-{1000 + rowIndex:0000}",
+            _ => $"Sample {column.Header} {rowIndex + 1}"
+        };
+    }
+}
+
+<style>
+    .template-designer .preview-table {
+        font-size: 0.9rem;
+    }
+
+        .template-designer .preview-table th,
+        .template-designer .preview-table td {
+            padding: 0.5rem;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+    .structure-row {
+        transition: transform 0.2s;
+    }
+
+        .structure-row:hover {
+            transform: translateX(5px);
+        }
+
+    .row-number {
+        width: 30px;
+        height: 30px;
+        background: #007bff;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 0.85rem;
+    }
+
+    .formula-preview code {
+        font-size: 0.85rem;
+    }
+</style>

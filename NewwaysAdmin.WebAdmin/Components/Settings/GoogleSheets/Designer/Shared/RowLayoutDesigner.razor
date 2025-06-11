@@ -1,0 +1,58 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Settings/GoogleSheets/Designer/TemplateDesigner.razor *@
+@* SIMPLE TEST VERSION *@
+@using NewwaysAdmin.GoogleSheets.Models
+
+<div class="template-designer-test">
+    <div class="alert alert-info">
+        <h5>🎉 Template Designer is Working!</h5>
+        <p>This is a simplified test version to verify the component loads.</p>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h6>Template: @Template.Name</h6>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label">Template Name</label>
+                <input type="text" class="form-control" @bind="Template.Name" placeholder="Enter template name">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" @bind="Template.Description" rows="3" placeholder="Describe your template"></textarea>
+            </div>
+
+            <div class="mb-3">
+                <h6>Current Template Info:</h6>
+                <ul>
+                    <li>Name: @Template.Name</li>
+                    <li>Columns: @Template.Columns.Count</li>
+                    <li>Row Templates: @Template.RowTemplates.Count</li>
+                    <li>Formulas: @Template.Formulas.Count</li>
+                </ul>
+            </div>
+
+            <div class="mt-3">
+                <button class="btn btn-secondary me-2" @onclick="OnCancel">Cancel</button>
+                <button class="btn btn-primary" @onclick="OnSave">Save Test Template</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public SheetTemplate Template { get; set; } = new();
+    [Parameter] public EventCallback<SheetTemplate> TemplateChanged { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback<SheetTemplate> OnPreview { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (string.IsNullOrEmpty(Template.Name))
+        {
+            Template.Name = "Test Template";
+        }
+    }
+}
