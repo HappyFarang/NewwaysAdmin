@@ -1,337 +1,311 @@
-﻿@page "/settings/google-sheets"
-@using NewwaysAdmin.GoogleSheets.Models.Templates
-@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer
+﻿@* NewwaysAdmin.WebAdmin/Components/Settings/GoogleSheets/GoogleSheetsSettingsV2.razor *@
+@page "/settings/google-sheets-v2"
 @using NewwaysAdmin.GoogleSheets.Services
+@using NewwaysAdmin.GoogleSheets.Models
+@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
+@inject ModuleColumnRegistry ColumnRegistry
 @inject IJSRuntime JSRuntime
-@inject IEnhancedSheetTemplateService TemplateService
-@inject ILogger<GoogleSheetsSettings> Logger
+@inject ILogger<GoogleSheetsSettingsV2> Logger
 
 <div class="google-sheets-settings">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h4 class="mb-1">Google Sheets Templates</h4>
-            <p class="text-muted mb-0">Create and manage your enhanced Google Sheets templates</p>
+            <h4 class="mb-1">Google Sheets Configuration</h4>
+            <p class="text-muted mb-0">Configure admin templates and manage module exports</p>
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-outline-primary" @onclick="ShowOverview">
+                <i class="bi bi-house me-1"></i>Overview
+            </button>
+            <button class="btn btn-primary" @onclick="ShowTemplateBuilder">
+                <i class="bi bi-plus-lg me-1"></i>Create Template
+            </button>
         </div>
     </div>
 
-    @if (_isLoading)
+    @if (_currentView == ViewMode.Overview)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+        <!-- Overview Dashboard -->
+        <div class="row">
+            <!-- Available Modules -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-puzzle me-2"></i>Available Modules
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_availableModules.Any())
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var module in _availableModules)
+                                {
+                                    var columns = ColumnRegistry.GetModuleColumns(module);
+                                    var hasTemplate = _adminTemplates.ContainsKey(module);
+
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h6 class="mb-1">@module</h6>
+                                            <small class="text-muted">@columns.Count available columns</small>
+                                        </div>
+                                        <div>
+                                            @if (hasTemplate)
+                                            {
+                                                <span class="badge bg-success me-2">Configured</span>
+                                                <button class="btn btn-outline-primary btn-sm"
+                                                        @onclick="@(() => EditTemplate(module))">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary me-2">Not Configured</span>
+                                                <button class="btn btn-primary btn-sm"
+                                                        @onclick="@(() => CreateTemplateForModule(module))">
+                                                    <i class="bi bi-plus"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center text-muted py-4">
+                                <i class="bi bi-puzzle display-4"></i>
+                                <p class="mt-2">No modules available</p>
+                            </div>
+                        }
+                    </div>
+                </div>
             </div>
-            <p class="mt-3 text-muted">Loading templates...</p>
-        </div>
-    }
-    else if (_hasError)
-    {
-        <div class="alert alert-danger" role="alert">
-            <h4 class="alert-heading">Error Loading Templates</h4>
-            <p>@_errorMessage</p>
-            <hr>
-            <button class="btn btn-outline-danger" @onclick="RetryLoad">
-                <i class="bi bi-arrow-clockwise me-1"></i>Try Again
-            </button>
-        </div>
-    }
-    else if (_currentMode == DisplayMode.Welcome)
-    {
-        <div class="text-center py-5">
-            <i class="bi bi-file-earmark-spreadsheet display-1 text-primary"></i>
-            <h3 class="mt-3">Welcome to Google Sheets Templates</h3>
-            <p class="text-muted mb-4">
-                Create powerful spreadsheet templates with interactive checkboxes, formulas, and advanced formatting.
-            </p>
-            <div class="d-grid gap-2 d-md-flex justify-content-md-center">
-                <button class="btn btn-primary" @onclick="HandleGetStarted">
-                    <i class="bi bi-grid-3x3-gap me-2"></i>Get Started
-                </button>
-                <button class="btn btn-success" @onclick="ShowDesigner">
-                    <i class="bi bi-plus-lg me-2"></i>Create Template
-                </button>
+
+            <!-- Configured Templates -->
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-file-earmark-spreadsheet me-2"></i>Admin Templates
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        @if (_adminTemplates.Any())
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var template in _adminTemplates.Values)
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <h6 class="mb-1">@template.TemplateName</h6>
+                                                <small class="text-muted">
+                                                    @template.SelectedColumns.Count columns |
+                                                    Created @template.CreatedAt.ToString("MM/dd/yyyy")
+                                                </small>
+                                            </div>
+                                            <div class="btn-group btn-group-sm">
+                                                <button class="btn btn-outline-info"
+                                                        @onclick="@(() => PreviewTemplate(template))">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                                <button class="btn btn-outline-primary"
+                                                        @onclick="@(() => EditTemplate(template.ModuleName))">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button class="btn btn-outline-danger"
+                                                        @onclick="@(() => DeleteTemplate(template.ModuleName))">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        @if (_previewingTemplate == template.ModuleName)
+                                        {
+                                            <div class="mt-3 p-3 bg-light rounded">
+                                                <h6>Columns:</h6>
+                                                <div class="row">
+                                                    @foreach (var col in template.SelectedColumns)
+                                                    {
+                                                        <div class="col-md-6 mb-1">
+                                                            <small>
+                                                                <strong>@col.DisplayName</strong>
+                                                                @if (col.IncludeSum || !string.IsNullOrEmpty(col.Formula))
+                                                                {
+                                                                    <span class="badge bg-info ms-1">@(col.IncludeSum ? "SUM" : col.Formula)</span>
+                                                                }
+                                                            </small>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center text-muted py-4">
+                                <i class="bi bi-file-earmark-plus display-4"></i>
+                                <p class="mt-2">No templates configured</p>
+                                <small>Create your first template to get started</small>
+                            </div>
+                        }
+                    </div>
+                </div>
             </div>
-        </div>
-    }
-    else if (_currentMode == DisplayMode.List)
-    {
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h6 class="mb-0">@_templates.Count Template@(_templates.Count == 1 ? "" : "s")</h6>
-                <small class="text-muted">Enhanced templates with advanced features</small>
-            </div>
-            <button class="btn btn-primary" @onclick="ShowDesigner">
-                <i class="bi bi-plus-lg me-2"></i>Create New Template
-            </button>
         </div>
 
-        @if (!_templates.Any())
-        {
-            <div class="empty-state text-center py-5">
-                <i class="bi bi-file-earmark-spreadsheet display-1 text-muted"></i>
-                <h4 class="mt-3 text-muted">No Templates Yet</h4>
-                <p class="text-muted mb-4">
-                    Get started by creating your first enhanced Google Sheets template with checkboxes, formulas, and formatting.
-                </p>
-                <button class="btn btn-success" @onclick="ShowDesigner">
-                    <i class="bi bi-plus-lg me-2"></i>Create Your First Template
-                </button>
-            </div>
-        }
-        else
-        {
-            <div class="row">
-                @foreach (var template in _templates)
-                {
-                    <div class="col-md-6 col-lg-4 mb-4">
-                        <div class="card h-100">
-                            <div class="card-body">
-                                <h5 class="card-title">@template.Name</h5>
-                                <p class="card-text">@template.Description</p>
-                                <small class="text-muted">
-                                    Modified: @template.LastModified.ToString("MMM d, yyyy")
-                                </small>
+        <!-- Quick Stats -->
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-md-3">
+                                <h3 class="text-primary">@_availableModules.Count</h3>
+                                <small class="text-muted">Available Modules</small>
                             </div>
-                            <div class="card-footer bg-transparent">
-                                <div class="btn-group w-100">
-                                    <button class="btn btn-outline-primary" @onclick="() => HandleEditTemplate(template)">
-                                        <i class="bi bi-pencil me-1"></i>Edit
-                                    </button>
-                                    <button class="btn btn-outline-danger" @onclick="() => HandleDeleteTemplate(template)">
-                                        <i class="bi bi-trash me-1"></i>Delete
-                                    </button>
-                                </div>
+                            <div class="col-md-3">
+                                <h3 class="text-success">@_adminTemplates.Count</h3>
+                                <small class="text-muted">Configured Templates</small>
+                            </div>
+                            <div class="col-md-3">
+                                <h3 class="text-info">@_totalColumnsConfigured</h3>
+                                <small class="text-muted">Total Columns</small>
+                            </div>
+                            <div class="col-md-3">
+                                <h3 class="text-warning">@_templatesWithFormulas</h3>
+                                <small class="text-muted">Templates with Formulas</small>
                             </div>
                         </div>
                     </div>
-                }
+                </div>
             </div>
-        }
+        </div>
     }
-    else if (_currentMode == DisplayMode.Designer)
+    else if (_currentView == ViewMode.TemplateBuilder)
     {
-        <EnhancedTemplateDesigner Template="_currentTemplate"
-                                  IsEditing="_isEditing"
-                                  OnSave="HandleTemplateSaved"
-                                  OnCancel="HandleDesignerCancel" />
+        <!-- Template Builder -->
+        <AdminTemplateBuilder OnTemplateSaved="HandleTemplateSaved" />
+    }
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert @(_statusIsError ? "alert-danger" : "alert-success") alert-dismissible fade show mt-3">
+            @_statusMessage
+            <button type="button" class="btn-close" @onclick="ClearStatus"></button>
+        </div>
     }
 </div>
 
 @code {
-    private enum DisplayMode { Welcome, List, Designer }
+    private ViewMode _currentView = ViewMode.Overview;
+    private List<string> _availableModules = new();
+    private Dictionary<string, AdminTemplateBuilder.AdminTemplateConfig> _adminTemplates = new();
+    private string _previewingTemplate = string.Empty;
+    private string _statusMessage = string.Empty;
+    private bool _statusIsError = false;
 
-    private DisplayMode _currentMode = DisplayMode.Welcome;
-    private List<EnhancedSheetTemplate> _templates = new();
-    private EnhancedSheetTemplate? _currentTemplate;
-    private bool _isEditing = false;
-    private bool _isLoading = true;
-    private bool _hasError = false;
-    private string _errorMessage = string.Empty;
+    // Computed properties for stats
+    private int _totalColumnsConfigured => _adminTemplates.Values.Sum(t => t.SelectedColumns.Count);
+    private int _templatesWithFormulas => _adminTemplates.Values.Count(t =>
+        t.SelectedColumns.Any(c => c.IncludeSum || !string.IsNullOrEmpty(c.Formula)));
 
-    protected override async Task OnInitializedAsync()
+    private enum ViewMode
     {
-        try
-        {
-            Logger.LogInformation("GoogleSheetsSettings: Starting initialization");
-
-            // Add timeout and cancellation support
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
-            await LoadTemplatesWithErrorHandling(cts.Token);
-
-            // If user has templates, show list instead of welcome
-            if (_templates.Any())
-            {
-                _currentMode = DisplayMode.List;
-            }
-
-            Logger.LogInformation("GoogleSheetsSettings: Initialization completed successfully");
-        }
-        catch (OperationCanceledException)
-        {
-            Logger.LogWarning("GoogleSheetsSettings: Initialization timed out");
-            SetError("The operation timed out. Please try again.");
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("circuit"))
-        {
-            Logger.LogWarning("GoogleSheetsSettings: Circuit closed during initialization");
-            // Don't call StateHasChanged() here - circuit is closed
-            return;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "GoogleSheetsSettings: Error during initialization");
-            SetError($"Failed to load templates: {ex.Message}");
-        }
-        finally
-        {
-            _isLoading = false;
-
-            // Only call StateHasChanged if we can
-            await SafeStateHasChanged();
-        }
+        Overview,
+        TemplateBuilder
     }
 
-    private async Task LoadTemplatesWithErrorHandling(CancellationToken cancellationToken = default)
+    protected override void OnInitialized()
     {
-        try
-        {
-            Logger.LogDebug("Loading templates from service");
-            _templates = await TemplateService.GetTemplatesAsync();
-            _hasError = false;
-            _errorMessage = string.Empty;
-            Logger.LogDebug("Successfully loaded {Count} templates", _templates.Count);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading templates from service");
-            _templates = new List<EnhancedSheetTemplate>();
-            throw; // Re-throw to be handled by caller
-        }
+        _availableModules = ColumnRegistry.GetAvailableModules();
+        LoadExistingTemplates();
     }
 
-    private async Task RetryLoad()
+    private void LoadExistingTemplates()
     {
-        _isLoading = true;
-        _hasError = false;
-        await SafeStateHasChanged();
-
-        try
-        {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await LoadTemplatesWithErrorHandling(cts.Token);
-
-            if (_templates.Any())
-            {
-                _currentMode = DisplayMode.List;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error during retry load");
-            SetError($"Failed to load templates: {ex.Message}");
-        }
-        finally
-        {
-            _isLoading = false;
-            await SafeStateHasChanged();
-        }
+        // TODO: Load saved templates from storage
+        // For now, simulate some data
+        _adminTemplates = new Dictionary<string, AdminTemplateBuilder.AdminTemplateConfig>();
     }
 
-    private void SetError(string message)
+    private void ShowOverview()
     {
-        _hasError = true;
-        _errorMessage = message;
+        _currentView = ViewMode.Overview;
+        _previewingTemplate = string.Empty;
+        StateHasChanged();
     }
 
-    private async Task SafeStateHasChanged()
+    private void ShowTemplateBuilder()
     {
-        try
+        _currentView = ViewMode.TemplateBuilder;
+        StateHasChanged();
+    }
+
+    private void CreateTemplateForModule(string module)
+    {
+        // TODO: Pre-populate the template builder with the selected module
+        ShowTemplateBuilder();
+    }
+
+    private void EditTemplate(string moduleName)
+    {
+        // TODO: Load existing template for editing
+        ShowTemplateBuilder();
+    }
+
+    private async Task DeleteTemplate(string moduleName)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+            $"Are you sure you want to delete the template for {moduleName}?");
+
+        if (confirmed)
         {
+            _adminTemplates.Remove(moduleName);
+            ShowStatus($"Template for {moduleName} deleted successfully.", false);
             StateHasChanged();
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("circuit"))
-        {
-            Logger.LogWarning("Cannot update UI - circuit is closed");
-            // Ignore - circuit is closed
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error calling StateHasChanged");
-        }
     }
 
-    private async Task HandleGetStarted()
+    private void PreviewTemplate(AdminTemplateBuilder.AdminTemplateConfig template)
     {
-        _currentMode = DisplayMode.List;
-        await SafeStateHasChanged();
+        _previewingTemplate = _previewingTemplate == template.ModuleName ? string.Empty : template.ModuleName;
+        StateHasChanged();
     }
 
-    private async Task ShowDesigner()
+    private async Task HandleTemplateSaved(AdminTemplateBuilder.AdminTemplateConfig template)
     {
         try
         {
-            // Create a new template
-            _currentTemplate = new EnhancedSheetTemplate
-                {
-                    CreatedAt = DateTime.UtcNow,
-                    LastModified = DateTime.UtcNow,
-                    Formatting = new EnhancedSheetFormatting(),
-                    DataColumns = new List<DataColumnTemplate>(),
-                    CheckboxColumns = new List<CheckboxColumnTemplate>(),
-                    FormulaRows = new List<FormulaRowTemplate>(),
-                    Metadata = new Dictionary<string, string>()
-                };
+            // Save the template
+            _adminTemplates[template.ModuleName] = template;
 
-            _isEditing = false;
-            _currentMode = DisplayMode.Designer;
-            await SafeStateHasChanged();
+            // TODO: Persist to storage
+
+            ShowStatus($"Template '{template.TemplateName}' saved successfully!", false);
+            ShowOverview();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error showing designer");
-            SetError($"Error opening designer: {ex.Message}");
-            await SafeStateHasChanged();
+            Logger.LogError(ex, "Error saving template");
+            ShowStatus($"Error saving template: {ex.Message}", true);
         }
     }
 
-    private async Task HandleEditTemplate(EnhancedSheetTemplate template)
+    private void ShowStatus(string message, bool isError)
     {
-        try
-        {
-            _currentTemplate = template;
-            _isEditing = true;
-            _currentMode = DisplayMode.Designer;
-            await SafeStateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error editing template");
-            SetError($"Error opening template for editing: {ex.Message}");
-            await SafeStateHasChanged();
-        }
+        _statusMessage = message;
+        _statusIsError = isError;
+        StateHasChanged();
     }
 
-    private async Task HandleDeleteTemplate(EnhancedSheetTemplate template)
+    private void ClearStatus()
     {
-        try
-        {
-            var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
-                $"Are you sure you want to delete '{template.Name}'?");
-
-            if (confirmed)
-            {
-                await TemplateService.DeleteTemplateAsync(template.Id);
-                await LoadTemplatesWithErrorHandling();
-                await SafeStateHasChanged();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error deleting template");
-            SetError($"Error deleting template: {ex.Message}");
-            await SafeStateHasChanged();
-        }
-    }
-
-    private async Task HandleTemplateSaved(EnhancedSheetTemplate template)
-    {
-        try
-        {
-            await LoadTemplatesWithErrorHandling();
-            _currentMode = DisplayMode.List;
-            await SafeStateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error after saving template");
-            SetError($"Template saved but error refreshing list: {ex.Message}");
-            await SafeStateHasChanged();
-        }
-    }
-
-    private async Task HandleDesignerCancel()
-    {
-        _currentMode = _templates.Any() ? DisplayMode.List : DisplayMode.Welcome;
-        await SafeStateHasChanged();
+        _statusMessage = string.Empty;
+        StateHasChanged();
     }
 }
