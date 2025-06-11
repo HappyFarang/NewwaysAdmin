@@ -1,11 +1,13 @@
-﻿@* NewwaysAdmin.WebAdmin/Components/Settings/GoogleSheets/GoogleSheetsSettingsV2.razor *@
+﻿@* Production version of GoogleSheetsSettings.razor *@
 @page "/settings/google-sheets-v2"
 @using NewwaysAdmin.GoogleSheets.Services
 @using NewwaysAdmin.GoogleSheets.Models
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
+@using NewwaysAdmin.WebAdmin.Services.GoogleSheets
 @inject ModuleColumnRegistry ColumnRegistry
 @inject IJSRuntime JSRuntime
 @inject ILogger<GoogleSheetsSettings> Logger
+@inject ITemplateStorageService TemplateStorageService
 
 <div class="google-sheets-settings">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -23,7 +25,16 @@
         </div>
     </div>
 
-    @if (_currentView == ViewMode.Overview)
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading templates...</p>
+        </div>
+    }
+    else if (_currentView == ViewMode.Overview)
     {
         <!-- Overview Dashboard -->
         <div class="row">
@@ -43,27 +54,37 @@
                                 {
                                     var columns = ColumnRegistry.GetModuleColumns(module);
                                     var hasTemplate = _adminTemplates.ContainsKey(module);
-
                                     <div class="list-group-item d-flex justify-content-between align-items-center">
                                         <div>
-                                            <h6 class="mb-1">@module</h6>
-                                            <small class="text-muted">@columns.Count available columns</small>
+                                            <strong>@module</strong>
+                                            <br />
+                                            <small class="text-muted">@columns.Count columns available</small>
                                         </div>
                                         <div>
                                             @if (hasTemplate)
                                             {
-                                                <span class="badge bg-success me-2">Configured</span>
-                                                <button class="btn btn-outline-primary btn-sm"
-                                                        @onclick="@(() => EditTemplate(module))">
-                                                    <i class="bi bi-pencil"></i>
-                                                </button>
+                                                <span class="badge bg-success me-2">
+                                                    <i class="bi bi-check-circle me-1"></i>Template Ready
+                                                </span>
+                                                <div class="btn-group btn-group-sm">
+                                                    <button class="btn btn-outline-primary" @onclick="@(() => EditTemplate(module))"
+                                                            title="Edit Template">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-info" @onclick="@(() => PreviewTemplate(_adminTemplates[module]))"
+                                                            title="Preview Template">
+                                                        <i class="bi bi-eye"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-danger" @onclick="@(() => DeleteTemplate(module))"
+                                                            title="Delete Template">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
                                             }
                                             else
                                             {
-                                                <span class="badge bg-secondary me-2">Not Configured</span>
-                                                <button class="btn btn-primary btn-sm"
-                                                        @onclick="@(() => CreateTemplateForModule(module))">
-                                                    <i class="bi bi-plus"></i>
+                                                <button class="btn btn-primary btn-sm" @onclick="@(() => CreateTemplateForModule(module))">
+                                                    <i class="bi bi-plus me-1"></i>Create Template
                                                 </button>
                                             }
                                         </div>
@@ -73,84 +94,69 @@
                         }
                         else
                         {
-                            <div class="text-center text-muted py-4">
-                                <i class="bi bi-puzzle display-4"></i>
-                                <p class="mt-2">No modules available</p>
-                            </div>
+                            <p class="text-muted">No modules available.</p>
                         }
                     </div>
                 </div>
             </div>
 
-            <!-- Configured Templates -->
+            <!-- Template Statistics -->
             <div class="col-md-6">
                 <div class="card h-100">
                     <div class="card-header">
                         <h5 class="mb-0">
-                            <i class="bi bi-file-earmark-spreadsheet me-2"></i>Admin Templates
+                            <i class="bi bi-bar-chart me-2"></i>Template Statistics
                         </h5>
                     </div>
                     <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <div class="h3 text-primary">@_adminTemplates.Count</div>
+                                <small class="text-muted">Templates</small>
+                            </div>
+                            <div class="col-4">
+                                <div class="h3 text-success">@_totalColumnsConfigured</div>
+                                <small class="text-muted">Columns</small>
+                            </div>
+                            <div class="col-4">
+                                <div class="h3 text-warning">@_templatesWithFormulas</div>
+                                <small class="text-muted">With Formulas</small>
+                            </div>
+                        </div>
+
                         @if (_adminTemplates.Any())
                         {
-                            <div class="list-group list-group-flush">
-                                @foreach (var template in _adminTemplates.Values)
-                                {
-                                    <div class="list-group-item">
-                                        <div class="d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <h6 class="mb-1">@template.TemplateName</h6>
-                                                <small class="text-muted">
-                                                    @template.SelectedColumns.Count columns |
-                                                    Created @template.CreatedAt.ToString("MM/dd/yyyy")
-                                                </small>
-                                            </div>
-                                            <div class="btn-group btn-group-sm">
-                                                <button class="btn btn-outline-info"
-                                                        @onclick="@(() => PreviewTemplate(template))">
-                                                    <i class="bi bi-eye"></i>
-                                                </button>
-                                                <button class="btn btn-outline-primary"
-                                                        @onclick="@(() => EditTemplate(template.ModuleName))">
-                                                    <i class="bi bi-pencil"></i>
-                                                </button>
-                                                <button class="btn btn-outline-danger"
-                                                        @onclick="@(() => DeleteTemplate(template.ModuleName))">
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-
+                            <hr />
+                            <h6>Recent Templates</h6>
+                            @foreach (var template in _adminTemplates.Values.OrderByDescending(t => t.CreatedAt).Take(3))
+                            {
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div>
+                                        <strong>@template.TemplateName</strong>
+                                        <br />
+                                        <small class="text-muted">@template.CreatedAt.ToString("MMM dd, yyyy")</small>
+                                    </div>
+                                    <button class="btn btn-outline-info btn-sm" @onclick="@(() => PreviewTemplate(template))">
                                         @if (_previewingTemplate == template.ModuleName)
                                         {
-                                            <div class="mt-3 p-3 bg-light rounded">
-                                                <h6>Columns:</h6>
-                                                <div class="row">
-                                                    @foreach (var col in template.SelectedColumns)
-                                                    {
-                                                        <div class="col-md-6 mb-1">
-                                                            <small>
-                                                                <strong>@col.DisplayName</strong>
-                                                                @if (col.IncludeSum || !string.IsNullOrEmpty(col.Formula))
-                                                                {
-                                                                    <span class="badge bg-info ms-1">@(col.IncludeSum ? "SUM" : col.Formula)</span>
-                                                                }
-                                                            </small>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            </div>
+                                            <i class="bi bi-eye-slash"></i>
                                         }
-                                    </div>
-                                }
-                            </div>
+                                        else
+                                        {
+                                            <i class="bi bi-eye"></i>
+                                        }
+                                    </button>
+                                </div>
+                            }
                         }
                         else
                         {
-                            <div class="text-center text-muted py-4">
-                                <i class="bi bi-file-earmark-plus display-4"></i>
-                                <p class="mt-2">No templates configured</p>
-                                <small>Create your first template to get started</small>
+                            <div class="text-center py-4 text-muted">
+                                <i class="bi bi-inbox display-4"></i>
+                                <p class="mt-2">No templates created yet</p>
+                                <button class="btn btn-primary btn-sm" @onclick="ShowTemplateBuilder">
+                                    Create Your First Template
+                                </button>
                             </div>
                         }
                     </div>
@@ -158,43 +164,70 @@
             </div>
         </div>
 
-        <!-- Quick Stats -->
-        <div class="row mt-4">
-            <div class="col-md-12">
+        <!-- Template Preview -->
+        @if (!string.IsNullOrEmpty(_previewingTemplate) && _adminTemplates.ContainsKey(_previewingTemplate))
+        {
+            var template = _adminTemplates[_previewingTemplate];
+            <div class="mt-4">
                 <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="bi bi-eye me-2"></i>Template Preview: @template.TemplateName
+                        </h6>
+                    </div>
                     <div class="card-body">
-                        <div class="row text-center">
-                            <div class="col-md-3">
-                                <h3 class="text-primary">@_availableModules.Count</h3>
-                                <small class="text-muted">Available Modules</small>
-                            </div>
-                            <div class="col-md-3">
-                                <h3 class="text-success">@_adminTemplates.Count</h3>
-                                <small class="text-muted">Configured Templates</small>
-                            </div>
-                            <div class="col-md-3">
-                                <h3 class="text-info">@_totalColumnsConfigured</h3>
-                                <small class="text-muted">Total Columns</small>
-                            </div>
-                            <div class="col-md-3">
-                                <h3 class="text-warning">@_templatesWithFormulas</h3>
-                                <small class="text-muted">Templates with Formulas</small>
-                            </div>
+                        <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <thead class="table-dark">
+                                    <tr>
+                                        @foreach (var column in template.SelectedColumns)
+                                        {
+                                            <th style="width: @(column.Width)px;">
+                                                @column.DisplayName
+                                                @if (column.IncludeSum)
+                                                {
+                                                    <small><i class="bi bi-calculator ms-1"></i></small>
+                                                }
+                                            </th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        @foreach (var column in template.SelectedColumns)
+                                        {
+                                            <td class="text-muted">Sample data...</td>
+                                        }
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <strong>@template.SelectedColumns.Count</strong> columns configured,
+                                <strong>@template.SelectedColumns.Count(c => c.IncludeSum)</strong> with sum formulas
+                                @if (template.SelectedColumns.Any(c => !string.IsNullOrEmpty(c.Formula)))
+                                {
+                                    <text>, <strong>@template.SelectedColumns.Count(c => !string.IsNullOrEmpty(c.Formula))</strong> with custom formulas</text>
+                                }
+                            </small>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+        }
     }
     else if (_currentView == ViewMode.TemplateBuilder)
     {
-        <!-- Template Builder -->
-        <AdminTemplateBuilder OnTemplateSaved="HandleTemplateSaved" />
+        <AdminTemplateBuilder OnTemplateSaved="HandleTemplateSaved"
+                              EditingModuleName="@_editingModuleName"
+                              EditingTemplate="@_editingTemplate" />
     }
 
+    <!-- Status Messages -->
     @if (!string.IsNullOrEmpty(_statusMessage))
     {
-        <div class="alert @(_statusIsError ? "alert-danger" : "alert-success") alert-dismissible fade show mt-3">
+        <div class="@(_statusIsError ? "alert alert-danger" : "alert alert-success") alert-dismissible fade show mt-3">
             @_statusMessage
             <button type="button" class="btn-close" @onclick="ClearStatus"></button>
         </div>
@@ -208,6 +241,11 @@
     private string _previewingTemplate = string.Empty;
     private string _statusMessage = string.Empty;
     private bool _statusIsError = false;
+    private bool _isLoading = false;
+
+    // For editing existing templates
+    private string _editingModuleName = string.Empty;
+    private AdminTemplateBuilder.AdminTemplateConfig? _editingTemplate = null;
 
     // Computed properties for stats
     private int _totalColumnsConfigured => _adminTemplates.Values.Sum(t => t.SelectedColumns.Count);
@@ -220,23 +258,42 @@
         TemplateBuilder
     }
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _availableModules = ColumnRegistry.GetAvailableModules();
-        LoadExistingTemplates();
+        await LoadExistingTemplates();
     }
 
-    private void LoadExistingTemplates()
+    private async Task LoadExistingTemplates()
     {
-        // TODO: Load saved templates from storage
-        // For now, simulate some data
-        _adminTemplates = new Dictionary<string, AdminTemplateBuilder.AdminTemplateConfig>();
+        try
+        {
+            _isLoading = true;
+            StateHasChanged();
+
+            _adminTemplates = await TemplateStorageService.LoadAllTemplatesAsync();
+
+            Logger.LogInformation("Loaded {Count} existing templates", _adminTemplates.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading existing templates");
+            ShowStatus("Error loading existing templates", true);
+            _adminTemplates = new Dictionary<string, AdminTemplateBuilder.AdminTemplateConfig>();
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private void ShowOverview()
     {
         _currentView = ViewMode.Overview;
         _previewingTemplate = string.Empty;
+        _editingModuleName = string.Empty;
+        _editingTemplate = null;
         StateHasChanged();
     }
 
@@ -248,14 +305,23 @@
 
     private void CreateTemplateForModule(string module)
     {
-        // TODO: Pre-populate the template builder with the selected module
+        _editingModuleName = module;
+        _editingTemplate = null;
         ShowTemplateBuilder();
     }
 
     private void EditTemplate(string moduleName)
     {
-        // TODO: Load existing template for editing
-        ShowTemplateBuilder();
+        if (_adminTemplates.TryGetValue(moduleName, out var template))
+        {
+            _editingModuleName = moduleName;
+            _editingTemplate = template;
+            ShowTemplateBuilder();
+        }
+        else
+        {
+            ShowStatus($"Template for {moduleName} not found", true);
+        }
     }
 
     private async Task DeleteTemplate(string moduleName)
@@ -265,8 +331,26 @@
 
         if (confirmed)
         {
-            _adminTemplates.Remove(moduleName);
-            ShowStatus($"Template for {moduleName} deleted successfully.", false);
+            try
+            {
+                var success = await TemplateStorageService.DeleteTemplateAsync(moduleName);
+
+                if (success)
+                {
+                    _adminTemplates.Remove(moduleName);
+                    ShowStatus($"Template for {moduleName} deleted successfully.", false);
+                }
+                else
+                {
+                    ShowStatus($"Failed to delete template for {moduleName}", true);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error deleting template for {ModuleName}", moduleName);
+                ShowStatus($"Error deleting template: {ex.Message}", true);
+            }
+
             StateHasChanged();
         }
     }
@@ -281,13 +365,21 @@
     {
         try
         {
-            // Save the template
-            _adminTemplates[template.ModuleName] = template;
+            // Save to storage using the service
+            var success = await TemplateStorageService.SaveTemplateAsync(template);
 
-            // TODO: Persist to storage
+            if (success)
+            {
+                // Update local cache
+                _adminTemplates[template.ModuleName] = template;
 
-            ShowStatus($"Template '{template.TemplateName}' saved successfully!", false);
-            ShowOverview();
+                ShowStatus($"Template '{template.TemplateName}' saved successfully!", false);
+                ShowOverview();
+            }
+            else
+            {
+                ShowStatus("Failed to save template to storage", true);
+            }
         }
         catch (Exception ex)
         {
@@ -301,6 +393,21 @@
         _statusMessage = message;
         _statusIsError = isError;
         StateHasChanged();
+
+        // Auto-clear success messages after 5 seconds
+        if (!isError)
+        {
+            _ = Task.Delay(5000).ContinueWith(_ =>
+            {
+                InvokeAsync(() =>
+                {
+                    if (_statusMessage == message)
+                    {
+                        ClearStatus();
+                    }
+                });
+            });
+        }
     }
 
     private void ClearStatus()

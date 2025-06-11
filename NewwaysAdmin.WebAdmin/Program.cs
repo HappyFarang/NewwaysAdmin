@@ -27,6 +27,7 @@ using NewwaysAdmin.GoogleSheets.Extensions;
 using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
+using NewwaysAdmin.WebAdmin.Services.GoogleSheets;
 
 
 
@@ -209,6 +210,7 @@ public class Program
             DefaultShareEmail = "superfox75@gmail.com"
         };
 
+        services.AddScoped<ITemplateStorageService, TemplateStorageService>();
 
         // Add Google Sheets services
         services.AddGoogleSheetsServices(googleSheetsConfig);
