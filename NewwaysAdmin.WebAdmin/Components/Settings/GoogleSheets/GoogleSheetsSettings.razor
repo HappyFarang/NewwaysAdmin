@@ -63,8 +63,6 @@
 </div>
 
 @code {
-
-
     private enum ViewMode { Overview, Designer, Preview }
 
     private ViewMode _currentView = ViewMode.Overview;
@@ -259,7 +257,7 @@
     {
         <div class="template-designer">
             <div class="row">
-                <!-- Left Panel: Template Settings & Module Columns -->
+                <!-- Left Panel: Template Settings -->
                 <div class="col-lg-6">
                     <div class="card mb-4">
                         <div class="card-header">
@@ -276,13 +274,11 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Data Type</label>
-                                <select class="form-select" value="@_currentTemplate.DataType"
-                                        @onchange="@((ChangeEventArgs e) => OnDataTypeChanged(e.Value?.ToString()))">
-                                    <option value="">Select data type...</option>
-                                    @foreach (var module in _availableModules)
-                                    {
-                                        <option value="@module">@module</option>
-                                    }
+                                <select class="form-select" @bind="_currentTemplate.DataType">
+                                    <option value="BankSlipData">Bank Slip Data</option>
+                                    <option value="SalesData">Sales Data</option>
+                                    <option value="InventoryData">Inventory Data</option>
+                                    <option value="Custom">Custom</option>
                                 </select>
                             </div>
                             <div class="mb-3">
@@ -294,116 +290,72 @@
                         </div>
                     </div>
 
-                    <!-- Column Selection from Registry -->
+                    <!-- Column Management -->
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h6 class="mb-0">
-                                <i class="bi bi-columns me-2"></i>Available Columns
+                                <i class="bi bi-columns me-2"></i>Columns (@_currentTemplate.Columns.Count)
                             </h6>
-                            @if (_moduleColumns.Any())
-                            {
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox"
-                                           @bind="_selectAllColumns"
-                                           @onchange="@((ChangeEventArgs e) => ToggleAllColumns((bool)e.Value))">
-                                    <label class="form-check-label">Select All</label>
-                                </div>
-                            }
+                            <button type="button" class="btn btn-primary btn-sm" @onclick="AddColumn">
+                                <i class="bi bi-plus-circle me-1"></i>Add Column
+                            </button>
                         </div>
                         <div class="card-body">
-                            @if (string.IsNullOrEmpty(_currentTemplate.DataType))
+                            @if (!_currentTemplate.Columns.Any())
                             {
                                 <div class="text-center py-4 text-muted">
-                                    <i class="bi bi-arrow-up display-4"></i>
-                                    <p class="mt-2">Select a data type above to see available columns</p>
-                                </div>
-                            }
-                            else if (!_moduleColumns.Any())
-                            {
-                                <div class="text-center py-4 text-muted">
-                                    <i class="bi bi-exclamation-triangle display-4"></i>
-                                    <p class="mt-2">No columns found for @_currentTemplate.DataType</p>
+                                    <i class="bi bi-table display-4"></i>
+                                    <p class="mt-2">No columns added yet</p>
+                                    <button type="button" class="btn btn-outline-primary" @onclick="AddColumn">
+                                        <i class="bi bi-plus-circle me-1"></i>Add First Column
+                                    </button>
                                 </div>
                             }
                             else
                             {
-                                @foreach (var column in _moduleColumns)
+                                @for (int i = 0; i < _currentTemplate.Columns.Count; i++)
                                 {
-                                    <div class="card border mb-2 @(column.IsSelected ? "border-primary bg-primary bg-opacity-10" : "")">
+                                    var index = i;
+                                    var column = _currentTemplate.Columns[index];
+                                    <div class="card border mb-2">
                                         <div class="card-body p-3">
-                                            <div class="d-flex align-items-start">
-                                                <div class="form-check me-3">
-                                                    <input class="form-check-input" type="checkbox"
-                                                           @bind="column.IsSelected"
-                                                           @onchange="@(() => OnColumnSelectionChanged())">
+                                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                                <h6 class="mb-1">Column @(index + 1)</h6>
+                                                <button type="button" class="btn btn-outline-danger btn-sm"
+                                                        @onclick="() => RemoveColumn(index)">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                            <div class="row g-2">
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Header</label>
+                                                    <input type="text" class="form-control form-control-sm"
+                                                           @bind="column.Header"
+                                                           placeholder="Column name">
                                                 </div>
-                                                <div class="flex-grow-1">
-                                                    <div class="d-flex justify-content-between align-items-start mb-1">
-                                                        <h6 class="mb-1">@column.DisplayName</h6>
-                                                        <span class="badge @GetTypeBadgeClass(column.DataType)">@column.DataType</span>
-                                                    </div>
-                                                    <small class="text-muted">Property: @column.PropertyName</small>
-                                                    @if (!string.IsNullOrEmpty(column.Format))
-                                                    {
-                                                        <small class="text-muted"> • Format: @column.Format</small>
-                                                    }
-                                                    @if (column.CanSum)
-                                                    {
-                                                        <span class="badge bg-warning text-dark ms-2">Can Sum</span>
-                                                    }
-
-                                                    @if (column.IsSelected)
-                                                    {
-                                                        <div class="mt-2">
-                                                            <div class="row g-2">
-                                                                <div class="col-md-6">
-                                                                    <label class="form-label form-label-sm">Width (px)</label>
-                                                                    <input type="number" class="form-control form-control-sm"
-                                                                           @bind="column.Width" min="50" max="500">
-                                                                </div>
-                                                                <div class="col-md-6">
-                                                                    <label class="form-label form-label-sm">Formula (optional)</label>
-                                                                    <select class="form-select form-select-sm"
-                                                                            value="@column.Formula"
-                                                                            @onchange="@((ChangeEventArgs e) => { column.Formula = e.Value?.ToString() ?? ""; })">
-                                                                        <option value="">No formula</option>
-                                                                        @if (column.CanSum || column.DataType == "Currency" || column.DataType == "Number")
-                                                                        {
-                                                                            <option value="SUM">SUM - Total all values</option>
-                                                                            <option value="AVERAGE">AVERAGE - Average of values</option>
-                                                                            <option value="MAX">MAX - Highest value</option>
-                                                                            <option value="MIN">MIN - Lowest value</option>
-                                                                        }
-                                                                        <option value="COUNT">COUNT - Count non-empty</option>
-                                                                        <option value="COUNTA">COUNTA - Count all</option>
-                                                                        @if (column.DataType == "Date")
-                                                                        {
-                                                                            <option value="MIN_DATE">MIN - Earliest date</option>
-                                                                            <option value="MAX_DATE">MAX - Latest date</option>
-                                                                        }
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    }
+                                                <div class="col-md-6">
+                                                    <label class="form-label">Data Type</label>
+                                                    <select class="form-select form-select-sm" @bind="column.DataType">
+                                                        <option value="Text">Text</option>
+                                                        <option value="Number">Number</option>
+                                                        <option value="Currency">Currency</option>
+                                                        <option value="Date">Date</option>
+                                                        <option value="DateTime">Date Time</option>
+                                                        <option value="Checkbox">Checkbox</option>
+                                                        <option value="Email">Email</option>
+                                                        <option value="Phone">Phone</option>
+                                                    </select>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 }
-
-                                <div class="mt-3">
-                                    <small class="text-info">
-                                        <i class="bi bi-info-circle me-1"></i>
-                                        Selected @_moduleColumns.Count(c => c.IsSelected) of @_moduleColumns.Count columns
-                                    </small>
-                                </div>
                             }
                         </div>
                     </div>
                 </div>
 
-                <!-- Right Panel: Row Layout (same as before) -->
+                <!-- Right Panel: Row Layout -->
                 <div class="col-lg-6">
                     <div class="card">
                         <div class="card-header d-flex justify-content-between align-items-center">
@@ -470,11 +422,6 @@
                                                     {
                                                         <span class="text-muted"> - @row.Name</span>
                                                     }
-                                                    @if (row.Type == RowType.Formula)
-                                                    {
-                                                        var formulaCount = _moduleColumns.Count(c => c.IsSelected && !string.IsNullOrEmpty(c.Formula));
-                                                        <small class="text-info d-block">↳ @formulaCount formula(s) from selected columns</small>
-                                                    }
                                                 </div>
                                                 <button class="btn btn-sm btn-outline-danger"
                                                         @onclick="() => RemoveRow(row)">
@@ -507,7 +454,7 @@
                                                 <div class="mt-2">
                                                     <small class="text-info">
                                                         <i class="bi bi-info-circle me-1"></i>
-                                                        Formulas are automatically configured from selected columns above
+                                                        Formulas will be configured in a future update
                                                     </small>
                                                 </div>
                                             }
@@ -787,7 +734,6 @@
     {
         await PreviewCurrentTemplate(_currentTemplate);
     }
-
     private void SetView(ViewMode view)
     {
         _currentView = view;
