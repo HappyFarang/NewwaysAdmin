@@ -44,6 +44,8 @@
     {
         Sum,     // =SUM(column#:DataStart,column#:DataEnd)
         SumIf,   // =SUMIF(TickColumn, TRUE, AmountColumn) - most common for expense categories
+        Average, // =AVERAGE(column#:DataStart,column#:DataEnd)
+        Count,   // =COUNT(column#:DataStart,column#:DataEnd)
         Custom   // User enters their own formula
     }
 
@@ -54,7 +56,10 @@
     {
         Currency,
         Int,
-        Float
+        Float,
+        Number, // General number format
+        Text,   // Plain text
+        // Add more types as nee
     }
 
     /// <summary>

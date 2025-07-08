@@ -49,52 +49,26 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     MaxBackupCount = 0
                 },
 
-                // PDF Processor - Sales
+                // Sales Data
                 new StorageFolder
                 {
                     Name = "Sales",
-                    Description = "Daily sales data storage",
-                    Type = StorageType.Binary,
-                    IsShared = true,
-                    Path = "PDFProcessor",
-                    CreateBackups = true,
-                    MaxBackupCount = 10
-                },
-
-                // PDF Processor - Returns
-                new StorageFolder
-                {
-                    Name = "Returns",
-                    Description = "Product returns data storage",
-                    Type = StorageType.Binary,
-                    IsShared = true,
-                    Path = "PDFProcessor",
-                    CreateBackups = true,
-                    MaxBackupCount = 10
-                },
-
-                // PDF Processor - Logs
-                new StorageFolder
-                {
-                    Name = "Logs",
-                    Description = "Operation logs",
+                    Description = "Sales data and analytics",
                     Type = StorageType.Json,
+                    Path = "Sales",
                     IsShared = true,
-                    Path = "PDFProcessor",
                     CreateBackups = true,
-                    MaxBackupCount = 20
+                    MaxBackupCount = 10
                 },
 
-                // ===== BANK SLIP OCR FOLDERS =====
-
-                // Bank Slip Collections (per-user configuration)
+                // Bank Slip Collections (admin-managed)
                 new StorageFolder
                 {
                     Name = "BankSlip_Collections",
-                    Description = "Bank slip collection configurations per user",
-                    Type = StorageType.Json,
-                    IsShared = false, // Each user has their own collections
+                    Description = "Bank slip collections managed by admin",
+                    Type = StorageType.Binary, // Using binary for efficiency
                     Path = "BankSlips",
+                    IsShared = false, // Admin-only storage
                     CreateBackups = true,
                     MaxBackupCount = 10
                 },
@@ -125,16 +99,28 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
 
                 // ===== GOOGLE SHEETS FOLDERS =====
 
-                    // Google Sheets User Configurations
+                // Google Sheets User Configurations
                 new StorageFolder
                 {
                     Name = "GoogleSheets_UserConfigs",
                     Description = "User checkbox preferences for Google Sheets exports",
-                    Type = StorageType.Binary, // Using binary for efficient storage of MessagePack data
+                    Type = StorageType.Json,
                     Path = "GoogleSheets",
                     IsShared = false, // Per-admin storage, but accessible by admin interface
                     CreateBackups = true,
                     MaxBackupCount = 10
+                },
+
+                // Google Sheets Custom Column Libraries
+                new StorageFolder
+                {
+                    Name = "GoogleSheets_CustomColumns",
+                    Description = "User custom column templates and libraries",
+                    Type = StorageType.Json,
+                    Path = "GoogleSheets",
+                    IsShared = false, // Per-user custom columns
+                    CreateBackups = true,
+                    MaxBackupCount = 15
                 },
 
                 // Google Sheets Export History (optional - for tracking exports)
@@ -148,11 +134,12 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     CreateBackups = true,
                     MaxBackupCount = 30
                 },
+
                 new StorageFolder
                 {
                     Name = "GoogleSheets_Templates",
                     Description = "Sheet layout templates for different data types",
-                    Type = StorageType.Binary, // Using MessagePack for efficient storage
+                    Type = StorageType.Json,
                     Path = "GoogleSheets",
                     IsShared = true, // Templates are shared across all users
                     CreateBackups = true,
@@ -164,14 +151,14 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                 {
                     Name = "GoogleSheets_AdminConfigs",
                     Description = "Admin-level Google Sheets configurations",
-                    Type = StorageType.Binary,
+                    Type = StorageType.Json,
                     Path = "GoogleSheets",
                     IsShared = false, // Admin-only storage
                     CreateBackups = true,
                     MaxBackupCount = 10
                 }
 
-            // Add new folders here as needed...
+                // Add new folders here as needed...
             );
         }
 

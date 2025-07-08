@@ -229,6 +229,19 @@ public class Program
             return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
         });
 
+        // Register Sheet Configuration Service
+        services.AddScoped<SheetConfigurationService>(sp =>
+        {
+            var columnRegistry = sp.GetRequiredService<ModuleColumnRegistry>();
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<SheetConfigurationService>>();
+
+            var userConfigStorage = storageManager.GetStorageSync<UserSheetConfiguration>("GoogleSheets_UserConfigs");
+            var customColumnStorage = storageManager.GetStorageSync<CustomColumnLibrary>("GoogleSheets_CustomColumns");
+
+            return new SheetConfigurationService(columnRegistry, userConfigStorage, customColumnStorage, logger);
+        });
+
         // Register the Bank Slip layout
         services.AddSheetLayout(new BankSlipSheetLayout());
 
