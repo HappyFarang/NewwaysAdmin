@@ -101,6 +101,7 @@ namespace NewwaysAdmin.GoogleSheets.Models
     public class SheetCell
     {
         public object? Value { get; set; }
+        public bool IsCheckbox { get; set; } = false;
         public string? Formula { get; set; }  // Add this
         public string? Format { get; set; }
         public string? BackgroundColor { get; set; }

@@ -328,17 +328,16 @@ namespace NewwaysAdmin.GoogleSheets.Services
         {
             var headerRow = new SheetRow { IsHeader = true };
 
-            // Add headers for selected pre-defined columns (using DisplayName from ColumnDefinition)
+            // Add headers for selected pre-defined columns
             foreach (var column in enabledColumns)
             {
                 headerRow.AddCell(column.DisplayName);
             }
 
-            // Add headers for custom columns (these come AFTER pre-defined columns)
+            // FIXED: Add only ONE header for custom columns (checkbox column only)
             foreach (var customColumn in customColumns)
             {
-                headerRow.AddCell(customColumn.Name);
-                headerRow.AddCell($"{customColumn.Name} ✓"); // Tick column
+                headerRow.AddCell($"{customColumn.Name} ✓"); // Only the tick column header
             }
 
             return headerRow;
@@ -356,29 +355,28 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 columnIndex++;
             }
 
-            // Add formulas for custom columns
+            // FIXED: Add formula directly to the tick box column
             var dataStartRow = GetDataStartRow(config);
             var dataEndRow = dataStartRow + dataRowCount - 1;
 
             foreach (var customColumn in customColumns)
             {
                 var formula = GenerateFormula(customColumn, columnIndex, dataStartRow, dataEndRow, enabledColumns);
-                formulaRow.AddCell(formula);
+                formulaRow.AddCell(formula); // Formula goes in the tick box column
                 columnIndex++;
-
-                formulaRow.AddCell(""); // Empty cell for tick column
-                columnIndex++;
+                // REMOVED: No longer adding empty cell for separate tick column
             }
 
             return formulaRow;
         }
 
+
         private SheetRow CreateDataRow<T>(
-            T item,
-            UserSheetConfiguration config,
-            List<ColumnDefinition> enabledColumns,
-            List<CustomColumn> customColumns,
-            Func<T, string, object?> propertyValueGetter)
+    T item,
+    UserSheetConfiguration config,
+    List<ColumnDefinition> enabledColumns,
+    List<CustomColumn> customColumns,
+    Func<T, string, object?> propertyValueGetter)
         {
             var dataRow = new SheetRow();
 
@@ -389,11 +387,16 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 dataRow.AddCell(FormatCellValue(value, column));
             }
 
-            // Add empty cells for custom columns (these will be calculated by formulas or filled manually)
+            // FIXED: Add only one cell per custom column with proper checkbox formatting
             foreach (var customColumn in customColumns)
             {
-                dataRow.AddCell(""); // Custom column value (calculated by formula in formula row)
-                dataRow.AddCell("FALSE"); // Default tick value (user can change to TRUE)
+                // Create a cell with checkbox formatting
+                var checkboxCell = new SheetCell
+                {
+                    Value = "FALSE", // Initial value
+                    IsCheckbox = true // This property should trigger checkbox formatting
+                };
+                dataRow.Cells.Add(checkboxCell);
             }
 
             return dataRow;
@@ -432,12 +435,12 @@ namespace NewwaysAdmin.GoogleSheets.Services
         private string GenerateFormula(CustomColumn customColumn, int formulaColumnIndex, int dataStartRow, int dataEndRow, List<ColumnDefinition> enabledColumns)
         {
             var formulaColumnLetter = ColumnLetterHelper.GetColumnLetter(formulaColumnIndex);
-            var tickColumnLetter = ColumnLetterHelper.GetColumnLetter(formulaColumnIndex + 1);
 
             switch (customColumn.FormulaType)
             {
                 case FormulaType.Sum:
-                    return $"SUM({formulaColumnLetter}{dataStartRow}:{formulaColumnLetter}{dataEndRow})";
+                    // FIXED: Add "=" prefix
+                    return $"=SUM({formulaColumnLetter}{dataStartRow}:{formulaColumnLetter}{dataEndRow})";
 
                 case FormulaType.SumIf:
                     if (!string.IsNullOrEmpty(customColumn.SumColumnName))
@@ -447,13 +450,16 @@ namespace NewwaysAdmin.GoogleSheets.Services
                         if (sumColumnIndex >= 0)
                         {
                             var sumColumnLetter = ColumnLetterHelper.GetColumnLetter(sumColumnIndex);
-                            return $"SUMIF({tickColumnLetter}{dataStartRow}:{tickColumnLetter}{dataEndRow}, TRUE, {sumColumnLetter}{dataStartRow}:{sumColumnLetter}{dataEndRow})";
+                            // FIXED: Add "=" prefix and use same column for both formula and checkboxes
+                            return $"=SUMIF({formulaColumnLetter}{dataStartRow}:{formulaColumnLetter}{dataEndRow}, TRUE, {sumColumnLetter}{dataStartRow}:{sumColumnLetter}{dataEndRow})";
                         }
                     }
                     return "";
 
                 case FormulaType.Custom:
-                    return customColumn.CustomFormula ?? "";
+                    // FIXED: Add "=" prefix if not already present
+                    var formula = customColumn.CustomFormula ?? "";
+                    return formula.StartsWith("=") ? formula : $"={formula}";
 
                 default:
                     return "";

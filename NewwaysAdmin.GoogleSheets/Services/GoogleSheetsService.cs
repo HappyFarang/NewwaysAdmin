@@ -150,6 +150,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 {
                     Values = values
                 };
+                await ApplyCheckboxFormattingAsync(service, spreadsheetId, sheetData, worksheetName);
 
                 var updateRequest = service.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
                 updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
@@ -175,7 +176,56 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
             return result;
         }
+        private async Task ApplyCheckboxFormattingAsync(SheetsService service, string spreadsheetId, SheetData sheetData, string worksheetName)
+        {
+            var requests = new List<Request>();
 
+            for (int rowIndex = 0; rowIndex < sheetData.Rows.Count; rowIndex++)
+            {
+                var row = sheetData.Rows[rowIndex];
+                for (int colIndex = 0; colIndex < row.Cells.Count; colIndex++)
+                {
+                    var cell = row.Cells[colIndex];
+                    if (cell.IsCheckbox)
+                    {
+                        // Add data validation for checkbox
+                        var request = new Request
+                        {
+                            SetDataValidation = new SetDataValidationRequest
+                            {
+                                Range = new GridRange
+                                {
+                                    SheetId = 0, // Assuming first sheet
+                                    StartRowIndex = rowIndex,
+                                    EndRowIndex = rowIndex + 1,
+                                    StartColumnIndex = colIndex,
+                                    EndColumnIndex = colIndex + 1
+                                },
+                                Rule = new DataValidationRule
+                                {
+                                    Condition = new BooleanCondition
+                                    {
+                                        Type = "BOOLEAN"
+                                    },
+                                    ShowCustomUi = true
+                                }
+                            }
+                        };
+                        requests.Add(request);
+                    }
+                }
+            }
+
+            if (requests.Any())
+            {
+                var batchUpdateRequest = new BatchUpdateSpreadsheetRequest
+                {
+                    Requests = requests
+                };
+
+                await service.Spreadsheets.BatchUpdate(batchUpdateRequest, spreadsheetId).ExecuteAsync();
+            }
+        }
         private async Task ApplyFormattingAsync(SheetsService service, string spreadsheetId, SheetData sheetData, string worksheetName)
         {
             try
