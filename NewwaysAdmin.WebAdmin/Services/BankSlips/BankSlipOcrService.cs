@@ -94,7 +94,42 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 
 
 
-       
+        public async Task SaveCollectionAsync(SlipCollection collection, string username)
+        {
+            try
+            {
+                await EnsureStorageInitializedAsync();
+                _logger.LogInformation("Saving collection {CollectionName} by user {Username}",
+                    collection.Name, username);
+
+                // All collections are saved under "admin" storage
+                var collections = await _collectionsStorage!.LoadAsync("admin") ?? new List<SlipCollection>();
+                var existingIndex = collections.FindIndex(c => c.Id == collection.Id);
+
+                if (existingIndex >= 0)
+                {
+                    collections[existingIndex] = collection;
+                    _logger.LogInformation("Updated existing collection");
+                }
+                else
+                {
+                    if (string.IsNullOrEmpty(collection.CreatedBy))
+                        collection.CreatedBy = username;
+                    if (collection.CreatedAt == default)
+                        collection.CreatedAt = DateTime.UtcNow;
+                    collections.Add(collection);
+                    _logger.LogInformation("Added new collection");
+                }
+
+                await _collectionsStorage.SaveAsync("admin", collections);
+                _logger.LogInformation("Collection saved successfully to admin storage");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving collection");
+                throw;
+            }
+        }
 
 
         public async Task DeleteCollectionAsync(string collectionId, string username)
