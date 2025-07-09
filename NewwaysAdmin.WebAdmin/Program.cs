@@ -243,17 +243,15 @@ public class Program
 
             return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger);
         });
-
-        // Register User Sheet Config Service
-        services.AddScoped<UserSheetConfigService>(sp =>
+        // Register SheetConfigurationService
+        services.AddScoped<SheetConfigurationService>(sp =>
         {
-            var storageManager = sp.GetRequiredService<StorageManager>();
-            var logger = sp.GetRequiredService<ILogger<UserSheetConfigService>>();
+            var columnRegistry = sp.GetRequiredService<ModuleColumnRegistry>();
+            var ioManager = sp.GetRequiredService<IOManager>();
+            var logger = sp.GetRequiredService<ILogger<SheetConfigurationService>>();
+            var config = sp.GetRequiredService<GoogleSheetsConfig>();
 
-            var userConfigStorage = storageManager.GetStorageSync<List<UserSheetConfig>>("GoogleSheets_UserConfigs");
-            var adminConfigStorage = storageManager.GetStorageSync<List<AdminSheetConfig>>("GoogleSheets_AdminConfigs");
-
-            return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
+            return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
         });
     }
 
