@@ -1,0 +1,335 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/Templates/AddColumnModal.razor *@
+@using NewwaysAdmin.GoogleSheets.Models
+@using NewwaysAdmin.GoogleSheets.Services
+@inject ILogger<AddColumnModal> Logger
+@inject SheetConfigurationService SheetConfigService
+
+@if (IsVisible)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-plus-square me-2"></i>
+                        @(_isEditMode ? "Edit" : "Add") Custom Column
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="Cancel"></button>
+                </div>
+                <div class="modal-body">
+                    @if (_workingColumn != null)
+                    {
+                        <!-- Load from Library Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="fw-bold mb-3">
+                                    <i class="bi bi-archive me-2"></i>
+                                    Quick Start
+                                </h6>
+                                <div class="d-flex flex-wrap gap-2">
+                                    @foreach (var template in _libraryTemplates)
+                                    {
+                                        <button type="button" 
+                                                class="btn btn-outline-primary btn-sm" 
+                                                @onclick="() => LoadFromTemplate(template)">
+                                            <i class="bi bi-download me-1"></i>@template.Name
+                                        </button>
+                                    }
+                                </div>
+                                <small class="text-muted">Click a template to load predefined settings, then customize as needed.</small>
+                            </div>
+                        </div>
+
+                        <hr />
+
+                        <!-- Column Configuration -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <label class="form-label fw-bold">Column Name</label>
+                                <input type="text" class="form-control" @bind="_workingColumn.Name" 
+                                       placeholder="e.g., Gas, Tools, Staff" />
+                                <small class="text-muted">This will appear as the column header in your spreadsheet.</small>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Formula Type</label>
+                                <select class="form-select" @onchange="OnFormulaTypeChanged" value="@_workingColumn.FormulaType">
+                                    <option value="@FormulaType.SumIf">SUMIF (Tick Box)</option>
+                                    <option value="@FormulaType.Sum">SUM</option>
+                                    <option value="@FormulaType.Custom">Custom Formula</option>
+                                </select>
+                                <small class="text-muted">
+                                    @GetFormulaDescription(_workingColumn.FormulaType)
+                                </small>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Data Type</label>
+                                <select class="form-select" @bind="_workingColumn.DataType">
+                                    <option value="@DataType.Currency">Currency (฿)</option>
+                                    <option value="@DataType.Int">Integer</option>
+                                    <option value="@DataType.Float">Decimal</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        @if (_workingColumn.FormulaType == FormulaType.SumIf)
+                        {
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <label class="form-label fw-bold">Sum Column</label>
+                                    <select class="form-select" @bind="_workingColumn.SumColumnName">
+                                        <option value="">-- Select column to sum --</option>
+                                        @foreach (var column in _sumableColumns)
+                                        {
+                                            <option value="@column.PropertyName">@column.DisplayName</option>
+                                        }
+                                    </select>
+                                    <small class="text-muted">
+                                        Choose which column values to sum when the tick box is checked. Usually "Amount".
+                                    </small>
+                                </div>
+                            </div>
+
+                            <!-- SUMIF Preview -->
+                            <div class="alert alert-info">
+                                <h6 class="mb-2">
+                                    <i class="bi bi-lightbulb me-1"></i>How this works:
+                                </h6>
+                                <ul class="mb-2">
+                                    <li>Creates <strong>two columns</strong>: "@(_workingColumn.Name)" and "@(_workingColumn.Name) ✓"</li>
+                                    <li>The ✓ column contains tick boxes (TRUE/FALSE)</li>
+                                    <li>The main column shows the sum of @(_workingColumn.SumColumnName ?? "selected column") where tick box is TRUE</li>
+                                    <li>Formula: <code>=SUMIF(TickColumn, TRUE, AmountColumn)</code></li>
+                                </ul>
+                            </div>
+                        }
+
+                        @if (_workingColumn.FormulaType == FormulaType.Custom)
+                        {
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <label class="form-label fw-bold">Custom Formula</label>
+                                    <textarea class="form-control" @bind="_workingColumn.CustomFormula" 
+                                              rows="3" placeholder="=SUM(A:A)"></textarea>
+                                    <small class="text-muted">
+                                        Enter a custom Google Sheets formula. You can use placeholders like {COLUMN}, {DATA_START}, {DATA_END}.
+                                    </small>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Preview Example -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <h6 class="fw-bold">Preview Example</h6>
+                                <div class="border rounded p-3" style="background-color: #f8f9fa;">
+                                    <table class="table table-sm table-bordered mb-0" style="font-size: 0.8rem;">
+                                        <thead class="table-primary">
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Amount</th>
+                                                @if (_workingColumn.FormulaType == FormulaType.SumIf)
+                                                {
+                                                    <th>@_workingColumn.Name</th>
+                                                    <th>@_workingColumn.Name ✓</th>
+                                                }
+                                                else
+                                                {
+                                                    <th>@_workingColumn.Name</th>
+                                                }
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @if (_workingColumn.FormulaType == FormulaType.SumIf)
+                                            {
+                                                <tr class="table-warning">
+                                                    <td></td>
+                                                    <td></td>
+                                                    <td><small>=SUMIF(D:D, TRUE, B:B)</small></td>
+                                                    <td></td>
+                                                </tr>
+                                            }
+                                            <tr>
+                                                <td>2024-01-15</td>
+                                                <td>1,500.00</td>
+                                                @if (_workingColumn.FormulaType == FormulaType.SumIf)
+                                                {
+                                                    <td>1,500.00</td>
+                                                    <td>☑️ TRUE</td>
+                                                }
+                                                else
+                                                {
+                                                    <td>@GetPreviewValue()</td>
+                                                }
+                                            </tr>
+                                            <tr>
+                                                <td>2024-01-16</td>
+                                                <td>750.00</td>
+                                                @if (_workingColumn.FormulaType == FormulaType.SumIf)
+                                                {
+                                                    <td>0.00</td>
+                                                    <td>☐ FALSE</td>
+                                                }
+                                                else
+                                                {
+                                                    <td>@GetPreviewValue()</td>
+                                                }
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="Cancel">
+                        <i class="bi bi-x me-1"></i>Cancel
+                    </button>
+                    <button type="button" class="btn btn-primary" @onclick="Save" 
+                            disabled="@(!IsValidColumn())">
+                        <i class="bi bi-check me-1"></i>@(_isEditMode ? "Update" : "Add") Column
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public CustomColumn? CustomColumn { get; set; }
+    [Parameter] public EventCallback<CustomColumn> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private CustomColumn? _workingColumn;
+    private bool _isEditMode;
+    private List<ColumnDefinition> _sumableColumns = new();
+    private List<CustomColumnTemplate> _libraryTemplates = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && CustomColumn != null)
+        {
+            _workingColumn = CloneCustomColumn(CustomColumn);
+            _isEditMode = !string.IsNullOrEmpty(CustomColumn.Name) && CustomColumn.Name != "New Column";
+            
+            await LoadLibraryTemplates();
+            await LoadSumableColumns();
+        }
+    }
+
+    private async Task LoadLibraryTemplates()
+    {
+        try
+        {
+            var library = await SheetConfigService.LoadCustomColumnLibraryAsync("admin", "BankSlips");
+            _libraryTemplates = library?.Templates ?? new List<CustomColumnTemplate>();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading library templates");
+            _libraryTemplates = new List<CustomColumnTemplate>();
+        }
+    }
+
+    private async Task LoadSumableColumns()
+    {
+        var allColumns = SheetConfigService.GetAvailableColumnsForModule("BankSlips");
+        _sumableColumns = allColumns.Where(c => c.CanSum).ToList();
+    }
+
+    private CustomColumn CloneCustomColumn(CustomColumn original)
+    {
+        return new CustomColumn
+        {
+            Name = original.Name,
+            FormulaType = original.FormulaType,
+            DataType = original.DataType,
+            SumColumnName = original.SumColumnName,
+            CustomFormula = original.CustomFormula
+        };
+    }
+
+    private void LoadFromTemplate(CustomColumnTemplate template)
+    {
+        if (_workingColumn == null) return;
+
+        _workingColumn.Name = template.Name;
+        _workingColumn.FormulaType = template.FormulaType;
+        _workingColumn.DataType = template.DataType;
+        _workingColumn.SumColumnName = template.SumColumnName;
+        _workingColumn.CustomFormula = template.CustomFormula;
+
+        StateHasChanged();
+    }
+
+    private async Task OnFormulaTypeChanged(ChangeEventArgs e)
+    {
+        if (_workingColumn == null) return;
+
+        if (Enum.TryParse<FormulaType>(e.Value?.ToString(), out var formulaType))
+        {
+            _workingColumn.FormulaType = formulaType; // This manually updates the binding
+
+            // Set sensible defaults
+            if (formulaType == FormulaType.SumIf && string.IsNullOrEmpty(_workingColumn.SumColumnName))
+            {
+                _workingColumn.SumColumnName = "Amount";
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private string GetFormulaDescription(FormulaType formulaType)
+    {
+        return formulaType switch
+        {
+            FormulaType.SumIf => "Creates a tick box column that sums values when checked",
+            FormulaType.Sum => "Simple sum of all values in the column",
+            FormulaType.Custom => "Use your own custom Google Sheets formula",
+            _ => ""
+        };
+    }
+
+    private string GetPreviewValue()
+    {
+        return _workingColumn?.FormulaType switch
+        {
+            FormulaType.Sum => "2,250.00",
+            FormulaType.Custom => "[Formula Result]",
+            _ => "Sample"
+        };
+    }
+
+    private bool IsValidColumn()
+    {
+        if (_workingColumn == null || string.IsNullOrWhiteSpace(_workingColumn.Name))
+            return false;
+
+        if (_workingColumn.FormulaType == FormulaType.SumIf && string.IsNullOrEmpty(_workingColumn.SumColumnName))
+            return false;
+
+        if (_workingColumn.FormulaType == FormulaType.Custom && string.IsNullOrWhiteSpace(_workingColumn.CustomFormula))
+            return false;
+
+        return true;
+    }
+
+    private async Task Save()
+    {
+        if (_workingColumn != null && IsValidColumn())
+        {
+            await OnSave.InvokeAsync(_workingColumn);
+        }
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+}

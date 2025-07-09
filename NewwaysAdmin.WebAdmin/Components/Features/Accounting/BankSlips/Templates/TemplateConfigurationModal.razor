@@ -1,0 +1,537 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/Templates/TemplateConfigurationModal.razor *@
+@using NewwaysAdmin.GoogleSheets.Models
+@using NewwaysAdmin.GoogleSheets.Services
+@using NewwaysAdmin.SharedModels.BankSlips
+@inject IJSRuntime JSRuntime
+@inject ILogger<TemplateConfigurationModal> Logger
+@inject SheetConfigurationService SheetConfigService
+
+@if (IsVisible)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-table me-2"></i>
+                        @(_isEditMode ? "Edit" : "Create") Sheet Template
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="Cancel"></button>
+                </div>
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
+                    @if (_workingTemplate != null)
+                    {
+                        <!-- Template Name -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <label class="form-label fw-bold">Template Name</label>
+                                <input type="text" class="form-control" @bind="_workingTemplate.ConfigurationName"
+                                       placeholder="My Bank Slips Template" />
+                            </div>
+                        </div>
+
+                        <!-- Module Columns Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="fw-bold mb-3">
+                                    <i class="bi bi-columns-gap me-2"></i>
+                                    Standard Columns
+                                    <small class="text-muted">(Select which bank slip data to include)</small>
+                                </h6>
+                                <div class="row">
+                                    @if (_availableColumns?.Any() == true)
+                                    {
+                                        @foreach (var column in _availableColumns)
+                                        {
+                                            <div class="col-md-4 col-sm-6 mb-2">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="col_@column.PropertyName"
+                                                           checked="@IsColumnSelected(column.PropertyName)"
+                                                           @onchange="@(e => ToggleColumn(column.PropertyName, (bool)e.Value!))" />
+                                                    <label class="form-check-label" for="col_@column.PropertyName">
+                                                        @column.DisplayName
+                                                        @if (column.CanSum)
+                                                        {
+                                                            <span class="badge bg-secondary ms-1">$$</span>
+                                                        }
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Custom Columns Section -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="fw-bold mb-0">
+                                        <i class="bi bi-plus-square me-2"></i>
+                                        Custom Columns
+                                        <small class="text-muted">(Tick box columns with SUMIF formulas)</small>
+                                    </h6>
+                                    <button type="button" class="btn btn-outline-primary btn-sm" @onclick="AddCustomColumn">
+                                        <i class="bi bi-plus me-1"></i>Add Column
+                                    </button>
+                                </div>
+
+                                @if (_workingTemplate.CustomColumns.Any())
+                                {
+                                    <div class="list-group">
+                                        @foreach (var customColumn in _workingTemplate.CustomColumns.ToList())
+                                        {
+                                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <strong>@customColumn.Name</strong>
+                                                    <span class="badge bg-info ms-2">@customColumn.FormulaType</span>
+                                                    @if (!string.IsNullOrEmpty(customColumn.SumColumnName))
+                                                    {
+                                                        <small class="text-muted d-block">
+                                                            Sums: @customColumn.SumColumnName when ticked
+                                                        </small>
+                                                    }
+                                                </div>
+                                                <div>
+                                                    <button type="button" class="btn btn-outline-secondary btn-sm me-1"
+                                                            @onclick="() => EditCustomColumn(customColumn)">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm"
+                                                            @onclick="() => RemoveCustomColumn(customColumn)">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-light text-center">
+                                        <i class="bi bi-info-circle me-2"></i>
+                                        No custom columns added yet. Click "Add Column" to create tick box columns with SUMIF formulas.
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Row Settings -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="fw-bold mb-3">
+                                    <i class="bi bi-gear me-2"></i>
+                                    Sheet Settings
+                                </h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="useHeader"
+                                                   @bind="_workingTemplate.RowSettings.UseHeaderRow" />
+                                            <label class="form-check-label" for="useHeader">
+                                                Include header row
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="useFormula"
+                                                   @bind="_workingTemplate.RowSettings.UseFormulaRow" />
+                                            <label class="form-check-label" for="useFormula">
+                                                Include formula row
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="useSummary"
+                                                   @bind="_workingTemplate.RowSettings.AddSummaryRowsAfterData" />
+                                            <label class="form-check-label" for="useSummary">
+                                                Include summary rows
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Preview Section -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <h6 class="fw-bold mb-3">
+                                    <i class="bi bi-eye me-2"></i>
+                                    Preview
+                                </h6>
+                                <div class="border rounded p-3" style="background-color: #f8f9fa; overflow-x: auto;">
+                                    <table class="table table-sm table-bordered mb-0" style="font-size: 0.8rem;">
+                                        @if (_previewData.Any())
+                                        {
+                                            @foreach (var (row, index) in _previewData.Select((r, i) => (r, i)))
+                                            {
+                                                <tr class="@(row.IsHeader ? "table-primary" : index == 1 && _workingTemplate.RowSettings.UseFormulaRow ? "table-warning" : "")">
+                                                    @foreach (var cell in row.Cells)
+                                                    {
+                                                        <td class="@(row.IsHeader ? "fw-bold" : "")">
+                                                            @(string.IsNullOrEmpty(cell.Value?.ToString()) ? "&nbsp;" : cell.Value?.ToString())
+                                                        </td>
+                                                    }
+                                                </tr>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <tr>
+                                                <td class="text-center text-muted">Select some columns to see preview</td>
+                                            </tr>
+                                        }
+                                    </table>
+                                </div>
+                                <small class="text-muted">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Blue = Header row, Yellow = Formula row, White = Data rows
+                                </small>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="Cancel">
+                        <i class="bi bi-x me-1"></i>Cancel
+                    </button>
+                    <button type="button" class="btn btn-primary" @onclick="Save"
+                            disabled="@(string.IsNullOrWhiteSpace(_workingTemplate?.ConfigurationName))">
+                        <i class="bi bi-check me-1"></i>Save Template
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Add Custom Column Modal -->
+<AddColumnModal @ref="_addColumnModal"
+                IsVisible="_showAddColumnModal"
+                CustomColumn="_editingCustomColumn"
+                OnSave="HandleCustomColumnSave"
+                OnCancel="HandleCustomColumnCancel" />
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public UserSheetConfiguration? Template { get; set; }
+    [Parameter] public string ModuleName { get; set; } = "BankSlips";
+    [Parameter] public EventCallback<UserSheetConfiguration> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private UserSheetConfiguration? _workingTemplate;
+    private List<ColumnDefinition>? _availableColumns;
+    private bool _isEditMode;
+    private List<SheetRow> _previewData = new();
+
+    // Custom column modal
+    private bool _showAddColumnModal = false;
+    private CustomColumn? _editingCustomColumn;
+    private AddColumnModal? _addColumnModal;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsVisible && Template != null)
+        {
+            // Create a working copy of the template
+            _workingTemplate = CloneTemplate(Template);
+            _isEditMode = !string.IsNullOrEmpty(Template.ConfigurationName) && Template.ConfigurationName != "New Template";
+
+            // Load available columns
+            _availableColumns = SheetConfigService.GetAvailableColumnsForModule(ModuleName);
+
+            // Generate preview
+            await UpdatePreview();
+        }
+    }
+
+    private UserSheetConfiguration CloneTemplate(UserSheetConfiguration original)
+    {
+        return new UserSheetConfiguration
+            {
+                ModuleName = original.ModuleName,
+                ConfigurationName = original.ConfigurationName,
+                SelectedColumns = original.SelectedColumns.Select(sc => new SelectedColumn
+                {
+                    PropertyName = sc.PropertyName,
+                    IsEnabled = sc.IsEnabled
+                }).ToList(),
+                CustomColumns = original.CustomColumns.Select(cc => new CustomColumn
+                {
+                    Name = cc.Name,
+                    FormulaType = cc.FormulaType,
+                    DataType = cc.DataType,
+                    SumColumnName = cc.SumColumnName,
+                    CustomFormula = cc.CustomFormula
+                }).ToList(),
+                RowSettings = new RowStructureSettings
+                {
+                    UseHeaderRow = original.RowSettings.UseHeaderRow,
+                    UseFormulaRow = original.RowSettings.UseFormulaRow,
+                    LockHeaderRow = original.RowSettings.LockHeaderRow,
+                    LockFormulaRow = original.RowSettings.LockFormulaRow,
+                    BoldHeaderRow = original.RowSettings.BoldHeaderRow,
+                    AddSummaryRowsAfterData = original.RowSettings.AddSummaryRowsAfterData
+                },
+                CreatedAt = original.CreatedAt,
+                LastModified = DateTime.UtcNow
+            };
+    }
+
+    private bool IsColumnSelected(string propertyName)
+    {
+        return _workingTemplate?.SelectedColumns.Any(sc => sc.PropertyName == propertyName && sc.IsEnabled) ?? false;
+    }
+
+    private async Task ToggleColumn(string propertyName, bool isSelected)
+    {
+        if (_workingTemplate == null) return;
+
+        var existingColumn = _workingTemplate.SelectedColumns.FirstOrDefault(sc => sc.PropertyName == propertyName);
+        if (existingColumn != null)
+        {
+            existingColumn.IsEnabled = isSelected;
+        }
+        else if (isSelected)
+        {
+            _workingTemplate.SelectedColumns.Add(new SelectedColumn
+                {
+                    PropertyName = propertyName,
+                    IsEnabled = true
+                });
+        }
+
+        await UpdatePreview();
+        StateHasChanged();
+    }
+
+    private async Task AddCustomColumn()
+    {
+        _editingCustomColumn = new CustomColumn
+            {
+                Name = "New Column",
+                FormulaType = FormulaType.SumIf,
+                DataType = DataType.Currency,
+                SumColumnName = "Amount"
+            };
+        _showAddColumnModal = true;
+        StateHasChanged();
+    }
+
+    private async Task EditCustomColumn(CustomColumn column)
+    {
+        _editingCustomColumn = column;
+        _showAddColumnModal = true;
+        StateHasChanged();
+    }
+
+    private async Task RemoveCustomColumn(CustomColumn column)
+    {
+        _workingTemplate?.CustomColumns.Remove(column);
+        await UpdatePreview();
+        StateHasChanged();
+    }
+
+    private async Task HandleCustomColumnSave(CustomColumn savedColumn)
+    {
+        if (_workingTemplate == null) return;
+
+        var existingIndex = _workingTemplate.CustomColumns.FindIndex(cc => cc.Name == savedColumn.Name);
+        if (existingIndex >= 0)
+        {
+            _workingTemplate.CustomColumns[existingIndex] = savedColumn;
+        }
+        else
+        {
+            _workingTemplate.CustomColumns.Add(savedColumn);
+        }
+
+        _showAddColumnModal = false;
+        await UpdatePreview();
+        StateHasChanged();
+    }
+
+    private async Task HandleCustomColumnCancel()
+    {
+        _showAddColumnModal = false;
+        StateHasChanged();
+    }
+
+    private async Task UpdatePreview()
+    {
+        if (_workingTemplate == null || _availableColumns == null)
+        {
+            _previewData.Clear();
+            return;
+        }
+
+        try
+        {
+            // Skip using the service and manually create preview data
+            _previewData.Clear();
+
+            var enabledColumns = GetEnabledColumns();
+            var customColumns = _workingTemplate.CustomColumns.ToList();
+
+            // Create header row if enabled
+            if (_workingTemplate.RowSettings.UseHeaderRow)
+            {
+                var headerRow = new SheetRow { IsHeader = true };
+
+                // Add standard column headers
+                foreach (var column in enabledColumns)
+                {
+                    headerRow.AddCell(column.DisplayName?.ToString() ?? "");
+                }
+
+                // Add custom column headers
+                foreach (var customCol in customColumns)
+                {
+                    headerRow.AddCell(customCol.Name?.ToString() ?? "");
+                    headerRow.AddCell($"{customCol.Name} ✓");
+                }
+
+                _previewData.Add(headerRow);
+            }
+
+            // Create formula row if enabled
+            if (_workingTemplate.RowSettings.UseFormulaRow)
+            {
+                var formulaRow = new SheetRow();
+
+                // Empty cells for standard columns
+                foreach (var column in enabledColumns)
+                {
+                    formulaRow.AddCell("");
+                }
+
+                // Formula cells for custom columns
+                foreach (var customCol in customColumns)
+                {
+                    var formula = customCol.FormulaType == FormulaType.SumIf ? "=SUMIF(...)" : "=SUM(...)";
+                    formulaRow.AddCell(formula);
+                    formulaRow.AddCell(""); // Empty for tick column
+                }
+
+                _previewData.Add(formulaRow);
+            }
+
+            // Add sample data rows
+            for (int i = 1; i <= 2; i++)
+            {
+                var dataRow = new SheetRow();
+
+                // Sample data for standard columns
+                foreach (var column in enabledColumns)
+                {
+                    var sampleValue = GetSampleValueForColumn(column.PropertyName, i);
+                    dataRow.AddCell(sampleValue?.ToString() ?? "");
+                }
+
+                // Sample data for custom columns
+                foreach (var customCol in customColumns)
+                {
+                    dataRow.AddCell(i == 1 ? "1,500.00" : "0.00"); // Sample amounts
+                    dataRow.AddCell(i == 1 ? "TRUE" : "FALSE"); // Sample tick values
+                }
+
+                _previewData.Add(dataRow);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error generating preview");
+            _previewData.Clear();
+        }
+    }
+
+    private List<ColumnDefinition> GetEnabledColumns()
+    {
+        if (_workingTemplate == null || _availableColumns == null) return new List<ColumnDefinition>();
+
+        var enabledPropertyNames = _workingTemplate.SelectedColumns
+            .Where(sc => sc.IsEnabled)
+            .Select(sc => sc.PropertyName)
+            .ToHashSet();
+
+        return _availableColumns
+            .Where(ac => enabledPropertyNames.Contains(ac.PropertyName))
+            .ToList();
+    }
+
+    private string GetSampleValueForColumn(string propertyName, int rowNumber)
+    {
+        return propertyName switch
+        {
+            "TransactionDate" => $"2024-01-{15 + rowNumber:00}",
+            "Amount" => rowNumber == 1 ? "1,500.00" : "750.00",
+            "AccountName" => rowNumber == 1 ? "John Smith" : "Jane Doe",
+            "AccountNumber" => "xxx-1234",
+            "ReceiverName" => rowNumber == 1 ? "ABC Store" : "XYZ Shop",
+            "ReceiverAccount" => "xxx-5678",
+            "Note" => rowNumber == 1 ? "Office supplies" : "Monthly service",
+            "SlipCollectionName" => "January 2024",
+            "ProcessedBy" => "admin",
+            "ProcessedAt" => "2024-01-15 14:30",
+            _ => "Sample"
+        };
+    }
+
+    private object? GetSampleValueFromSlip(BankSlipData slip, string propertyName)
+    {
+        return propertyName switch
+        {
+            "TransactionDate" => slip.TransactionDate.ToString("yyyy-MM-dd"),
+            "Amount" => slip.Amount.ToString("N2"),
+            "AccountName" => slip.AccountName,
+            "AccountNumber" => slip.AccountNumber,
+            "ReceiverName" => slip.ReceiverName,
+            "ReceiverAccount" => slip.ReceiverAccount,
+            "Note" => slip.Note,
+            "SlipCollectionName" => slip.SlipCollectionName,
+            "ProcessedBy" => slip.ProcessedBy,
+            "ProcessedAt" => slip.ProcessedAt.ToString("yyyy-MM-dd HH:mm"), // REMOVED the ? here
+            "OriginalFilePath" => slip.OriginalFilePath,
+            "Status" => slip.Status.ToString(),
+            "ErrorReason" => slip.ErrorReason,
+            "Id" => slip.Id,
+            _ => "Sample"
+        };
+    }
+    private object? GetSampleValue(string propertyName)
+    {
+        return propertyName switch
+        {
+            "TransactionDate" => "2024-01-15",
+            "Amount" => "1,500.00",
+            "AccountName" => "John Smith",
+            "AccountNumber" => "xxx-1234",
+            "ReceiverName" => "ABC Store",
+            "ReceiverAccount" => "xxx-5678",
+            "Note" => "Office supplies",
+            "SlipCollectionName" => "January 2024",
+            "ProcessedBy" => "admin",
+            "ProcessedAt" => "2024-01-15 14:30",
+            _ => "Sample"
+        };
+    }
+
+    private async Task Save()
+    {
+        if (_workingTemplate != null)
+        {
+            await OnSave.InvokeAsync(_workingTemplate);
+        }
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+}

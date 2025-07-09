@@ -12,7 +12,7 @@
 @using Google.Apis.Services
 @using Google.Apis.Sheets.v4
 @using Google.Apis.Drive.v3
-@using NewwaysAdmin.GoogleSheets.Services
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Templates
 @inject GoogleSheetsService GoogleSheetsService
 @inject IBankSlipOcrService BankSlipService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -20,6 +20,7 @@
 @inject ILogger<BankSlipsView> Logger
 @inject BankSlipExportService GoogleSheetsExportService
 @inject UserSheetConfigService UserConfigService
+@inject SheetConfigurationService SheetConfigService
 
 <PageTitle>Bank Slip OCR</PageTitle>
 
@@ -54,47 +55,41 @@
                         <div class="list-group">
                             @foreach (var collection in _availableCollections)
                             {
-                                <div class="list-group-item @(_selectedCollection?.Id == collection.Id ? "active" : "")"
-                                     style="cursor: pointer;" @onclick="() => SelectCollection(collection)">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <div class="flex-grow-1">
-                                            <h6 class="mb-1">@collection.Name</h6>
-                                            <p class="mb-1 small text-muted">@collection.Description</p>
-                                            <small class="text-muted">
-                                                <i class="bi bi-folder me-1"></i>@collection.SourceDirectory
-                                            </small>
-                                        </div>
-                                        @if (_isAdmin)
-                                        {
-                                            <div class="btn-group btn-group-sm">
-                                                <button class="btn btn-outline-secondary"
-                                                        @onclick:stopPropagation="true"
-                                                        @onclick="() => EditCollection(collection)"
-                                                        title="Edit Collection">
-                                                    <i class="bi bi-pencil"></i>
-                                                </button>
-                                            </div>
-                                        }
+                                <div class="list-group-item @(_selectedCollection?.Id == collection.Id ? "active" : "list-group-item-action")"
+                                     @onclick="() => SelectCollection(collection)"
+                                     style="cursor: pointer;">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">@collection.Name</h6>
+                                        <small class="@(_selectedCollection?.Id == collection.Id ? "text-light" : "text-muted")">
+                                            @(collection.IsActive ? "Active" : "Inactive")
+                                        </small>
                                     </div>
+                                    <p class="mb-1 small">@collection.SourceDirectory</p>
+                                    @if (_isAdmin)
+                                    {
+                                        <small class="@(_selectedCollection?.Id == collection.Id ? "text-light" : "text-muted")">
+                                            <i class="bi bi-gear me-1"></i>
+                                            <span class="text-decoration-underline" @onclick:stopPropagation="true" @onclick="() => EditCollection(collection)">
+                                                Edit
+                                            </span>
+                                        </small>
+                                    }
                                 </div>
                             }
                         </div>
                     }
                     else
                     {
-                        <div class="text-center text-muted">
-                            <i class="bi bi-inbox display-1 mb-3"></i>
-                            <h6>No Collections Available</h6>
-                            <p>No bank slip collections have been configured for your account.</p>
+                        <div class="text-center">
+                            <i class="bi bi-folder-x text-muted" style="font-size: 3rem;"></i>
+                            <p class="mt-2 text-muted">No collections available.</p>
                             @if (_isAdmin)
                             {
-                                <button class="btn btn-primary" @onclick="ShowCreateCollectionModal">
-                                    <i class="bi bi-plus-circle me-1"></i>Create First Collection
-                                </button>
+                                <p class="small text-muted">Create a collection to get started.</p>
                             }
                             else
                             {
-                                <p class="small">Contact your administrator to set up collections.</p>
+                                <p class="small text-muted">Contact your admin to set up collections.</p>
                             }
                         </div>
                     }
@@ -127,173 +122,75 @@
                             </div>
                         </div>
 
-                        <!-- Google Sheets Configuration Section -->
-                        <div class="card mb-3">
-                            <div class="card-header">
-                                <h6 class="mb-0">
-                                    <i class="bi bi-google me-2"></i>Google Sheets Configuration
-                                </h6>
-                            </div>
-                            <div class="card-body">
-                                <!-- Service Account Info (Read-only) -->
-                                <div class="row mb-3">
-                                    <div class="col-12">
-                                        <div class="alert alert-info py-2">
-                                            <small class="d-block"><strong>Service Account (API Access):</strong></small>
-                                            <small class="text-muted font-monospace">newwaysadmin-sheets-service@newwaysadmin-intergration.iam.gserviceaccount.com</small>
-                                            <small class="d-block mt-1 text-muted">This account creates spreadsheets via API</small>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- User Email Configuration -->
-                                <div class="row align-items-center">
-                                    <div class="col-md-8">
-                                        <label class="form-label fw-bold">Your Personal Gmail Address</label>
-                                        <input type="email" class="form-control" @bind="_userShareEmail"
-                                               placeholder="your-personal-email@gmail.com"
-                                               disabled="@_isProcessing" />
-                                        <div class="form-text">
-                                            <i class="bi bi-info-circle me-1"></i>
-                                            Enter the Gmail address you use to log into Google. Spreadsheets will be shared with this email.
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4 d-flex flex-column gap-2">
-                                        <button class="btn btn-outline-primary" @onclick="SaveUserShareEmail"
-                                                disabled="@_isProcessing">
-                                            <i class="bi bi-save me-1"></i>Save Email
-                                        </button>
-                                        <button class="btn btn-outline-info" @onclick="VerifyGoogleSheetsSetup"
-                                                disabled="@_isProcessing">
-                                            <i class="bi bi-shield-check me-1"></i>Verify Setup
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- Date Range Selection -->
                         <div class="row mb-4">
-                            <div class="col-md-6">
+                            <div class="col-md-5">
                                 <label class="form-label fw-bold">Start Date</label>
                                 <input type="date" class="form-control" @bind="_startDate" disabled="@_isProcessing" />
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-5">
                                 <label class="form-label fw-bold">End Date</label>
                                 <input type="date" class="form-control" @bind="_endDate" disabled="@_isProcessing" />
                             </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button class="btn btn-outline-secondary btn-sm w-100" @onclick="SetDateRangeToLastMonth" disabled="@_isProcessing">
+                                    Last Month
+                                </button>
+                            </div>
                         </div>
 
-                        <!-- Action Buttons -->
-                        <div class="d-flex gap-2 mb-4 flex-wrap">
-                            <button class="btn btn-success" @onclick="StartProcessing" disabled="@_isProcessing">
-                                @if (_isProcessing)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                    <span>Processing...</span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-play-circle me-2"></i>
-                                    <span>Process Bank Slips</span>
-                                }
-                            </button>
-
-                            @if (_lastResult?.ProcessedSlips.Any() == true)
-                            {
-                                <button class="btn btn-primary" @onclick="DownloadCsv">
-                                    <i class="bi bi-download me-2"></i>Download CSV (@_lastResult.ProcessedSlips.Count slips)
-                                </button>
-                            }
-
-                            @if (_lastResult?.ProcessedSlips.Any() == true)
-                            {
-                                <button class="btn btn-success" @onclick="ExportToGoogleSheets" disabled="@_isExportingToSheets">
-                                    @if (_isExportingToSheets)
+                        <!-- Processing Controls -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <button class="btn btn-primary me-2" @onclick="StartProcessing" disabled="@_isProcessing">
+                                    @if (_isProcessing)
                                     {
                                         <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                        <span>Exporting...</span>
+                                        <span>Processing...</span>
                                     }
                                     else
                                     {
-                                        <i class="bi bi-google me-2"></i>
-                                        <span>Export to Google Sheets (@_lastResult.ProcessedSlips.Count slips)</span>
+                                        <i class="bi bi-play-circle me-2"></i>
+                                        <span>Process Bank Slips</span>
                                     }
                                 </button>
-                            }
 
-                            @* NEW: Show "Open Sheet" button after successful export *@
-                            @if (!string.IsNullOrEmpty(_lastExportedSheetUrl))
-                            {
-                                <button class="btn btn-info" @onclick="OpenLastExportedSheet" title="Open the last exported Google Sheet">
-                                    <i class="bi bi-box-arrow-up-right me-2"></i>Open Sheet
+                                <button class="btn btn-outline-info me-2" @onclick="TestSingleFile" disabled="@_isProcessing">
+                                    <i class="bi bi-file-text me-1"></i>Test Single File
                                 </button>
-
-                                <button class="btn btn-outline-secondary" @onclick="CopySheetUrlToClipboard" title="Copy sheet URL to clipboard">
-                                    <i class="bi bi-clipboard me-2"></i>Copy URL
-                                </button>
-                            }
-
-                            <button class="btn btn-secondary" @onclick="TestSingleFile" disabled="@_isProcessing">
-                                <i class="bi bi-gear me-2"></i>Test Single File
-                            </button>
+                            </div>
                         </div>
 
                         <!-- Processing Progress -->
                         @if (_isProcessing)
                         {
-                            <div class="card bg-light mb-4">
+                            <div class="card mb-4">
                                 <div class="card-body">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <h6 class="mb-0">Processing Progress</h6>
                                         <span class="badge bg-primary">@_progressPercentage%</span>
                                     </div>
-                                    <div class="progress mb-2" style="height: 8px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated"
-                                             style="width: @(_progressPercentage)%"
-                                             role="progressbar"
-                                             aria-valuenow="@_progressPercentage"
-                                             aria-valuemin="0"
-                                             aria-valuemax="100">
-                                        </div>
+                                    <div class="progress mb-2">
+                                        <div class="progress-bar" style="width: @(_progressPercentage)%"></div>
                                     </div>
-                                    <div class="d-flex justify-content-between">
-                                        <small class="text-muted">
-                                            @_processedCount of @_totalFiles files processed
-                                        </small>
-                                        <small class="text-muted">
-                                            @if (_processingStartTime.HasValue)
-                                            {
-                                                var elapsed = DateTime.Now - _processingStartTime.Value;
-                                                <span>Elapsed: @elapsed.ToString(@"mm\:ss")</span>
-                                            }
-                                        </small>
+                                    <div class="row small text-muted">
+                                        <div class="col-md-6">Files: @_processedCount / @_totalFiles</div>
+                                        <div class="col-md-6">Current: @_currentFileName</div>
                                     </div>
-                                    @if (!string.IsNullOrEmpty(_currentFileName))
-                                    {
-                                        <div class="mt-2">
-                                            <small class="text-muted">
-                                                <i class="bi bi-file-earmark me-1"></i>
-                                                Currently processing: <strong>@_currentFileName</strong>
-                                            </small>
-                                        </div>
-                                    }
                                 </div>
                             </div>
                         }
 
-                        <!-- Processing Status Messages -->
+                        <!-- Status Messages -->
                         @if (!string.IsNullOrEmpty(_statusMessage))
                         {
                             <div class="alert @(_statusMessageType == "error" ? "alert-danger" : "alert-success") mb-4">
                                 <i class="bi @(_statusMessageType == "error" ? "bi-exclamation-triangle" : "bi-info-circle") me-2"></i>
-                                @* Split message by newlines and render each line *@
                                 @foreach (var line in _statusMessage.Split('\n'))
                                 {
                                     <div>@line</div>
                                 }
 
-                                @* Show clickable link if we have a successful export *@
                                 @if (!string.IsNullOrEmpty(_lastExportedSheetUrl) && _statusMessageType != "error")
                                 {
                                     <div class="mt-3">
@@ -315,125 +212,144 @@
                             </div>
                         }
 
-                        <!-- Results -->
+                        <!-- Results and Export Section -->
                         @if (_lastResult != null)
                         {
                             <div class="card">
                                 <div class="card-header">
-                                    <h6 class="mb-0">
-                                        <i class="bi bi-check-circle me-2"></i>Processing Results
-                                    </h6>
+                                    <h6 class="mb-0">Processing Results</h6>
                                 </div>
                                 <div class="card-body">
-                                    <!-- Summary Stats -->
-                                    <div class="row mb-4">
+                                    <div class="row mb-3">
                                         <div class="col-md-3">
-                                            <div class="text-center p-3 bg-success bg-opacity-10 rounded">
-                                                <div class="h3 text-success mb-1">@_lastResult.Summary.ProcessedFiles</div>
-                                                <small class="text-muted">Successfully Processed</small>
+                                            <div class="text-center">
+                                                <div class="h3 text-success">@_lastResult.Summary.ProcessedFiles</div>
+                                                <small class="text-muted">Processed</small>
                                             </div>
                                         </div>
                                         <div class="col-md-3">
-                                            <div class="text-center p-3 bg-danger bg-opacity-10 rounded">
-                                                <div class="h3 text-danger mb-1">@_lastResult.Summary.FailedFiles</div>
-                                                <small class="text-muted">Processing Failed</small>
+                                            <div class="text-center">
+                                                <div class="h3 text-danger">@_lastResult.Summary.FailedFiles</div>
+                                                <small class="text-muted">Failed</small>
                                             </div>
                                         </div>
                                         <div class="col-md-3">
-                                            <div class="text-center p-3 bg-warning bg-opacity-10 rounded">
-                                                <div class="h3 text-warning mb-1">@_lastResult.Summary.DateOutOfRangeFiles</div>
-                                                <small class="text-muted">Outside Date Range</small>
+                                            <div class="text-center">
+                                                <div class="h3 text-primary">@_lastResult.ProcessedSlips.Count</div>
+                                                <small class="text-muted">Bank Slips</small>
                                             </div>
                                         </div>
                                         <div class="col-md-3">
-                                            <div class="text-center p-3 bg-info bg-opacity-10 rounded">
-                                                <div class="h3 text-info mb-1">@_lastResult.Summary.TotalFiles</div>
-                                                <small class="text-muted">Total Files Found</small>
+                                            <div class="text-center">
+                                                <div class="h3 text-info">@_lastResult.ProcessedSlips.Sum(s => s.Amount).ToString("N2") ฿</div>
+                                                <small class="text-muted">Total Amount</small>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <!-- Processing Duration -->
-                                    <div class="alert alert-info">
-                                        <i class="bi bi-clock me-2"></i>
-                                        Processing completed in @_lastResult.Summary.ProcessingDuration.TotalSeconds.ToString("F1") seconds
-                                        (@(_lastResult.Summary.ProcessedFiles / Math.Max(1, _lastResult.Summary.ProcessingDuration.TotalSeconds)).ToString("F1") files/sec)
-                                    </div>
-
-                                    <!-- Processed Slips Table -->
+                                    <!-- NEW: Template-based Export Section -->
                                     @if (_lastResult.ProcessedSlips.Any())
                                     {
-                                        <h6 class="mt-4 mb-3">Successfully Processed Bank Slips</h6>
-                                        <div class="table-responsive">
-                                            <table class="table table-striped table-hover">
-                                                <thead class="table-dark">
-                                                    <tr>
-                                                        <th>Date</th>
-                                                        <th>Amount</th>
-                                                        <th>Account Name</th>
-                                                        <th>Account Number</th>
-                                                        <th>Note</th>
-                                                        <th>File</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var slip in _lastResult.ProcessedSlips.OrderByDescending(s => s.TransactionDate))
-                                                    {
-                                                        <tr>
-                                                            <td>@slip.TransactionDate.AddYears(-543).ToString("dd/MM/yyyy")</td>
-                                                            <td class="text-end">
-                                                                <span class="badge bg-success">@slip.Amount.ToString("N2") ฿</span>
-                                                            </td>
-                                                            <td>@slip.AccountName</td>
-                                                            <td><code>@slip.AccountNumber</code></td>
-                                                            <td>@slip.Note</td>
-                                                            <td>
-                                                                <small class="text-muted">@Path.GetFileName(slip.OriginalFilePath)</small>
-                                                            </td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    }
-
-                                    <!-- Error Details -->
-                                    @if (_lastResult.Errors.Any())
-                                    {
-                                        <h6 class="mt-4 mb-3 text-danger">
-                                            <i class="bi bi-exclamation-triangle me-2"></i>Processing Errors (@_lastResult.Errors.Count)
-                                        </h6>
-                                        <div class="accordion" id="errorsAccordion">
-                                            @for (int i = 0; i < _lastResult.Errors.Count; i++)
-                                            {
-                                                var error = _lastResult.Errors[i];
-                                                var collapseId = $"error-{i}";
-                                                <div class="accordion-item">
-                                                    <h2 class="accordion-header">
-                                                        <button class="accordion-button collapsed" type="button"
-                                                                data-bs-toggle="collapse" data-bs-target="#@collapseId">
-                                                            <i class="bi bi-file-earmark-x me-2 text-danger"></i>
-                                                            @Path.GetFileName(error.FilePath) - @error.Reason
+                                        <div class="card mt-4">
+                                            <div class="card-header d-flex justify-content-between align-items-center">
+                                                <h5 class="mb-0">
+                                                    <i class="bi bi-table me-2"></i>
+                                                    Export to Google Sheets
+                                                </h5>
+                                                <span class="badge bg-primary">@_lastResult.ProcessedSlips.Count slips</span>
+                                            </div>
+                                            <div class="card-body">
+                                                <!-- Template Selection Row -->
+                                                <div class="row mb-3">
+                                                    <label class="col-sm-2 col-form-label">Sheet Template:</label>
+                                                    <div class="col-sm-6">
+                                                        <select class="form-select" @onchange="OnTemplateChanged" value="@_selectedTemplateId">
+                                                            <option value="">-- Select a template --</option>
+                                                            @if (_userTemplates?.Any() == true)
+                                                            {
+                                                                @foreach (var template in _userTemplates)
+                                                                {
+                                                                    <option value="@GenerateTemplateId(template)">@template.ConfigurationName</option>
+                                                                }
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-sm-4">
+                                                        <button class="btn btn-outline-primary btn-sm me-2" 
+                                                                @onclick="EditTemplate" 
+                                                                disabled="@(string.IsNullOrEmpty(_selectedTemplateId))">
+                                                            <i class="bi bi-pencil me-1"></i>Edit
                                                         </button>
-                                                    </h2>
-                                                    <div id="@collapseId" class="accordion-collapse collapse">
-                                                        <div class="accordion-body">
-                                                            <div class="row">
-                                                                <div class="col-md-4"><strong>File:</strong></div>
-                                                                <div class="col-md-8">@error.FilePath</div>
-                                                            </div>
-                                                            <div class="row">
-                                                                <div class="col-md-4"><strong>Error:</strong></div>
-                                                                <div class="col-md-8 text-danger">@error.Reason</div>
-                                                            </div>
-                                                            <div class="row">
-                                                                <div class="col-md-4"><strong>Time:</strong></div>
-                                                                <div class="col-md-8">@error.ErrorTime.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                                                        <button class="btn btn-outline-success btn-sm" @onclick="NewTemplate">
+                                                            <i class="bi bi-plus me-1"></i>New
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Template Preview (when template is selected) -->
+                                                @if (_selectedTemplate != null)
+                                                {
+                                                    <div class="row mb-3">
+                                                        <div class="col-12">
+                                                            <div class="alert alert-light border">
+                                                                <h6 class="mb-2">
+                                                                    <i class="bi bi-eye me-1"></i>Template Preview: @_selectedTemplate.ConfigurationName
+                                                                </h6>
+                                                                <div class="template-preview">
+                                                                    <small class="text-muted">
+                                                                        <strong>Columns:</strong> 
+                                                                        @string.Join(", ", GetSelectedColumnNames(_selectedTemplate))
+                                                                        @if (_selectedTemplate.CustomColumns.Any())
+                                                                        {
+                                                                            <br />
+                                                                            <strong>Custom Columns:</strong> 
+                                                                            @string.Join(", ", _selectedTemplate.CustomColumns.Select(c => $"{c.Name} (SUMIF)"))
+                                                                        }
+                                                                    </small>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
+                                                }
+
+                                                <!-- User Email Configuration -->
+                                                <div class="row mb-3">
+                                                    <label class="col-sm-2 col-form-label">Share with Email:</label>
+                                                    <div class="col-sm-6">
+                                                        <input type="email" class="form-control" @bind="_userShareEmail" 
+                                                               placeholder="your-email@gmail.com" />
+                                                    </div>
+                                                    <div class="col-sm-4">
+                                                        <button class="btn btn-outline-secondary btn-sm" @onclick="SaveUserEmail">
+                                                            <i class="bi bi-check me-1"></i>Save Email
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            }
+
+                                                <!-- Export Button -->
+                                                <div class="row">
+                                                    <div class="col-12">
+                                                        <button class="btn btn-success btn-lg" 
+                                                                @onclick="ExportToGoogleSheets" 
+                                                                disabled="@(_isExportingToSheets || string.IsNullOrEmpty(_selectedTemplateId) || string.IsNullOrWhiteSpace(_userShareEmail))">
+                                                            @if (_isExportingToSheets)
+                                                            {
+                                                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                                                <span>Exporting to Google Sheets...</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <i class="bi bi-google me-2"></i>
+                                                                <span>Export @_lastResult.ProcessedSlips.Count slips to Google Sheets</span>
+                                                            }
+                                                        </button>
+
+                                                        <button class="btn btn-outline-primary ms-2" @onclick="DownloadCsv">
+                                                            <i class="bi bi-download me-2"></i>Download CSV
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     }
                                 </div>
@@ -444,14 +360,11 @@
             }
             else
             {
-                <!-- No Collection Selected -->
-                <div class="card h-100">
-                    <div class="card-body d-flex align-items-center justify-content-center">
-                        <div class="text-center text-muted">
-                            <i class="bi bi-arrow-left display-1 mb-3"></i>
-                            <h4>Select a Collection</h4>
-                            <p>Choose a bank slip collection from the left panel to start processing.</p>
-                        </div>
+                <div class="card h-100 d-flex align-items-center justify-content-center">
+                    <div class="card-body text-center">
+                        <i class="bi bi-arrow-left text-muted" style="font-size: 3rem;"></i>
+                        <h5 class="mt-3 text-muted">Select a Collection</h5>
+                        <p class="text-muted">Choose a slip collection from the left panel to start processing bank slips.</p>
                     </div>
                 </div>
             }
@@ -459,150 +372,71 @@
     </div>
 </div>
 
-<!-- Collection Management Modal -->
-@if (_showCollectionModal && _isAdmin)
+<!-- Collection Modal -->
+@if (_showCollectionModal)
 {
     <div class="modal fade show" style="display: block;" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">
-                        <i class="bi bi-collection me-2"></i>
-                        @(_editingCollection?.Id != null ? "Edit Collection" : "Create New Collection")
-                    </h5>
-                    <button type="button" class="btn-close" @onclick="HideCollectionModal"></button>
+                    <h5 class="modal-title">@(_editingCollection?.Id == null ? "Create" : "Edit") Collection</h5>
+                    <button type="button" class="btn-close" @onclick="CloseCollectionModal"></button>
                 </div>
-                <EditForm Model="@_editingCollection" OnValidSubmit="SaveCollection">
-                    <div class="modal-body">
-                        <DataAnnotationsValidator />
-
-                        @if (!string.IsNullOrEmpty(_saveErrorMessage))
-                        {
-                            <div class="alert alert-danger">
-                                <i class="bi bi-exclamation-triangle me-2"></i>
-                                @_saveErrorMessage
-                            </div>
-                        }
-
+                <div class="modal-body">
+                    @if (_editingCollection != null)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">Collection Name</label>
+                            <input type="text" class="form-control" @bind="_editingCollection.Name" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Source Directory</label>
+                            <input type="text" class="form-control" @bind="_editingCollection.SourceDirectory" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Output Directory</label>
+                            <input type="text" class="form-control" @bind="_editingCollection.OutputDirectory" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Credentials Path</label>
+                            <input type="text" class="form-control" @bind="_editingCollection.CredentialsPath" />
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" @bind="_editingCollection.IsActive" />
+                            <label class="form-check-label">Active</label>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(_saveErrorMessage))
+                    {
+                        <div class="alert alert-danger mt-3">@_saveErrorMessage</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseCollectionModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveCollection" disabled="@_isSaving">
                         @if (_isSaving)
                         {
-                            <div class="alert alert-info">
-                                <div class="d-flex align-items-center">
-                                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                                    <span>Saving collection...</span>
-                                </div>
-                            </div>
+                            <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-
-                        <ValidationSummary class="alert alert-danger" />
-
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label class="form-label fw-bold">Collection Name *</label>
-                                    <InputText @bind-Value="_editingCollection!.Name" class="form-control"
-                                               placeholder="e.g., Amy's Phone, Office Scanner" />
-                                    <ValidationMessage For="@(() => _editingCollection.Name)" class="text-danger" />
-                                    <div class="form-text">Give this collection a unique, descriptive name</div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label class="form-label fw-bold">Description</label>
-                                    <InputText @bind-Value="_editingCollection!.Description" class="form-control"
-                                               placeholder="Optional description" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Source Directory *</label>
-                            <InputText @bind-Value="_editingCollection!.SourceDirectory" class="form-control"
-                                       placeholder="G:\transfers\slips" />
-                            <ValidationMessage For="@(() => _editingCollection.SourceDirectory)" class="text-danger" />
-                            <div class="form-text">Network path where bank slip images are stored</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Output Directory *</label>
-                            <InputText @bind-Value="_editingCollection!.OutputDirectory" class="form-control"
-                                       placeholder="C:\Temp\BankSlipProcessing" />
-                            <ValidationMessage For="@(() => _editingCollection.OutputDirectory)" class="text-danger" />
-                            <div class="form-text">Local directory for temporary processing files</div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">Google Cloud Credentials Path</label>
-                            <InputText @bind-Value="_editingCollection!.CredentialsPath" class="form-control"
-                                       placeholder="C:\Keys\purrfectocr-db2d9d796b58.json" />
-                            <ValidationMessage For="@(() => _editingCollection.CredentialsPath)" class="text-danger" />
-                            <div class="form-text">Path to Google Cloud Vision API service account key file</div>
-                        </div>
-
-                        <!-- Test Buttons for Debugging -->
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestDirectoryAccess">
-                                    <i class="bi bi-folder-check me-1"></i>Test Directory Access
-                                </button>
-                            </div>
-                            <div class="col-md-6">
-                                <button type="button" class="btn btn-outline-info btn-sm" @onclick="TestCredentials">
-                                    <i class="bi bi-key me-1"></i>Test Credentials
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="form-check">
-                            <InputCheckbox @bind-Value="_editingCollection!.IsActive" class="form-check-input" id="isActive" />
-                            <label class="form-check-label fw-bold" for="isActive">Collection is Active</label>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @onclick="HideCollectionModal" disabled="@_isSaving">
-                            <i class="bi bi-x-circle me-1"></i>Cancel
-                        </button>
-                        <button type="submit" class="btn btn-primary" disabled="@_isSaving">
-                            @if (_isSaving)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                                <span>Saving...</span>
-                            }
-                            else
-                            {
-                                <i class="bi bi-check-circle me-1"></i>
-                                <span>Save Collection</span>
-                            }
-                        </button>
-                    </div>
-                </EditForm>
+                        Save
+                    </button>
+                </div>
             </div>
         </div>
     </div>
     <div class="modal-backdrop fade show"></div>
 }
 
+<!-- Template Configuration Modal -->
+<TemplateConfigurationModal @ref="_templateModal"
+                          IsVisible="_showTemplateModal"
+                          Template="_editingTemplate"
+                          ModuleName="BankSlips"
+                          OnSave="HandleTemplateSave"
+                          OnCancel="HandleTemplateCancel" />
+
 @code {
-    // Progress reporter implementation
-    private string? _lastExportedSheetUrl;
-    private DateTime? _lastExportTime;
-
-    private class BlazorProgressReporter : IProgressReporter
-    {
-        private readonly BankSlipsView _component;
-
-        public BlazorProgressReporter(BankSlipsView component)
-        {
-            _component = component;
-        }
-
-        public void ReportProgress(int processedCount, int totalCount, string currentFileName = "")
-        {
-            _component.UpdateProgress(processedCount, totalCount, currentFileName);
-        }
-    }
-
-    // User and permissions
+    // User state
     private string _currentUsername = string.Empty;
     private bool _isAdmin = false;
 
@@ -637,19 +471,32 @@
     // Google Sheets variables
     private bool _isExportingToSheets = false;
     private string _userShareEmail = string.Empty;
+    private string? _lastExportedSheetUrl;
+    private DateTime? _lastExportTime;
+
+    // NEW: Template Management
+    private List<UserSheetConfiguration>? _userTemplates;
+    private string _selectedTemplateId = string.Empty;
+    private UserSheetConfiguration? _selectedTemplate;
+    private bool _showTemplateModal = false;
+    private UserSheetConfiguration? _editingTemplate;
+    private TemplateConfigurationModal? _templateModal;
 
     protected override async Task OnInitializedAsync()
     {
         Logger.LogInformation("BankSlipsView: Starting initialization");
 
-        // FIRST: Load current user to set _currentUsername and _isAdmin
+        // Load current user to set _currentUsername and _isAdmin
         await LoadCurrentUser();
 
-        // THEN: Load collections (which may depend on user context)
+        // Load collections (which may depend on user context)
         await LoadAvailableCollections();
 
         // Load user's share email preference
         await LoadUserShareEmail();
+
+        // NEW: Load user templates
+        await LoadUserTemplates();
 
         Logger.LogInformation("BankSlipsView: Initialization complete. Username: {Username}, IsAdmin: {IsAdmin}, Collections: {Count}",
             _currentUsername, _isAdmin, _availableCollections?.Count ?? 0);
@@ -668,19 +515,179 @@
             _isAdmin = authState.User.IsInRole("Admin");
 
             Logger.LogInformation("LoadCurrentUser: Current user: {Username}, IsAdmin: {IsAdmin}", _currentUsername, _isAdmin);
-
-            // Additional debugging
-            var claims = authState.User.Claims.ToList();
-            Logger.LogInformation("LoadCurrentUser: User has {ClaimCount} claims", claims.Count);
-            foreach (var claim in claims)
-            {
-                Logger.LogDebug("LoadCurrentUser: Claim - {Type}: {Value}", claim.Type, claim.Value);
-            }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading current user");
         }
+    }
+
+    #endregion
+
+    #region Template Management (NEW)
+
+    // Load user's saved templates
+    private async Task LoadUserTemplates()
+    {
+        try
+        {
+            _userTemplates = new List<UserSheetConfiguration>();
+            
+            // Try to load a default template
+            var defaultTemplate = await SheetConfigService.LoadConfigurationAsync(_currentUsername, "BankSlips", "Default");
+            if (defaultTemplate == null)
+            {
+                // Create default template if it doesn't exist
+                defaultTemplate = await CreateDefaultTemplate();
+            }
+            
+            _userTemplates.Add(defaultTemplate);
+            
+            // Auto-select the default template
+            _selectedTemplateId = GenerateTemplateId(defaultTemplate);
+            _selectedTemplate = defaultTemplate;
+            
+            Logger.LogInformation("Loaded {Count} templates for user {Username}", _userTemplates.Count, _currentUsername);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading user templates");
+            SetStatusMessage($"Error loading templates: {ex.Message}", "error");
+        }
+    }
+
+    // Create default template with all columns enabled
+    private async Task<UserSheetConfiguration> CreateDefaultTemplate()
+    {
+        try
+        {
+            var defaultConfig = SheetConfigService.CreateDefaultConfiguration("BankSlips");
+            defaultConfig.ConfigurationName = "Default";
+            defaultConfig.RowSettings.UseHeaderRow = true;
+            defaultConfig.RowSettings.UseFormulaRow = true;
+            defaultConfig.RowSettings.AddSummaryRowsAfterData = true;
+            
+            // Enable ALL module columns by default
+            var allColumns = SheetConfigService.GetAvailableColumnsForModule("BankSlips");
+            defaultConfig.SelectedColumns.Clear();
+            foreach (var column in allColumns)
+            {
+                defaultConfig.SelectedColumns.Add(new SelectedColumn
+                {
+                    PropertyName = column.PropertyName,
+                    IsEnabled = true
+                });
+            }
+            
+            // Save the default template
+            await SheetConfigService.SaveConfigurationAsync(_currentUsername, defaultConfig);
+            
+            Logger.LogInformation("Created default template for user {Username}", _currentUsername);
+            return defaultConfig;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error creating default template");
+            throw;
+        }
+    }
+
+    // Generate a template ID for binding
+    private string GenerateTemplateId(UserSheetConfiguration template)
+    {
+        return $"{template.ModuleName}_{template.ConfigurationName}";
+    }
+
+    // Handle template selection change
+    private async Task OnTemplateChanged(ChangeEventArgs e)
+    {
+        var templateId = e.Value?.ToString();
+        _selectedTemplateId = templateId ?? string.Empty; // Update the binding manually
+
+        if (string.IsNullOrEmpty(templateId))
+        {
+            _selectedTemplate = null;
+            return;
+        }
+
+        _selectedTemplate = _userTemplates?.FirstOrDefault(t => GenerateTemplateId(t) == templateId);
+        StateHasChanged();
+    }
+
+    // Get selected column names for preview
+    private List<string> GetSelectedColumnNames(UserSheetConfiguration template)
+    {
+        var allColumns = SheetConfigService.GetAvailableColumnsForModule(template.ModuleName);
+        var enabledPropertyNames = template.SelectedColumns
+            .Where(sc => sc.IsEnabled)
+            .Select(sc => sc.PropertyName)
+            .ToHashSet();
+        
+        return allColumns
+            .Where(ac => enabledPropertyNames.Contains(ac.PropertyName))
+            .Select(ac => ac.DisplayName)
+            .ToList();
+    }
+
+    // Open template configuration modal for editing
+    private async Task EditTemplate()
+    {
+        if (_selectedTemplate == null) return;
+        
+        _editingTemplate = _selectedTemplate;
+        _showTemplateModal = true;
+        StateHasChanged();
+    }
+
+    // Open template configuration modal for new template
+    private async Task NewTemplate()
+    {
+        _editingTemplate = SheetConfigService.CreateDefaultConfiguration("BankSlips");
+        _editingTemplate.ConfigurationName = $"New Template {DateTime.Now:HHmm}";
+        _showTemplateModal = true;
+        StateHasChanged();
+    }
+
+    // Handle template save from modal
+    private async Task HandleTemplateSave(UserSheetConfiguration savedTemplate)
+    {
+        try
+        {
+            var success = await SheetConfigService.SaveConfigurationAsync(_currentUsername, savedTemplate);
+            if (success)
+            {
+                // Reload templates
+                await LoadUserTemplates();
+                
+                // Select the saved template
+                _selectedTemplateId = GenerateTemplateId(savedTemplate);
+                _selectedTemplate = savedTemplate;
+                
+                SetStatusMessage($"✓ Template '{savedTemplate.ConfigurationName}' saved successfully!", "info");
+            }
+            else
+            {
+                SetStatusMessage("❌ Failed to save template", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving template");
+            SetStatusMessage($"❌ Error saving template: {ex.Message}", "error");
+        }
+        finally
+        {
+            _showTemplateModal = false;
+            StateHasChanged();
+        }
+    }
+
+    // Handle template modal cancel
+    private async Task HandleTemplateCancel()
+    {
+        _showTemplateModal = false;
+        _editingTemplate = null;
+        StateHasChanged();
     }
 
     #endregion
@@ -704,7 +711,7 @@
         }
     }
 
-    private async Task SaveUserShareEmail()
+    private async Task SaveUserEmail()
     {
         try
         {
@@ -720,7 +727,6 @@
                 return;
             }
 
-            // Basic email validation
             if (!_userShareEmail.Contains("@") || !_userShareEmail.Contains("."))
             {
                 SetStatusMessage("Please enter a valid email address", "error");
@@ -746,168 +752,6 @@
         }
     }
 
-    private async Task ExportToGoogleSheets()
-    {
-        if (_lastResult?.ProcessedSlips.Any() != true) return;
-
-        try
-        {
-            _isExportingToSheets = true;
-            _lastExportedSheetUrl = null; // Clear previous URL
-            SetStatusMessage("🔄 Starting Google Sheets export...", "info");
-            StateHasChanged();
-
-            // Validate email input
-            if (string.IsNullOrWhiteSpace(_userShareEmail))
-            {
-                SetStatusMessage("❌ Please enter your Gmail address first", "error");
-                return;
-            }
-
-            // Basic email validation
-            if (!_userShareEmail.Contains("@") || !_userShareEmail.Contains("."))
-            {
-                SetStatusMessage("❌ Please enter a valid email address", "error");
-                return;
-            }
-
-            SetStatusMessage("📊 Creating spreadsheet...", "info");
-            StateHasChanged();
-            await Task.Delay(500); // Give UI time to update
-
-            // Use the BankSlipExportService for export with automatic sharing
-            var exportResult = await GoogleSheetsExportService.ExportBankSlipsAsync(
-                _currentUsername,
-                _lastResult.ProcessedSlips,
-                _startDate,
-                _endDate);
-
-            if (exportResult.Success)
-            {
-                // Store the URL for manual opening
-                _lastExportedSheetUrl = exportResult.SheetUrl;
-                _lastExportTime = DateTime.Now;
-
-                SetStatusMessage($"🎉 SUCCESS! Exported {exportResult.RowsExported} rows to Google Sheets!\n" +
-                               $"✅ Shared with: {_userShareEmail}\n" +
-                               $"✅ Shared with: superfox75@gmail.com", "info");
-
-                Logger.LogInformation("Google Sheets export successful for user {Username}. " +
-                                     "Rows: {Rows}, Sheet: {SheetUrl}",
-                    _currentUsername, exportResult.RowsExported, exportResult.SheetUrl);
-
-                // Force UI update to show the success message and open button
-                StateHasChanged();
-
-                // Try automatic opening (may be blocked by popup blocker)
-                if (!string.IsNullOrEmpty(exportResult.SheetUrl))
-                {
-                    try
-                    {
-                        await Task.Delay(100); // Small delay
-                        await JSRuntime.InvokeVoidAsync("tryOpenSheet", exportResult.SheetUrl);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogDebug("Automatic sheet opening failed (likely blocked): {Error}", ex.Message);
-                        // This is expected - popup blockers will prevent this
-                    }
-                }
-            }
-            else
-            {
-                var errorMessage = exportResult.Errors.Any()
-                    ? string.Join(", ", exportResult.Errors)
-                    : "Unknown error occurred";
-                SetStatusMessage($"❌ Export failed: {errorMessage}", "error");
-
-                Logger.LogError("Google Sheets export failed for user {Username}: {Errors}",
-                    _currentUsername, errorMessage);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error during Google Sheets export for user {Username}", _currentUsername);
-            SetStatusMessage($"❌ Export failed: {ex.Message}", "error");
-        }
-        finally
-        {
-            _isExportingToSheets = false;
-            StateHasChanged();
-        }
-    }
-    private async Task OpenLastExportedSheet()
-    {
-        if (!string.IsNullOrEmpty(_lastExportedSheetUrl))
-        {
-            await JSRuntime.InvokeVoidAsync("window.open", _lastExportedSheetUrl, "_blank");
-        }
-    }
-
-    private async Task CopySheetUrlToClipboard()
-    {
-        if (!string.IsNullOrEmpty(_lastExportedSheetUrl))
-        {
-            await JSRuntime.InvokeVoidAsync("copyToClipboard", _lastExportedSheetUrl);
-            SetStatusMessage("📋 Sheet URL copied to clipboard!", "info");
-        }
-    }
-    private async Task VerifyGoogleSheetsSetup()
-    {
-        try
-        {
-            SetStatusMessage("🔍 Verifying Google Sheets setup...", "info");
-            StateHasChanged();
-            await Task.Delay(500);
-
-            // Get the emails to test with
-            var testEmails = new List<string>();
-            if (!string.IsNullOrWhiteSpace(_userShareEmail))
-            {
-                testEmails.Add(_userShareEmail.Trim());
-            }
-            testEmails.Add("superfox75@gmail.com"); // Always include the owner
-
-            SetStatusMessage("🧪 Running complete workflow test...", "info");
-            StateHasChanged();
-            await Task.Delay(500);
-
-            // Run a test export instead of trying to access GoogleSheetsService directly
-            var testResult = await GoogleSheetsExportService.TestExportAsync(_currentUsername);
-            var success = testResult.Success;
-            var spreadsheetId = testResult.SheetId;
-            var errors = testResult.Errors;
-
-            if (success && !string.IsNullOrEmpty(spreadsheetId))
-            {
-                var sheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
-
-                SetStatusMessage($"🎉 VERIFICATION SUCCESSFUL!\n" +
-                               $"✅ Service account working\n" +
-                               $"✅ Spreadsheet created: {spreadsheetId}\n" +
-                               $"✅ Shared with: {string.Join(", ", testEmails)}\n" +
-                               $"🔗 Opening test sheet...", "info");
-
-                // Open the test sheet
-                await Task.Delay(1000);
-                await JSRuntime.InvokeVoidAsync("window.open", sheetUrl, "_blank");
-            }
-            else
-            {
-                var errorDetails = errors.Any() ? string.Join("\n", errors) : "Unknown verification error";
-                SetStatusMessage($"❌ VERIFICATION FAILED:\n{errorDetails}", "error");
-            }
-        }
-        catch (Exception ex)
-        {
-            SetStatusMessage($"❌ VERIFICATION ERROR: {ex.Message}", "error");
-            Logger.LogError(ex, "Google Sheets verification failed");
-        }
-    }
-
-    
-
-
     #endregion
 
     #region Collection Management
@@ -917,99 +761,61 @@
         try
         {
             _isLoadingCollections = true;
-            Logger.LogInformation("LoadAvailableCollections: Starting for user {Username}", _currentUsername);
-
-            // Use GetUserCollectionsAsync instead of GetAllCollectionsAsync
-            // This method properly filters collections based on user permissions
-            if (!string.IsNullOrEmpty(_currentUsername))
-            {
-                _availableCollections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
-            }
-            else
-            {
-                _availableCollections = new List<SlipCollection>();
-                Logger.LogWarning("LoadAvailableCollections: No username available, cannot load collections");
-            }
-
-            Logger.LogInformation("LoadAvailableCollections: User {Username} has access to {Count} collections",
-                _currentUsername, _availableCollections?.Count ?? 0);
-
-            if (_availableCollections?.Any() == true)
-            {
-                foreach (var collection in _availableCollections)
-                {
-                    Logger.LogDebug("LoadAvailableCollections: Accessible collection - {Name} (ID: {Id})",
-                        collection.Name, collection.Id);
-                }
-            }
-            else
-            {
-                Logger.LogInformation("LoadAvailableCollections: User {Username} has no accessible collections", _currentUsername);
-            }
+            _availableCollections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
+            Logger.LogInformation("Loaded {Count} collections for user {Username}", _availableCollections.Count, _currentUsername);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading available collections for user {Username}", _currentUsername);
-            // Log error but don't break the UI
-            _availableCollections = new List<SlipCollection>();
+            Logger.LogError(ex, "Error loading collections for user {Username}", _currentUsername);
+            SetStatusMessage($"Error loading collections: {ex.Message}", "error");
         }
         finally
         {
             _isLoadingCollections = false;
-            StateHasChanged();
         }
     }
 
     private void SelectCollection(SlipCollection collection)
     {
         _selectedCollection = collection;
-        _lastResult = null; // Clear previous results
-        ResetProgress();
         ClearStatusMessage();
-        StateHasChanged();
+        Logger.LogInformation("Selected collection: {CollectionName}", collection.Name);
     }
 
     private void ShowCreateCollectionModal()
     {
         _editingCollection = new SlipCollection
-            {
-                Id = Guid.NewGuid().ToString(),
-                IsActive = true,
-                ProcessingSettings = new ProcessingParameters(),
-                CreatedAt = DateTime.UtcNow,
-                CreatedBy = _currentUsername,
-                // Updated default credentials path
-                CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json"
-            };
-        _showCollectionModal = true;
+        {
+            Name = "",
+            SourceDirectory = "",
+            OutputDirectory = "",
+            CredentialsPath = "",
+            IsActive = true
+        };
         _saveErrorMessage = string.Empty;
+        _showCollectionModal = true;
     }
 
     private void EditCollection(SlipCollection collection)
     {
         _editingCollection = new SlipCollection
-            {
-                Id = collection.Id,
-                Name = collection.Name,
-                Description = collection.Description,
-                SourceDirectory = collection.SourceDirectory,
-                OutputDirectory = collection.OutputDirectory,
-                CredentialsPath = collection.CredentialsPath,
-                IsActive = collection.IsActive,
-                ProcessingSettings = collection.ProcessingSettings,
-                CreatedAt = collection.CreatedAt,
-                CreatedBy = collection.CreatedBy
-            };
-        _showCollectionModal = true;
+        {
+            Id = collection.Id,
+            Name = collection.Name,
+            SourceDirectory = collection.SourceDirectory,
+            OutputDirectory = collection.OutputDirectory,
+            CredentialsPath = collection.CredentialsPath,
+            IsActive = collection.IsActive
+        };
         _saveErrorMessage = string.Empty;
+        _showCollectionModal = true;
     }
 
-    private void HideCollectionModal()
+    private void CloseCollectionModal()
     {
         _showCollectionModal = false;
         _editingCollection = null;
         _saveErrorMessage = string.Empty;
-        _isSaving = false;
     }
 
     private async Task SaveCollection()
@@ -1020,7 +826,6 @@
         {
             _isSaving = true;
             _saveErrorMessage = string.Empty;
-            StateHasChanged();
 
             // Basic validation
             if (string.IsNullOrWhiteSpace(_editingCollection.Name))
@@ -1035,88 +840,36 @@
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_editingCollection.OutputDirectory))
+            bool success = true;
+            try
             {
-                _saveErrorMessage = "Output directory is required.";
-                return;
+                await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error saving collection");
+                success = false;
+                _saveErrorMessage = $"Error: {ex.Message}";
             }
 
-            if (string.IsNullOrWhiteSpace(_editingCollection.CredentialsPath))
+            if (success)
             {
-                _editingCollection.CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json";
+                CloseCollectionModal();
+                await LoadAvailableCollections();
+                SetStatusMessage($"Collection '{_editingCollection.Name}' saved successfully.", "info");
             }
-
-            await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
-
-            // Reload collections and close modal
-            await LoadAvailableCollections();
-            HideCollectionModal();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error saving collection: {Name}", _editingCollection?.Name ?? "Unknown");
-            _saveErrorMessage = $"Error saving collection: {ex.Message}";
+            Logger.LogError(ex, "Error in SaveCollection method");
+            _saveErrorMessage = $"Error: {ex.Message}";
         }
         finally
         {
             _isSaving = false;
-            StateHasChanged();
         }
     }
 
-    private async Task TestDirectoryAccess()
-    {
-        if (_editingCollection == null) return;
-
-        try
-        {
-            if (Directory.Exists(_editingCollection.SourceDirectory))
-            {
-                var files = Directory.GetFiles(_editingCollection.SourceDirectory, "*.*")
-                    .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
-                    .Take(5)
-                    .ToList();
-
-                _saveErrorMessage = $"✓ Directory accessible. Found {files.Count} sample images.";
-            }
-            else
-            {
-                _saveErrorMessage = "✗ Source directory not found or not accessible.";
-            }
-        }
-        catch (Exception ex)
-        {
-            _saveErrorMessage = $"✗ Error accessing directory: {ex.Message}";
-        }
-        StateHasChanged();
-    }
-
-    private async Task TestCredentials()
-    {
-        if (_editingCollection == null) return;
-
-        try
-        {
-            if (File.Exists(_editingCollection.CredentialsPath))
-            {
-                // Try to create a Vision client
-                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", _editingCollection.CredentialsPath);
-                var client = ImageAnnotatorClient.Create();
-                _saveErrorMessage = "✓ Google Cloud credentials file is valid and accessible.";
-            }
-            else
-            {
-                _saveErrorMessage = "✗ Credentials file not found at specified path.";
-            }
-        }
-        catch (Exception ex)
-        {
-            _saveErrorMessage = $"✗ Credentials error: {ex.Message}";
-        }
-        StateHasChanged();
-    }
 
     #endregion
 
@@ -1166,7 +919,6 @@
         {
             SetStatusMessage("Testing single file processing...", "info");
 
-            // Get the first image file from the source directory for testing
             var testFiles = Directory.GetFiles(_selectedCollection.SourceDirectory, "*.*")
                 .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
                            f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
@@ -1201,6 +953,13 @@
         }
     }
 
+    private void SetDateRangeToLastMonth()
+    {
+        var lastMonth = DateTime.Today.AddMonths(-1);
+        _startDate = new DateTime(lastMonth.Year, lastMonth.Month, 1);
+        _endDate = _startDate.AddMonths(1).AddDays(-1);
+    }
+
     private void ResetProgress()
     {
         _processedCount = 0;
@@ -1214,13 +973,126 @@
         _totalFiles = totalCount;
         _currentFileName = currentFileName;
 
-        // Use InvokeAsync to ensure UI updates happen on the correct thread
         InvokeAsync(StateHasChanged);
     }
 
     #endregion
 
-    #region CSV Export
+    #region Export Methods
+
+    // NEW: Updated ExportToGoogleSheets method to use templates
+    private async Task ExportToGoogleSheets()
+    {
+        if (_lastResult?.ProcessedSlips.Any() != true || _selectedTemplate == null) return;
+
+        try
+        {
+            _isExportingToSheets = true;
+            _lastExportedSheetUrl = null;
+            SetStatusMessage("🔄 Starting Google Sheets export with custom template...", "info");
+            StateHasChanged();
+
+            // Validate inputs
+            if (string.IsNullOrWhiteSpace(_userShareEmail))
+            {
+                SetStatusMessage("❌ Please enter your Gmail address first", "error");
+                return;
+            }
+
+            SetStatusMessage("📊 Generating sheet with your template...", "info");
+            StateHasChanged();
+            await Task.Delay(500);
+
+            // NEW: Use SheetConfigurationService to generate sheet data
+            var sheetData = SheetConfigService.GenerateSheetData(
+                _lastResult.ProcessedSlips,
+                _selectedTemplate,
+                (slip, propertyName) => GetPropertyValue(slip, propertyName)
+            );
+
+            // Create spreadsheet using existing GoogleSheetsService
+            var spreadsheetId = await GoogleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
+            Logger.LogInformation("Created new spreadsheet {SpreadsheetId} for user {Username}", spreadsheetId, _currentUsername);
+
+            // Write data to sheet
+            var writeResult = await GoogleSheetsService.WriteDataToSheetAsync(spreadsheetId, sheetData);
+
+            if (writeResult.Success)
+            {
+                // Share spreadsheet
+                await ShareSpreadsheetWithUsers(spreadsheetId, _currentUsername);
+
+                _lastExportedSheetUrl = writeResult.SheetUrl;
+                _lastExportTime = DateTime.Now;
+
+                SetStatusMessage($"🎉 SUCCESS! Exported {writeResult.RowsExported} rows using template '{_selectedTemplate.ConfigurationName}'!\n" +
+                               $"✅ Shared with: {_userShareEmail}\n" +
+                               $"✅ Custom columns with SUMIF formulas included!", "info");
+
+                Logger.LogInformation("Google Sheets export successful using template {TemplateName} for user {Username}",
+                    _selectedTemplate.ConfigurationName, _currentUsername);
+            }
+            else
+            {
+                SetStatusMessage("❌ Failed to write data to Google Sheets", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during Google Sheets export with template");
+            SetStatusMessage($"❌ Export failed: {ex.Message}", "error");
+        }
+        finally
+        {
+            _isExportingToSheets = false;
+            StateHasChanged();
+        }
+    }
+
+    // Helper method to get property values from bank slip data
+    private object? GetPropertyValue(BankSlipData slip, string propertyName)
+    {
+        return propertyName switch
+        {
+            "TransactionDate" => slip.TransactionDate,
+            "Amount" => slip.Amount,
+            "AccountName" => slip.AccountName,
+            "AccountNumber" => slip.AccountNumber,
+            "ReceiverName" => slip.ReceiverName,
+            "ReceiverAccount" => slip.ReceiverAccount,
+            "Note" => slip.Note,
+            "SlipCollectionName" => slip.SlipCollectionName,
+            "ProcessedBy" => slip.ProcessedBy,
+            "ProcessedAt" => slip.ProcessedAt,
+            "OriginalFilePath" => slip.OriginalFilePath,
+            "Status" => slip.Status.ToString(),
+            "ErrorReason" => slip.ErrorReason,
+            "Id" => slip.Id,
+            _ => null
+        };
+    }
+
+    private async Task ShareSpreadsheetWithUsers(string spreadsheetId, string username)
+    {
+        try
+        {
+            // Share with the user's email
+            if (!string.IsNullOrEmpty(_userShareEmail))
+            {
+                await GoogleSheetsService.ShareSpreadsheetAsync(spreadsheetId, _userShareEmail, "writer");
+                Logger.LogInformation("Shared spreadsheet {SpreadsheetId} with user email {Email}", spreadsheetId, _userShareEmail);
+            }
+
+            // Always share with the default admin email
+            await GoogleSheetsService.ShareSpreadsheetAsync(spreadsheetId, "superfox75@gmail.com", "writer");
+            Logger.LogInformation("Shared spreadsheet {SpreadsheetId} with admin email", spreadsheetId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error sharing spreadsheet {SpreadsheetId}", spreadsheetId);
+            // Don't fail the whole export just because sharing failed
+        }
+    }
 
     private async Task DownloadCsv()
     {
@@ -1238,7 +1110,7 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error generating CSV export");
+            Logger.LogError(ex, "Error during CSV export");
             SetStatusMessage($"CSV export failed: {ex.Message}", "error");
         }
     }
@@ -1246,38 +1118,43 @@
     private string GenerateCsvContent(List<BankSlipData> slips)
     {
         var csv = new StringBuilder();
-
-        // Header
-        csv.AppendLine("Date,Amount,AccountName,AccountNumber,ReceiverName,ReceiverAccount,Note,FileName");
+        
+        // Headers
+        csv.AppendLine("Date,Amount,Account Name,Account Number,Receiver Name,Receiver Account,Note,Collection,Processed By,Processed At,Original File");
 
         // Data rows
-        foreach (var slip in slips.OrderBy(s => s.TransactionDate))
+        foreach (var slip in slips)
         {
-            var ceDate = slip.TransactionDate.AddYears(-543);
-            csv.AppendLine($"{ceDate:yyyy-MM-dd}," +
-                          $"{slip.Amount:F2}," +
-                          $"\"{EscapeCsv(slip.AccountName)}\"," +
-                          $"\"{EscapeCsv(slip.AccountNumber)}\"," +
-                          $"\"{EscapeCsv(slip.ReceiverName)}\"," +
-                          $"\"{EscapeCsv(slip.ReceiverAccount)}\"," +
-                          $"\"{EscapeCsv(slip.Note)}\"," +
-                          $"\"{EscapeCsv(Path.GetFileName(slip.OriginalFilePath))}\"");
+            csv.AppendLine($"\"{slip.TransactionDate:yyyy-MM-dd}\"," +
+                          $"\"{slip.Amount}\"," +
+                          $"\"{slip.AccountName}\"," +
+                          $"\"{slip.AccountNumber}\"," +
+                          $"\"{slip.ReceiverName}\"," +
+                          $"\"{slip.ReceiverAccount}\"," +
+                          $"\"{slip.Note}\"," +
+                          $"\"{slip.SlipCollectionName}\"," +
+                          $"\"{slip.ProcessedBy}\"," +
+                          $"\"{slip.ProcessedAt:yyyy-MM-dd HH:mm:ss}\"," +
+                          $"\"{slip.OriginalFilePath}\"");
         }
 
         return csv.ToString();
     }
 
-    private string EscapeCsv(string value)
+    private async Task CopySheetUrlToClipboard()
     {
-        if (string.IsNullOrEmpty(value)) return "";
-        return value.Replace("\"", "\"\"");
+        if (!string.IsNullOrEmpty(_lastExportedSheetUrl))
+        {
+            await JSRuntime.InvokeVoidAsync("copyToClipboard", _lastExportedSheetUrl);
+            SetStatusMessage("📋 Sheet URL copied to clipboard!", "info");
+        }
     }
 
     #endregion
 
-    #region Helper Methods
+    #region Utility Methods
 
-    private void SetStatusMessage(string message, string type)
+    private void SetStatusMessage(string message, string type = "info")
     {
         _statusMessage = message;
         _statusMessageType = type;
@@ -1291,57 +1168,23 @@
     }
 
     #endregion
+
+    #region Progress Reporter Class
+
+    public class BlazorProgressReporter : IProgressReporter
+    {
+        private readonly BankSlipsView _component;
+
+        public BlazorProgressReporter(BankSlipsView component)
+        {
+            _component = component;
+        }
+
+        public void ReportProgress(int processedCount, int totalCount, string currentFileName = "")
+        {
+            _component.UpdateProgress(processedCount, totalCount, currentFileName);
+        }
+    }
+
+    #endregion
 }
-
-<script>
-    // Enhanced JavaScript functions
-    window.downloadFile = (filename, content, contentType) => {
-        const blob = new Blob([content], { type: contentType });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-    };
-
-    // Try to open sheet - may be blocked by popup blocker
-    window.tryOpenSheet = (url) => {
-        try {
-            const newWindow = window.open(url, '_blank');
-            if (!newWindow || newWindow.closed || typeof newWindow.closed == 'undefined') {
-                console.log('Popup blocked - user will need to click the manual link');
-                return false;
-            }
-            return true;
-        } catch (e) {
-            console.log('Failed to open popup:', e);
-            return false;
-        }
-    };
-
-    // Copy text to clipboard
-    window.copyToClipboard = async (text) => {
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(text);
-            } else {
-                // Fallback for older browsers
-                const textArea = document.createElement('textarea');
-                textArea.value = text;
-                textArea.style.position = 'fixed';
-                textArea.style.left = '-999999px';
-                textArea.style.top = '-999999px';
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                document.execCommand('copy');
-                textArea.remove();
-            }
-        } catch (err) {
-            console.error('Failed to copy text: ', err);
-        }
-    };
-</script>
