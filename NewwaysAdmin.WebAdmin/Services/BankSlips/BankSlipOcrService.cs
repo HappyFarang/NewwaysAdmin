@@ -528,7 +528,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                 }
 
-                // Check for PromptPay section indicator
+                // Check for PromptPay section indicator (keep for logging purposes)
                 else if (line.Contains("พร้อมเพย์") || line.Contains("Prompt") || line.Contains("PromptPay"))
                 {
                     foundPromptPaySection = true;
@@ -554,14 +554,14 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     }
                 }
 
-                // Second account number (receiver account) - only after we found sender
-                else if (foundSenderAccount && accountNumberPattern.IsMatch(line))
+                // Second account number (receiver account) - accept both traditional and e-wallet formats
+                else if (foundSenderAccount && (accountNumberPattern.IsMatch(line) || CouldBeEWalletId(line)))
                 {
                     var cleanLine = CleanAccountNumber(line);
                     if (cleanLine != slip.AccountNumber) // Make sure it's different from sender
                     {
                         slip.ReceiverAccount = cleanLine;
-                        _logger.LogDebug("Found receiver account: {Account}", slip.ReceiverAccount);
+                        _logger.LogDebug("Found receiver account (traditional or e-wallet): {Account}", slip.ReceiverAccount);
 
                         // Look for receiver name near this account
                         if (string.IsNullOrEmpty(slip.ReceiverName))
@@ -594,8 +594,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     _logger.LogDebug("Found sender name: {Name}", slip.AccountName);
                 }
 
-                // Enhanced receiver name detection
-                else if (string.IsNullOrEmpty(slip.ReceiverName) && foundPromptPaySection)
+                // FIXED: Enhanced receiver name detection - TRY EVERYWHERE, not just in PromptPay section
+                else if (string.IsNullOrEmpty(slip.ReceiverName))
                 {
                     if (IsValidReceiverName(line, slip.AccountName))
                     {
@@ -609,7 +609,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                         }
 
                         slip.ReceiverName = receiverName.Trim();
-                        _logger.LogDebug("Found receiver name in PromptPay section: {Name}", slip.ReceiverName);
+                        _logger.LogDebug("Found receiver name: {Name} (PromptPay section: {InPromptPay})",
+                            slip.ReceiverName, foundPromptPaySection);
                     }
                 }
 
@@ -636,6 +637,30 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             LogParsingResults(slip, imagePath);
 
             return slip;
+        }
+
+        // Add this helper method to detect e-wallet IDs
+        private bool CouldBeEWalletId(string line)
+        {
+            // E-wallet IDs are usually long alphanumeric strings with letters and numbers
+            // Examples: 46095486RK4C53000000, 000002200860880
+            if (line.Length < 10) return false;
+
+            // Must contain at least some digits
+            if (!line.Any(char.IsDigit)) return false;
+
+            // Check for common e-wallet patterns:
+            // 1. Long numeric strings (15+ digits)
+            // 2. Alphanumeric with both letters and numbers
+            // 3. Should not contain spaces or special chars (except maybe dashes)
+
+            if (Regex.IsMatch(line, @"^\d{15,}$")) // Long numeric string
+                return true;
+
+            if (Regex.IsMatch(line, @"^[A-Z0-9]{10,}$") && line.Any(char.IsLetter)) // Alphanumeric
+                return true;
+
+            return false;
         }
 
         #region Enhanced Note Detection Methods
@@ -908,28 +933,33 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         {
             if (string.IsNullOrWhiteSpace(line) || line.Length < 3) return false;
 
-            // Skip if it's the same as sender name
+            // Skip if same as sender
             if (!string.IsNullOrEmpty(senderName) && line.Equals(senderName, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // Skip lines that contain system keywords
-            var systemKeywords = new[]
-            {
-                "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท", "พร้อมเพย์", "รหัส",
-                "สแกน", "ตรวจสอบ", "ยอด", "คงเหลือ", "เลขที่", "รายการ", "บันทึก"
-            };
+            // Skip system keywords (keep existing logic)
+            var systemKeywords = new[] { "จํานวน", "จำนวน", "ค่าธรรมเนียม", "บาท", "พร้อมเพย์", "รหัส", "สแกน", "ตรวจสอบ", "ยอด", "คงเหลือ", "เลขที่", "รายการ", "บันทึก" };
+            if (systemKeywords.Any(keyword => line.Contains(keyword))) return false;
 
-            if (systemKeywords.Any(keyword => line.Contains(keyword)))
-                return false;
-
-            // Skip lines that are mostly numbers or contain account number patterns
+            // Skip account numbers
             if (Regex.IsMatch(line, @"[xX]{3,}|^\d+-\d+-\d+") || line.Count(char.IsDigit) > line.Length / 2)
                 return false;
 
-            // Must start with typical Thai name prefixes or contain company indicators
-            var namePatterns = new[] { "นาย", "นาง", "น.ส.", "บจ.", "บมจ.", "บริษัท" };
+            // Thai name patterns
+            var thaiNamePatterns = new[] { "นาย", "นาง", "น.ส.", "บจ.", "บมจ.", "บริษัท" };
+            if (thaiNamePatterns.Any(pattern => line.StartsWith(pattern)))
+                return true;
 
-            return namePatterns.Any(pattern => line.StartsWith(pattern));
+            // English company patterns - ADD THIS
+            var englishCompanyPatterns = new[] { "COMPANY", "LTD", "LIMITED", "CORP", "INC", "CO.", "GROUP", "INTERNATIONAL" };
+            if (englishCompanyPatterns.Any(pattern => line.ToUpper().Contains(pattern)))
+                return true;
+
+            // Check for capitalized English names (likely company names)
+            if (Regex.IsMatch(line, @"^[A-Z][A-Z\s&\.]+$") && line.Length > 5)
+                return true;
+
+            return false;
         }
 
         private bool IsValidPersonOrCompanyName(string line, string excludeName)
@@ -1022,6 +1052,13 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     _logger.LogDebug("Clearing invalid receiver name: '{Name}'", slip.ReceiverName);
                     slip.ReceiverName = "";
                 }
+            }
+
+            // ADD THIS: Set default message when receiver name couldn't be resolved
+            if (string.IsNullOrEmpty(slip.ReceiverName))
+            {
+                slip.ReceiverName = "Could not resolve receiver";
+                _logger.LogDebug("No valid receiver name found, setting default message");
             }
         }
 
