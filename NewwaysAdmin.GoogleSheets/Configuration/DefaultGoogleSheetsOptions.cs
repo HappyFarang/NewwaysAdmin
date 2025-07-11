@@ -16,7 +16,7 @@ namespace NewwaysAdmin.GoogleSheets.Configuration
 
         public static GoogleSheetsConfig CreateForDevelopment()
         {
-            return Create(@"C:\Keys\purrfectocr-db2d9d796b58.json");
+            return Create(@"C:\Keys\newwaysadmin-sheets-v2.json");
         }
 
         public static GoogleSheetsConfig CreateForProduction(string keyPath)

@@ -60,7 +60,135 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 throw new GoogleSheetsAuthenticationException("Failed to initialize Google Sheets service", ex);
             }
         }
+        /// <summary>
+        /// Transfer ownership of a spreadsheet to another user
+        /// This removes the file from the service account's storage quota
+        /// </summary>
+        public async Task<bool> TransferOwnershipAsync(string spreadsheetId, string newOwnerEmail)
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Transferring ownership of spreadsheet {SpreadsheetId} to {Email}",
+                    spreadsheetId, newOwnerEmail);
 
+                var driveService = await GetDriveServiceAsync();
+
+                // Create ownership transfer permission
+                var permission = new Google.Apis.Drive.v3.Data.Permission()
+                {
+                    Type = "user",
+                    Role = "owner",  // MUST be "owner" for ownership transfer
+                    EmailAddress = newOwnerEmail
+                };
+
+                var request = driveService.Permissions.Create(permission, spreadsheetId);
+
+                // CRITICAL: Enable ownership transfer
+                request.TransferOwnership = true;
+
+                // Optional: Send notification email to new owner
+                request.SendNotificationEmail = true;
+                request.EmailMessage = "You are now the owner of this spreadsheet exported from NewwaysAdmin.";
+
+                var response = await request.ExecuteAsync();
+
+                _logger.LogInformation("✅ Successfully transferred ownership of spreadsheet {SpreadsheetId} to {Email}. " +
+                                      "File is no longer using service account storage.",
+                                      spreadsheetId, newOwnerEmail);
+
+                return true;
+            }
+            catch (Google.GoogleApiException ex)
+            {
+                _logger.LogError(ex, "❌ Google API error transferring ownership of {SpreadsheetId} to {Email}: {Error}",
+                    spreadsheetId, newOwnerEmail, ex.Message);
+
+                // Special handling for common ownership transfer errors
+                if (ex.Message.Contains("insufficientPermissions"))
+                {
+                    _logger.LogError("Service account lacks permission to transfer ownership. " +
+                                   "The new owner email might need to be a Google account.");
+                }
+                else if (ex.Message.Contains("domainPolicy"))
+                {
+                    _logger.LogError("Domain policy prevents ownership transfer. " +
+                                   "The receiving email domain might not allow external file ownership.");
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Unexpected error transferring ownership of {SpreadsheetId} to {Email}",
+                                spreadsheetId, newOwnerEmail);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create spreadsheet, export data, and immediately transfer ownership
+        /// This is the recommended approach for avoiding service account storage issues
+        /// </summary>
+        public async Task<(bool success, string? spreadsheetId, string? url, string? error)> CreateAndTransferSpreadsheetAsync(
+            string title,
+            SheetData sheetData,
+            string newOwnerEmail,
+            string? worksheetName = null)
+        {
+            string? spreadsheetId = null;
+
+            try
+            {
+                _logger.LogInformation("Creating spreadsheet '{Title}' for transfer to {Email}", title, newOwnerEmail);
+
+                // 1. Create the spreadsheet
+                spreadsheetId = await CreateSpreadsheetAsync(title);
+
+                // 2. Write the data
+                var writeResult = await WriteDataToSheetAsync(spreadsheetId, sheetData, worksheetName);
+                if (!writeResult.Success)
+                {
+                    return (false, null, null, $"Failed to write data: {string.Join(", ", writeResult.Errors)}");
+                }
+
+                // 3. Transfer ownership immediately
+                var transferSuccess = await TransferOwnershipAsync(spreadsheetId, newOwnerEmail);
+                if (!transferSuccess)
+                {
+                    _logger.LogWarning("Ownership transfer failed, but spreadsheet was created successfully. " +
+                                     "File will remain on service account storage.");
+                    // Don't fail the whole operation - user still gets a working spreadsheet
+                }
+
+                var url = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
+
+                _logger.LogInformation("✅ Successfully created and {TransferStatus} spreadsheet {SpreadsheetId}",
+                    transferSuccess ? "transferred ownership of" : "shared", spreadsheetId);
+
+                return (true, spreadsheetId, url, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in create and transfer operation for {Email}", newOwnerEmail);
+
+                // Clean up on failure
+                if (!string.IsNullOrEmpty(spreadsheetId))
+                {
+                    try
+                    {
+                        var driveService = await GetDriveServiceAsync();
+                        await driveService.Files.Delete(spreadsheetId).ExecuteAsync();
+                        _logger.LogInformation("Cleaned up failed spreadsheet {SpreadsheetId}", spreadsheetId);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Failed to cleanup spreadsheet {SpreadsheetId} after error", spreadsheetId);
+                    }
+                }
+
+                return (false, null, null, ex.Message);
+            }
+        }
         private async Task<DriveService> GetDriveServiceAsync()
         {
             if (_driveService != null)

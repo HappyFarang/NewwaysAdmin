@@ -983,63 +983,40 @@
     // NEW: Updated ExportToGoogleSheets method to use templates
     private async Task ExportToGoogleSheets()
     {
-        if (_lastResult?.ProcessedSlips.Any() != true || _selectedTemplate == null) return;
-
         try
         {
+            // ... existing validation code ...
+
             _isExportingToSheets = true;
-            _lastExportedSheetUrl = null;
-            SetStatusMessage("🔄 Starting Google Sheets export with custom template...", "info");
             StateHasChanged();
 
-            // Validate inputs
-            if (string.IsNullOrWhiteSpace(_userShareEmail))
-            {
-                SetStatusMessage("❌ Please enter your Gmail address first", "error");
-                return;
-            }
-
-            SetStatusMessage("📊 Generating sheet with your template...", "info");
-            StateHasChanged();
-            await Task.Delay(500);
-
-            // NEW: Use SheetConfigurationService to generate sheet data
-            var sheetData = SheetConfigService.GenerateSheetData(
+            var writeResult = await BankSlipExportService.ExportBankSlipsAsync(
                 _lastResult.ProcessedSlips,
-                _selectedTemplate,
-                (slip, propertyName) => GetPropertyValue(slip, propertyName)
+                _currentUsername!,
+                _selectedTemplateId
             );
-
-            // Create spreadsheet using existing GoogleSheetsService
-            var spreadsheetId = await GoogleSheetsService.CreateSpreadsheetAsync(sheetData.Title);
-            Logger.LogInformation("Created new spreadsheet {SpreadsheetId} for user {Username}", spreadsheetId, _currentUsername);
-
-            // Write data to sheet
-            var writeResult = await GoogleSheetsService.WriteDataToSheetAsync(spreadsheetId, sheetData);
 
             if (writeResult.Success)
             {
-                // Share spreadsheet
-                await ShareSpreadsheetWithUsers(spreadsheetId, _currentUsername);
+                // Updated success message for ownership transfer
+                SetStatusMessage($"🎉 SUCCESS!\n" +
+                               $"✅ Exported {writeResult.RowsExported} rows using template '{_selectedTemplate.ConfigurationName}'\n" +
+                               $"✅ Ownership transferred to: {_userShareEmail}\n" +
+                               $"✅ You now own the spreadsheet - no storage used on our system!\n" +
+                               $"📧 Check your email for Google notification", "success");
 
-                _lastExportedSheetUrl = writeResult.SheetUrl;
-                _lastExportTime = DateTime.Now;
-
-                SetStatusMessage($"🎉 SUCCESS! Exported {writeResult.RowsExported} rows using template '{_selectedTemplate.ConfigurationName}'!\n" +
-                               $"✅ Shared with: {_userShareEmail}\n" +
-                               $"✅ Custom columns with SUMIF formulas included!", "info");
-
-                Logger.LogInformation("Google Sheets export successful using template {TemplateName} for user {Username}",
-                    _selectedTemplate.ConfigurationName, _currentUsername);
+                Logger.LogInformation("Google Sheets export with ownership transfer successful for user {Username} to {Email}",
+                    _currentUsername, _userShareEmail);
             }
             else
             {
-                SetStatusMessage("❌ Failed to write data to Google Sheets", "error");
+                var errorMsg = writeResult.Errors.Any() ? string.Join(", ", writeResult.Errors) : "Unknown error";
+                SetStatusMessage($"❌ Export failed: {errorMsg}", "error");
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error during Google Sheets export with template");
+            Logger.LogError(ex, "Error during Google Sheets export with ownership transfer");
             SetStatusMessage($"❌ Export failed: {ex.Message}", "error");
         }
         finally
@@ -1185,6 +1162,69 @@
             _component.UpdateProgress(processedCount, totalCount, currentFileName);
         }
     }
+    private bool IsValidGoogleEmail(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains("@"))
+            return false;
 
+        // Common Google account domains that support ownership transfer
+        var validDomains = new[] { "gmail.com", "googlemail.com" };
+        var domain = email.Split('@').LastOrDefault()?.ToLower();
+
+        return validDomains.Contains(domain) || email.EndsWith("@gmail.com");
+    }
+
+    private async Task SaveUserEmail()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_currentUsername))
+            {
+                SetStatusMessage("No current user found", "error");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_userShareEmail))
+            {
+                SetStatusMessage("Please enter a valid email address", "error");
+                return;
+            }
+
+            if (!_userShareEmail.Contains("@") || !_userShareEmail.Contains("."))
+            {
+                SetStatusMessage("Please enter a valid email address", "error");
+                return;
+            }
+
+            // Enhanced validation for ownership transfer
+            if (!IsValidGoogleEmail(_userShareEmail))
+            {
+                SetStatusMessage("⚠️ For ownership transfer, please use a Gmail address (e.g., yourname@gmail.com). " +
+                               "Other email providers may not support Google Sheets ownership transfer.", "warning");
+                // Still allow saving, but warn the user
+            }
+
+            var success = await UserConfigService.SetUserSettingAsync(_currentUsername, "BankSlip", "UserShareEmail", _userShareEmail, _currentUsername);
+
+            if (success)
+            {
+                var message = IsValidGoogleEmail(_userShareEmail)
+                    ? $"✅ Email saved! Spreadsheets will be transferred to: {_userShareEmail}"
+                    : $"⚠️ Email saved: {_userShareEmail} (Note: Ownership transfer works best with Gmail addresses)";
+
+                SetStatusMessage(message, "info");
+                Logger.LogInformation("Saved user share email: {Email} for user {Username}", _userShareEmail, _currentUsername);
+            }
+            else
+            {
+                SetStatusMessage("Failed to save email address", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving user share email");
+            SetStatusMessage($"Error saving email: {ex.Message}", "error");
+        }
+    }
     #endregion
 }

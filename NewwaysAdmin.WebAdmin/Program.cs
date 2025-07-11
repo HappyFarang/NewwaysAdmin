@@ -204,7 +204,7 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-service.json",
+            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-v2.json",
             ApplicationName = "NewwaysAdmin Google Sheets Integration",
             AutoShareWithUser = true,  // Make sure this is enabled
             DefaultShareEmail = "superfox75@gmail.com"
