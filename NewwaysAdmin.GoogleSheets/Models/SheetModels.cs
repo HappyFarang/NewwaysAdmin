@@ -11,6 +11,7 @@ namespace NewwaysAdmin.GoogleSheets.Models
     public class GoogleSheetsConfig
     {
         public required string CredentialsPath { get; set; }
+        public string? PersonalAccountOAuthPath { get; set; }
         public required string ApplicationName { get; set; }
         public bool AutoShareWithUser { get; set; } = false;
         public string? DefaultShareEmail { get; set; }

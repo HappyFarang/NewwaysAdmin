@@ -4,6 +4,8 @@ using Google.Apis.Drive.v3;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Util.Store;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.GoogleSheets.Exceptions;
 using NewwaysAdmin.GoogleSheets.Models;
@@ -26,7 +28,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        private async Task<SheetsService> GetSheetsServiceAsync()
+        private SheetsService GetSheetsService()
         {
             if (_sheetsService != null)
                 return _sheetsService;
@@ -54,10 +56,391 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _logger.LogInformation("Google Sheets service initialized successfully");
                 return _sheetsService;
             }
-            catch (Exception ex) when (!(ex is GoogleSheetsException))
+            catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to initialize Google Sheets service");
                 throw new GoogleSheetsAuthenticationException("Failed to initialize Google Sheets service", ex);
+            }
+        }
+        /// <summary>
+        /// Create spreadsheet using proper OAuth2 UserCredential flow
+        /// This will prompt for browser login the first time, then save tokens
+        /// Uses your personal Google account storage (no quota issues!)
+        /// </summary>
+        public async Task<(bool success, string? spreadsheetId, string? url, string? error)> CreateWithProperOAuth2Async(
+            string title,
+            SheetData sheetData,
+            string finalOwnerEmail,
+            string? worksheetName = null)
+        {
+            DriveService? oauthDriveService = null;
+            SheetsService? oauthSheetsService = null;
+            string? spreadsheetId = null;
+
+            try
+            {
+                _logger.LogInformation("🚀 Creating spreadsheet using proper OAuth2 UserCredential flow");
+
+                // 1. Check OAuth2 file exists
+                if (string.IsNullOrEmpty(_config.PersonalAccountOAuthPath) || !File.Exists(_config.PersonalAccountOAuthPath))
+                {
+                    return (false, null, null, "OAuth2 credentials file not found");
+                }
+
+                // 2. Load OAuth2 client secrets
+                GoogleClientSecrets clientSecrets;
+                using (var stream = new FileStream(_config.PersonalAccountOAuthPath, FileMode.Open, FileAccess.Read))
+                {
+                    clientSecrets = GoogleClientSecrets.FromStream(stream);
+                }
+
+                _logger.LogInformation("✅ Loaded OAuth2 client secrets");
+
+                // 3. Create UserCredential (handles OAuth2 flow)
+                var scopes = new[] { SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive };
+
+                UserCredential credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    clientSecrets.Secrets,
+                    scopes,
+                    "NewwaysAdmin_User", // User identifier for token storage
+                    CancellationToken.None,
+                    new FileDataStore("NewwaysAdmin_OAuth2_Tokens", true)); // Stores refresh tokens locally
+
+                _logger.LogInformation("✅ OAuth2 authentication successful!");
+
+                // 4. Create Google API services
+                oauthDriveService = new DriveService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = _config.ApplicationName,
+                });
+
+                oauthSheetsService = new SheetsService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = _config.ApplicationName,
+                });
+
+                // 5. Test the connection and show account info
+                _logger.LogInformation("🔍 Testing connection...");
+                var aboutRequest = oauthDriveService.About.Get();
+                aboutRequest.Fields = "user,storageQuota";
+                var about = await aboutRequest.ExecuteAsync();
+
+                var storageGB = Math.Round((about.StorageQuota?.Limit ?? 0) / 1024.0 / 1024.0 / 1024.0, 2);
+                var usedGB = Math.Round((about.StorageQuota?.Usage ?? 0) / 1024.0 / 1024.0 / 1024.0, 2);
+
+                _logger.LogInformation("✅ Connected as: {Email}", about.User?.EmailAddress);
+                _logger.LogInformation("💾 Storage: {Used} GB / {Total} GB available", usedGB, storageGB);
+
+                // 6. Create spreadsheet
+                _logger.LogInformation("📄 Creating spreadsheet '{Title}'...", title);
+
+                var spreadsheet = new Spreadsheet
+                {
+                    Properties = new SpreadsheetProperties { Title = title }
+                };
+
+                var createRequest = oauthSheetsService.Spreadsheets.Create(spreadsheet);
+                var response = await createRequest.ExecuteAsync();
+                spreadsheetId = response.SpreadsheetId!;
+
+                _logger.LogInformation("✅ Created spreadsheet: {SpreadsheetId}", spreadsheetId);
+
+                // 7. Create logical worksheet name with timestamp
+                if (string.IsNullOrEmpty(worksheetName))
+                {
+                    worksheetName = $"BankSlips_{DateTime.Now:yyyyMMdd_HHmmss}";
+                }
+
+                _logger.LogInformation("📋 Creating worksheet '{WorksheetName}'...", worksheetName);
+
+                // Rename the default "Sheet1" to our logical name
+                var renameRequest = new BatchUpdateSpreadsheetRequest
+                {
+                    Requests = new List<Request>
+            {
+                new Request
+                {
+                    UpdateSheetProperties = new UpdateSheetPropertiesRequest
+                    {
+                        Properties = new SheetProperties
+                        {
+                            SheetId = 0, // Default sheet ID is always 0
+                            Title = worksheetName
+                        },
+                        Fields = "title"
+                    }
+                }
+            }
+                };
+
+                await oauthSheetsService.Spreadsheets.BatchUpdate(renameRequest, spreadsheetId).ExecuteAsync();
+                _logger.LogInformation("✅ Renamed sheet to '{WorksheetName}'", worksheetName);
+
+                // 8. Write bank slip data
+                _logger.LogInformation("📝 Writing {RowCount} rows of data...", sheetData.Rows.Count);
+
+                worksheetName ??= "Bank Slips";
+
+                var values = new List<IList<object>>();
+                foreach (var row in sheetData.Rows)
+                {
+                    var rowValues = new List<object>();
+                    foreach (var cell in row.Cells)
+                    {
+                        rowValues.Add(cell.Value ?? string.Empty);
+                    }
+                    values.Add(rowValues);
+                }
+
+                var range = $"{worksheetName}!A1";
+                var valueRange = new ValueRange { Values = values };
+
+                var updateRequest = oauthSheetsService.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
+                updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+
+                await updateRequest.ExecuteAsync();
+                _logger.LogInformation("✅ Successfully wrote {RowCount} rows to spreadsheet", values.Count);
+
+                // 8. Transfer ownership to final user (if different from OAuth account)
+                if (!string.IsNullOrEmpty(finalOwnerEmail) &&
+                    finalOwnerEmail != about.User?.EmailAddress &&
+                    finalOwnerEmail != "superfox75@gmail.com")
+                {
+                    _logger.LogInformation("🔄 Transferring ownership to {Email}...", finalOwnerEmail);
+
+                    var permission = new Google.Apis.Drive.v3.Data.Permission()
+                    {
+                        Type = "user",
+                        Role = "owner",
+                        EmailAddress = finalOwnerEmail
+                    };
+
+                    var transferRequest = oauthDriveService.Permissions.Create(permission, spreadsheetId);
+                    transferRequest.TransferOwnership = true;
+                    transferRequest.SendNotificationEmail = true;
+                    transferRequest.EmailMessage = "Bank slip export from NewwaysAdmin";
+
+                    try
+                    {
+                        await transferRequest.ExecuteAsync();
+                        _logger.LogInformation("✅ Successfully transferred ownership to {Email}", finalOwnerEmail);
+                    }
+                    catch (Exception transferEx)
+                    {
+                        _logger.LogWarning(transferEx, "⚠️ Ownership transfer failed, but spreadsheet was created successfully");
+                        // Don't fail the entire operation
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("ℹ️ Keeping ownership with OAuth account: {Email}", about.User?.EmailAddress);
+                }
+
+                var url = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
+                _logger.LogInformation("🎉 SUCCESS! Spreadsheet ready: {Url}", url);
+
+                return (true, spreadsheetId, url, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ OAuth2 spreadsheet creation failed: {Message}", ex.Message);
+
+                // Cleanup on failure
+                if (!string.IsNullOrEmpty(spreadsheetId) && oauthDriveService != null)
+                {
+                    try
+                    {
+                        await oauthDriveService.Files.Delete(spreadsheetId).ExecuteAsync();
+                        _logger.LogInformation("🧹 Cleaned up failed spreadsheet");
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Failed to cleanup spreadsheet after error");
+                    }
+                }
+
+                return (false, null, null, ex.Message);
+            }
+            finally
+            {
+                oauthDriveService?.Dispose();
+                oauthSheetsService?.Dispose();
+            }
+        }
+        /// <summary>
+        /// Create spreadsheet using personal OAuth2 account for EVERYTHING
+        /// No service account, no sharing complications!
+        /// </summary>
+        public async Task<(bool success, string? spreadsheetId, string? url, string? error)> CreateWithOAuth2OnlyAsync(
+            string title,
+            SheetData sheetData,
+            string finalOwnerEmail,
+            string? worksheetName = null)
+        {
+            DriveService? oauthDriveService = null;
+            SheetsService? oauthSheetsService = null;
+            string? spreadsheetId = null;
+
+            try
+            {
+                _logger.LogInformation("🚀 Creating spreadsheet '{Title}' using OAuth2-only approach (SIMPLE!)", title);
+
+                // 1. Check OAuth2 credentials
+                if (string.IsNullOrEmpty(_config.PersonalAccountOAuthPath) || !File.Exists(_config.PersonalAccountOAuthPath))
+                {
+                    return (false, null, null, "Personal account OAuth credentials not found. Please set PersonalAccountOAuthPath in config.");
+                }
+
+                // 2. Create OAuth2 services
+                GoogleCredential oauthCredential;
+                using (var stream = new FileStream(_config.PersonalAccountOAuthPath, FileMode.Open, FileAccess.Read))
+                {
+                    oauthCredential = GoogleCredential.FromStream(stream)
+                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                }
+
+                oauthDriveService = new DriveService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = oauthCredential,
+                    ApplicationName = _config.ApplicationName,
+                });
+
+                oauthSheetsService = new SheetsService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = oauthCredential,
+                    ApplicationName = _config.ApplicationName,
+                });
+
+                // 3. Create spreadsheet with OAuth2
+                _logger.LogInformation("📄 Creating spreadsheet...");
+
+                var spreadsheet = new Spreadsheet
+                {
+                    Properties = new SpreadsheetProperties
+                    {
+                        Title = title
+                    }
+                };
+
+                var createRequest = oauthSheetsService.Spreadsheets.Create(spreadsheet);
+                var response = await createRequest.ExecuteAsync();
+                spreadsheetId = response.SpreadsheetId!;
+
+                _logger.LogInformation("✅ Created spreadsheet: {SpreadsheetId}", spreadsheetId);
+
+                // 4. Write data using SAME OAuth2 account (no permission issues!)
+                _logger.LogInformation("📝 Writing data to spreadsheet...");
+
+                worksheetName ??= "Bank Slips";
+
+                // Prepare the data
+                var values = new List<IList<object>>();
+                foreach (var row in sheetData.Rows)
+                {
+                    var rowValues = new List<object>();
+                    foreach (var cell in row.Cells)
+                    {
+                        rowValues.Add(cell.Value ?? string.Empty);
+                    }
+                    values.Add(rowValues);
+                }
+
+                var range = $"{worksheetName}!A1";
+                var valueRange = new ValueRange
+                {
+                    Values = values
+                };
+
+                var updateRequest = oauthSheetsService.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
+                updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+
+                await updateRequest.ExecuteAsync();
+
+                _logger.LogInformation("✅ Successfully wrote {RowCount} rows to spreadsheet", values.Count);
+
+                // 5. Transfer ownership to final user (if different from OAuth2 account)
+                if (!string.IsNullOrEmpty(finalOwnerEmail) && finalOwnerEmail != "superfox75@gmail.com")
+                {
+                    _logger.LogInformation("🔄 Transferring ownership to {Email}...", finalOwnerEmail);
+
+                    var permission = new Google.Apis.Drive.v3.Data.Permission()
+                    {
+                        Type = "user",
+                        Role = "owner",
+                        EmailAddress = finalOwnerEmail
+                    };
+
+                    var transferRequest = oauthDriveService.Permissions.Create(permission, spreadsheetId);
+                    transferRequest.TransferOwnership = true;
+                    transferRequest.SendNotificationEmail = true;
+                    transferRequest.EmailMessage = "You are now the owner of this spreadsheet exported from NewwaysAdmin.";
+
+                    try
+                    {
+                        await transferRequest.ExecuteAsync();
+                        _logger.LogInformation("✅ Successfully transferred ownership to {Email}", finalOwnerEmail);
+                    }
+                    catch (Exception transferEx)
+                    {
+                        _logger.LogWarning(transferEx, "⚠️ Ownership transfer failed, but spreadsheet was created successfully");
+                        // Don't fail the whole operation
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("ℹ️ Keeping ownership with OAuth2 account (superfox75@gmail.com)");
+                }
+
+                var url = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
+                _logger.LogInformation("🎉 SUCCESS! Spreadsheet ready: {Url}", url);
+
+                return (true, spreadsheetId, url, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error in OAuth2-only create operation");
+
+                // Cleanup on failure
+                if (!string.IsNullOrEmpty(spreadsheetId) && oauthDriveService != null)
+                {
+                    try
+                    {
+                        await oauthDriveService.Files.Delete(spreadsheetId).ExecuteAsync();
+                        _logger.LogInformation("🧹 Cleaned up failed spreadsheet {SpreadsheetId}", spreadsheetId);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogWarning(cleanupEx, "Failed to cleanup spreadsheet {SpreadsheetId}", spreadsheetId);
+                    }
+                }
+
+                return (false, null, null, ex.Message);
+            }
+            finally
+            {
+                oauthDriveService?.Dispose();
+                oauthSheetsService?.Dispose();
+            }
+        }
+        private string GetServiceAccountEmail()
+        {
+            try
+            {
+                // This should read from newwaysadmin-sheets-v2.json
+                var credentialsJson = File.ReadAllText(_config.CredentialsPath);
+                var credentialsData = System.Text.Json.JsonDocument.Parse(credentialsJson);
+                var email = credentialsData.RootElement.GetProperty("client_email").GetString()!;
+
+                _logger.LogInformation("🔍 NewwaysAdmin service account email: {Email}", email);
+                // This should log: google-sheets-service-account2@newwaysadmin-intergration.iam.gserviceaccount.com
+                return email;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to read service account email");
+                throw;
             }
         }
         /// <summary>
@@ -189,6 +572,53 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 return (false, null, null, ex.Message);
             }
         }
+
+        public async Task<bool> ShareSpreadsheetAsync(string spreadsheetId, string email, string role = "writer")
+        {
+            try
+            {
+                return await ExecuteWithRetryAsync(async () =>
+                {
+                    _logger.LogInformation("🔄 Attempting to share spreadsheet {SpreadsheetId} with {Email} as {Role}",
+                        spreadsheetId, email, role);
+
+                    var driveService = await GetDriveServiceAsync();
+
+                    // Create permission object
+                    var permission = new Google.Apis.Drive.v3.Data.Permission()
+                    {
+                        Type = "user",
+                        Role = role, // "reader", "writer", or "owner"
+                        EmailAddress = email
+                    };
+
+                    var request = driveService.Permissions.Create(permission, spreadsheetId);
+
+                    // IMPORTANT: Disable email notifications to avoid spam
+                    request.SendNotificationEmail = false;
+
+                    var response = await request.ExecuteAsync();
+
+                    _logger.LogInformation("✅ Successfully shared spreadsheet {SpreadsheetId} with {Email}. Permission ID: {PermissionId}",
+                        spreadsheetId, email, response.Id);
+
+                    return true;
+
+                }, $"Share spreadsheet {spreadsheetId} with {email}");
+            }
+            catch (Google.GoogleApiException ex)
+            {
+                _logger.LogError(ex, "❌ Google API error sharing spreadsheet {SpreadsheetId} with {Email}: {Error} (Status: {StatusCode})",
+                    spreadsheetId, email, ex.Message, ex.HttpStatusCode);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Unexpected error sharing spreadsheet {SpreadsheetId} with {Email}", spreadsheetId, email);
+                return false;
+            }
+        }
+
         private async Task<DriveService> GetDriveServiceAsync()
         {
             if (_driveService != null)
@@ -226,9 +656,9 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
         public async Task<string> CreateSpreadsheetAsync(string title)
         {
-            try
+            return await ExecuteWithRetryAsync(async () =>
             {
-                var service = await GetSheetsServiceAsync();
+                var service = GetSheetsService();
 
                 var spreadsheet = new Spreadsheet
                 {
@@ -242,14 +672,9 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 var response = await request.ExecuteAsync();
 
                 _logger.LogInformation("Created spreadsheet: {Title} with ID: {SpreadsheetId}", title, response.SpreadsheetId);
-
                 return response.SpreadsheetId!;
-            }
-            catch (Exception ex) when (!(ex is GoogleSheetsException))
-            {
-                _logger.LogError(ex, "Failed to create spreadsheet: {Title}", title);
-                throw new GoogleSheetsException($"Failed to create spreadsheet: {title}", ex);
-            }
+
+            }, $"Create spreadsheet '{title}'");
         }
 
         public async Task<ExportResult> WriteDataToSheetAsync(string spreadsheetId, SheetData sheetData, string? worksheetName = null)
@@ -258,42 +683,45 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
             try
             {
-                var service = await GetSheetsServiceAsync();
-                worksheetName ??= "Sheet1";
-
-                // Prepare the data
-                var values = new List<IList<object>>();
-                foreach (var row in sheetData.Rows)
+                await ExecuteWithRetryAsync(async () =>
                 {
-                    var rowValues = new List<object>();
-                    foreach (var cell in row.Cells)
+                    var service = GetSheetsService();
+                    worksheetName ??= "Sheet1";
+
+                    // Prepare the data
+                    var values = new List<IList<object>>();
+                    foreach (var row in sheetData.Rows)
                     {
-                        rowValues.Add(cell.Value ?? string.Empty);
+                        var rowValues = new List<object>();
+                        foreach (var cell in row.Cells)
+                        {
+                            rowValues.Add(cell.Value ?? string.Empty);
+                        }
+                        values.Add(rowValues);
                     }
-                    values.Add(rowValues);
-                }
 
-                var range = $"{worksheetName}!A1";
-                var valueRange = new ValueRange
-                {
-                    Values = values
-                };
-                await ApplyCheckboxFormattingAsync(service, spreadsheetId, sheetData, worksheetName);
+                    var range = $"{worksheetName}!A1";
+                    var valueRange = new ValueRange
+                    {
+                        Values = values
+                    };
 
-                var updateRequest = service.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
-                updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
+                    var updateRequest = service.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
+                    updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 
-                var updateResponse = await updateRequest.ExecuteAsync();
+                    await updateRequest.ExecuteAsync();
 
-                // Apply formatting if needed
-                await ApplyFormattingAsync(service, spreadsheetId, sheetData, worksheetName);
+                    // Apply formatting if needed (also with retry)
+                   // await ApplyFormattingAsync(service, spreadsheetId, sheetData, worksheetName);
+
+                    _logger.LogInformation("Successfully wrote {RowCount} rows to sheet {SpreadsheetId}", values.Count, spreadsheetId);
+
+                }, $"Write data to spreadsheet {spreadsheetId}");
 
                 result.Success = true;
                 result.SheetId = spreadsheetId;
                 result.SheetUrl = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
-                result.RowsExported = values.Count;
-
-                _logger.LogInformation("Successfully wrote {RowCount} rows to sheet {SpreadsheetId}", values.Count, spreadsheetId);
+                result.RowsExported = sheetData.Rows.Count;
             }
             catch (Exception ex)
             {
@@ -304,307 +732,107 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
             return result;
         }
-        private async Task ApplyCheckboxFormattingAsync(SheetsService service, string spreadsheetId, SheetData sheetData, string worksheetName)
-        {
-            var requests = new List<Request>();
-
-            for (int rowIndex = 0; rowIndex < sheetData.Rows.Count; rowIndex++)
-            {
-                var row = sheetData.Rows[rowIndex];
-                for (int colIndex = 0; colIndex < row.Cells.Count; colIndex++)
-                {
-                    var cell = row.Cells[colIndex];
-                    if (cell.IsCheckbox)
-                    {
-                        // Add data validation for checkbox
-                        var request = new Request
-                        {
-                            SetDataValidation = new SetDataValidationRequest
-                            {
-                                Range = new GridRange
-                                {
-                                    SheetId = 0, // Assuming first sheet
-                                    StartRowIndex = rowIndex,
-                                    EndRowIndex = rowIndex + 1,
-                                    StartColumnIndex = colIndex,
-                                    EndColumnIndex = colIndex + 1
-                                },
-                                Rule = new DataValidationRule
-                                {
-                                    Condition = new BooleanCondition
-                                    {
-                                        Type = "BOOLEAN"
-                                    },
-                                    ShowCustomUi = true
-                                }
-                            }
-                        };
-                        requests.Add(request);
-                    }
-                }
-            }
-
-            if (requests.Any())
-            {
-                var batchUpdateRequest = new BatchUpdateSpreadsheetRequest
-                {
-                    Requests = requests
-                };
-
-                await service.Spreadsheets.BatchUpdate(batchUpdateRequest, spreadsheetId).ExecuteAsync();
-            }
-        }
-        private async Task ApplyFormattingAsync(SheetsService service, string spreadsheetId, SheetData sheetData, string worksheetName)
-        {
-            try
-            {
-                var requests = new List<Request>();
-
-                // Get sheet ID for the worksheet
-                var spreadsheet = await service.Spreadsheets.Get(spreadsheetId).ExecuteAsync();
-                var sheet = spreadsheet.Sheets?.FirstOrDefault(s => s.Properties?.Title == worksheetName);
-                if (sheet?.Properties?.SheetId == null)
-                {
-                    _logger.LogWarning("Could not find sheet {WorksheetName} for formatting", worksheetName);
-                    return;
-                }
-
-                var sheetId = sheet.Properties.SheetId.Value;
-
-                // Format header row if it exists
-                var headerRow = sheetData.Rows.FirstOrDefault(r => r.IsHeader);
-                if (headerRow != null)
-                {
-                    var headerIndex = sheetData.Rows.IndexOf(headerRow);
-                    requests.Add(new Request
-                    {
-                        RepeatCell = new RepeatCellRequest
-                        {
-                            Range = new GridRange
-                            {
-                                SheetId = sheetId,
-                                StartRowIndex = headerIndex,
-                                EndRowIndex = headerIndex + 1,
-                                StartColumnIndex = 0,
-                                EndColumnIndex = headerRow.Cells.Count
-                            },
-                            Cell = new CellData
-                            {
-                                UserEnteredFormat = new CellFormat
-                                {
-                                    BackgroundColor = new Color { Red = 0.9f, Green = 0.9f, Blue = 0.9f, Alpha = 1.0f },
-                                    TextFormat = new TextFormat { Bold = true }
-                                }
-                            },
-                            Fields = "userEnteredFormat(backgroundColor,textFormat)"
-                        }
-                    });
-                }
-
-                // Auto-resize columns
-                requests.Add(new Request
-                {
-                    AutoResizeDimensions = new AutoResizeDimensionsRequest
-                    {
-                        Dimensions = new DimensionRange
-                        {
-                            SheetId = sheetId,
-                            Dimension = "COLUMNS",
-                            StartIndex = 0,
-                            EndIndex = sheetData.Rows.FirstOrDefault()?.Cells.Count ?? 10
-                        }
-                    }
-                });
-
-                if (requests.Any())
-                {
-                    var batchUpdateRequest = new BatchUpdateSpreadsheetRequest
-                    {
-                        Requests = requests
-                    };
-
-                    await service.Spreadsheets.BatchUpdate(batchUpdateRequest, spreadsheetId).ExecuteAsync();
-                    _logger.LogDebug("Applied formatting to sheet {SpreadsheetId}", spreadsheetId);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to apply formatting to sheet {SpreadsheetId}", spreadsheetId);
-                // Don't throw - formatting is not critical
-            }
-        }
-
-        public async Task<bool> ShareSpreadsheetAsync(string spreadsheetId, string email, string role = "writer")
-        {
-            try
-            {
-                _logger.LogInformation("🔄 Attempting to share spreadsheet {SpreadsheetId} with {Email} as {Role}",
-                    spreadsheetId, email, role);
-
-                var driveService = await GetDriveServiceAsync();
-
-                // Create permission object
-                var permission = new Google.Apis.Drive.v3.Data.Permission()
-                {
-                    Type = "user",
-                    Role = role, // "reader", "writer", or "owner"
-                    EmailAddress = email
-                };
-
-                var request = driveService.Permissions.Create(permission, spreadsheetId);
-
-                // IMPORTANT: Disable email notifications to avoid spam
-                request.SendNotificationEmail = false;
-
-                // IMPORTANT: Transfer ownership to the user if they're the main user
-                request.TransferOwnership = false; // Keep service account as owner for control
-
-                var response = await request.ExecuteAsync();
-
-                _logger.LogInformation("✅ Successfully shared spreadsheet {SpreadsheetId} with {Email}. Permission ID: {PermissionId}",
-                    spreadsheetId, email, response.Id);
-
-                return true;
-            }
-            catch (Google.GoogleApiException ex)
-            {
-                _logger.LogError(ex, "❌ Google API error sharing spreadsheet {SpreadsheetId} with {Email}: {Error} (Status: {StatusCode})",
-                    spreadsheetId, email, ex.Message, ex.HttpStatusCode);
-
-                // Log more details for debugging
-                if (ex.Error?.Errors != null)
-                {
-                    foreach (var error in ex.Error.Errors)
-                    {
-                        _logger.LogError("API Error Detail - Domain: {Domain}, Reason: {Reason}, Message: {Message}",
-                            error.Domain, error.Reason, error.Message);
-                    }
-                }
-
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Unexpected error sharing spreadsheet {SpreadsheetId} with {Email}", spreadsheetId, email);
-                return false;
-            }
-        }
 
         /// <summary>
-        /// Share spreadsheet with multiple users at once
+        /// Execute a Google API operation with retry logic for temporary failures
         /// </summary>
-        public async Task<Dictionary<string, bool>> ShareSpreadsheetWithMultipleUsersAsync(
-            string spreadsheetId,
-            IEnumerable<string> emails,
-            string role = "writer")
+        private async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> operation, string operationName, int maxRetries = 3)
         {
-            var results = new Dictionary<string, bool>();
+            var retryDelays = new[] { 1000, 2000, 5000 }; // 1s, 2s, 5s
 
-            foreach (var email in emails.Where(e => !string.IsNullOrWhiteSpace(e)))
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
             {
                 try
                 {
-                    var success = await ShareSpreadsheetAsync(spreadsheetId, email.Trim(), role);
-                    results[email] = success;
-
-                    // Small delay to avoid rate limiting
-                    await Task.Delay(100);
+                    return await operation();
                 }
-                catch (Exception ex)
+                catch (Google.GoogleApiException ex) when (ShouldRetry(ex, attempt, maxRetries))
                 {
-                    _logger.LogError(ex, "Error sharing with {Email}", email);
-                    results[email] = false;
+                    var delay = attempt < retryDelays.Length ? retryDelays[attempt] : 5000;
+
+                    _logger.LogWarning("🔄 Retry {Attempt}/{MaxRetries} for {Operation} after {StatusCode} error. Waiting {Delay}ms...",
+                        attempt + 1, maxRetries + 1, operationName, ex.HttpStatusCode, delay);
+
+                    await Task.Delay(delay);
+                    continue;
+                }
+                catch (Google.GoogleApiException ex)
+                {
+                    _logger.LogError(ex, "❌ {Operation} failed with non-retryable error: {StatusCode} - {Message}",
+                        operationName, ex.HttpStatusCode, ex.Message);
+                    throw;
                 }
             }
 
-            return results;
-        }
-
-        public async Task<SheetInfo?> GetSheetInfoAsync(string spreadsheetId)
-        {
-            try
-            {
-                var service = await GetSheetsServiceAsync();
-                var spreadsheet = await service.Spreadsheets.Get(spreadsheetId).ExecuteAsync();
-
-                if (spreadsheet?.Properties == null)
-                    return null;
-
-                return new SheetInfo
-                {
-                    SheetId = spreadsheetId,
-                    Title = spreadsheet.Properties.Title ?? "Untitled",
-                    Url = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}",
-                    CreatedAt = DateTime.UtcNow, // Google Sheets API doesn't provide creation time easily
-                    RowCount = spreadsheet.Sheets?.FirstOrDefault()?.Properties?.GridProperties?.RowCount ?? 0,
-                    ColumnCount = spreadsheet.Sheets?.FirstOrDefault()?.Properties?.GridProperties?.ColumnCount ?? 0
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get sheet info for {SpreadsheetId}", spreadsheetId);
-                return null;
-            }
+            throw new GoogleSheetsException($"Operation {operationName} failed after {maxRetries + 1} attempts");
         }
 
         /// <summary>
-        /// Test the complete workflow: create, write, and share
+        /// Helper for void operations - use this pattern: await ExecuteRetryVoidAsync(() => SomeVoidMethod(), "description");
         /// </summary>
-        public async Task<(bool success, string? spreadsheetId, List<string> errors)> TestCompleteWorkflowAsync(
-            string testTitle,
-            IEnumerable<string> emailsToShare)
+        private async Task ExecuteRetryVoidAsync(Func<Task> operation, string operationName, int maxRetries = 3)
         {
-            var errors = new List<string>();
-            string? spreadsheetId = null;
-
-            try
+            await ExecuteWithRetryAsync(async () =>
             {
-                // 1. Create spreadsheet
-                spreadsheetId = await CreateSpreadsheetAsync(testTitle);
-
-                // 2. Add some test data
-                var testData = new SheetData
-                {
-                    Title = testTitle
-                };
-                testData.AddHeaderRow("Test Column 1", "Test Column 2", "Test Column 3");
-                testData.AddDataRow("Test Value 1", "Test Value 2", "Test Value 3");
-
-                var writeResult = await WriteDataToSheetAsync(spreadsheetId, testData);
-                if (!writeResult.Success)
-                {
-                    errors.AddRange(writeResult.Errors);
-                    return (false, spreadsheetId, errors);
-                }
-
-                // 3. Share with all emails
-                var shareResults = await ShareSpreadsheetWithMultipleUsersAsync(spreadsheetId, emailsToShare);
-                foreach (var shareResult in shareResults)
-                {
-                    if (!shareResult.Value)
-                    {
-                        errors.Add($"Failed to share with {shareResult.Key}");
-                    }
-                }
-
-                return (true, spreadsheetId, errors);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in test workflow");
-                errors.Add($"Test workflow failed: {ex.Message}");
-                return (false, spreadsheetId, errors);
-            }
+                await operation();
+                return true; // Dummy return value
+            }, operationName, maxRetries);
         }
+
+        /// <summary>
+        /// Determine if an error should be retried
+        /// </summary>
+        private static bool ShouldRetry(Google.GoogleApiException ex, int currentAttempt, int maxRetries)
+        {
+            if (currentAttempt >= maxRetries) return false;
+
+            // Retry on these HTTP status codes
+            return ex.HttpStatusCode switch
+            {
+                System.Net.HttpStatusCode.BadGateway => true,          // 502
+                System.Net.HttpStatusCode.ServiceUnavailable => true,  // 503
+                System.Net.HttpStatusCode.GatewayTimeout => true,      // 504
+                System.Net.HttpStatusCode.InternalServerError => true, // 500
+                System.Net.HttpStatusCode.TooManyRequests => true,     // 429
+                _ => false
+            };
+        }
+
+
+
+        /// <summary>
+        /// Execute a Google API operation with retry logic (void return)
+        /// </summary>
+        private async Task ExecuteWithRetryAsync(Func<Task> operation, string operationName, int maxRetries = 3)
+        {
+            await ExecuteWithRetryAsync(async () =>
+            {
+                await operation();
+                return true; // Dummy return for void operations
+            }, operationName, maxRetries);
+        }
+
 
         public void Dispose()
         {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
             if (!_disposed)
             {
-                _sheetsService?.Dispose();
-                _driveService?.Dispose();
+                if (disposing)
+                {
+                    // Dispose managed resources
+                    _sheetsService?.Dispose();
+                    _driveService?.Dispose();
+                }
+
                 _disposed = true;
             }
         }
     }
 }
+        

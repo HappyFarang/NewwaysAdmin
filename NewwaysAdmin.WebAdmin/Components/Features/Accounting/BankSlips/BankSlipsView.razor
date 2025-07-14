@@ -13,6 +13,7 @@
 @using Google.Apis.Sheets.v4
 @using Google.Apis.Drive.v3
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Templates
+@using NewwaysAdmin.GoogleSheets.Services
 @inject GoogleSheetsService GoogleSheetsService
 @inject IBankSlipOcrService BankSlipService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -21,6 +22,7 @@
 @inject BankSlipExportService GoogleSheetsExportService
 @inject UserSheetConfigService UserConfigService
 @inject SheetConfigurationService SheetConfigService
+@inject SimpleEmailStorageService EmailStorage
 
 <PageTitle>Bank Slip OCR</PageTitle>
 
@@ -700,7 +702,7 @@
         {
             if (!string.IsNullOrEmpty(_currentUsername))
             {
-                _userShareEmail = await UserConfigService.GetSettingAsync<string>(_currentUsername, "BankSlip", "UserShareEmail", "");
+                _userShareEmail = await EmailStorage.GetUserEmailAsync(_currentUsername) ?? "";
                 Logger.LogInformation("Loaded user share email: {Email} for user {Username}",
                     string.IsNullOrEmpty(_userShareEmail) ? "None" : _userShareEmail, _currentUsername);
             }
@@ -708,47 +710,6 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading user share email");
-        }
-    }
-
-    private async Task SaveUserEmail()
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(_currentUsername))
-            {
-                SetStatusMessage("No current user found", "error");
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(_userShareEmail))
-            {
-                SetStatusMessage("Please enter a valid email address", "error");
-                return;
-            }
-
-            if (!_userShareEmail.Contains("@") || !_userShareEmail.Contains("."))
-            {
-                SetStatusMessage("Please enter a valid email address", "error");
-                return;
-            }
-
-            var success = await UserConfigService.SetUserSettingAsync(_currentUsername, "BankSlip", "UserShareEmail", _userShareEmail, _currentUsername);
-
-            if (success)
-            {
-                SetStatusMessage($"✓ Email saved successfully: {_userShareEmail}", "info");
-                Logger.LogInformation("Saved user share email: {Email} for user {Username}", _userShareEmail, _currentUsername);
-            }
-            else
-            {
-                SetStatusMessage("Failed to save email address", "error");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error saving user share email");
-            SetStatusMessage($"Error saving email: {ex.Message}", "error");
         }
     }
 
@@ -990,11 +951,11 @@
             _isExportingToSheets = true;
             StateHasChanged();
 
-            var writeResult = await BankSlipExportService.ExportBankSlipsAsync(
+            var writeResult = await GoogleSheetsExportService.ExportBankSlipsAsync(
                 _lastResult.ProcessedSlips,
                 _currentUsername!,
                 _selectedTemplateId
-            );
+              ); 
 
             if (writeResult.Success)
             {
@@ -1176,14 +1137,13 @@
 
     private async Task SaveUserEmail()
     {
+        if (string.IsNullOrEmpty(_currentUsername)) return;
+
         try
         {
-            if (string.IsNullOrEmpty(_currentUsername))
-            {
-                SetStatusMessage("No current user found", "error");
-                return;
-            }
+            _isSaving = true; // Add this field if you don't have it
 
+            // Basic validation
             if (string.IsNullOrWhiteSpace(_userShareEmail))
             {
                 SetStatusMessage("Please enter a valid email address", "error");
@@ -1201,10 +1161,19 @@
             {
                 SetStatusMessage("⚠️ For ownership transfer, please use a Gmail address (e.g., yourname@gmail.com). " +
                                "Other email providers may not support Google Sheets ownership transfer.", "warning");
-                // Still allow saving, but warn the user
             }
 
-            var success = await UserConfigService.SetUserSettingAsync(_currentUsername, "BankSlip", "UserShareEmail", _userShareEmail, _currentUsername);
+            bool success = true;
+            try
+            {
+                await EmailStorage.SetUserEmailAsync(_currentUsername, _userShareEmail);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error saving user email");
+                success = false;
+                SetStatusMessage($"Error saving email: {ex.Message}", "error");
+            }
 
             if (success)
             {
@@ -1215,16 +1184,17 @@
                 SetStatusMessage(message, "info");
                 Logger.LogInformation("Saved user share email: {Email} for user {Username}", _userShareEmail, _currentUsername);
             }
-            else
-            {
-                SetStatusMessage("Failed to save email address", "error");
-            }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error saving user share email");
+            Logger.LogError(ex, "Error in SaveUserEmail method");
             SetStatusMessage($"Error saving email: {ex.Message}", "error");
         }
+        finally
+        {
+            _isSaving = false;
+        }
     }
+
     #endregion
 }

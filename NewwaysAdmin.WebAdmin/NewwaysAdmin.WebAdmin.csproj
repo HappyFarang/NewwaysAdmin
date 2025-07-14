@@ -22,8 +22,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Components\Features\Features\" />
     <Folder Include="Components\Features\GoogleSheets\" />
     <Folder Include="Components\Features\NewFolder\" />
+    <Folder Include="Services\GoogleSheets\" />
   </ItemGroup>
 
 </Project>

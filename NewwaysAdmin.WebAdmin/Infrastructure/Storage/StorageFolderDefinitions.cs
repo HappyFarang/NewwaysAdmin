@@ -137,6 +137,17 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
 
                 new StorageFolder
                 {
+                    Name = "GoogleSheets_EmailSettings",
+                    Description = "User email addresses for Google Sheets ownership transfer",
+                    Type = StorageType.Json,
+                    Path = "GoogleSheets",
+                    IsShared = false,
+                    CreateBackups = true,
+                    MaxBackupCount = 5
+                },
+
+                new StorageFolder
+                {
                     Name = "GoogleSheets_Templates",
                     Description = "Sheet layout templates for different data types",
                     Type = StorageType.Json,

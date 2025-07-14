@@ -27,7 +27,6 @@ using NewwaysAdmin.GoogleSheets.Extensions;
 using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
-using NewwaysAdmin.WebAdmin.Services.GoogleSheets;
 
 
 
@@ -204,13 +203,11 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-v2.json",
+            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-v2.json", // Keep this (service account)
+            PersonalAccountOAuthPath = @"C:\Keys\oauth2-credentials.json", // Point to your NEW OAuth2 file
             ApplicationName = "NewwaysAdmin Google Sheets Integration",
-            AutoShareWithUser = true,  // Make sure this is enabled
             DefaultShareEmail = "superfox75@gmail.com"
         };
-
-        services.AddScoped<ITemplateStorageService, TemplateStorageService>();
 
         // Add Google Sheets services
         services.AddGoogleSheetsServices(googleSheetsConfig);
@@ -240,9 +237,12 @@ public class Program
             var bankSlipLayout = sp.GetRequiredService<ISheetLayout<BankSlipData>>();
             var config = sp.GetRequiredService<GoogleSheetsConfig>();
             var logger = sp.GetRequiredService<ILogger<BankSlipExportService>>();
+            var sheetConfigService = sp.GetRequiredService<SheetConfigurationService>();
+            var emailStorage = sp.GetRequiredService<NewwaysAdmin.GoogleSheets.Services.SimpleEmailStorageService>();
 
-            return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger);
+            return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger, sheetConfigService, emailStorage);
         });
+
         // Register SheetConfigurationService
         services.AddScoped<SheetConfigurationService>(sp =>
         {
@@ -253,6 +253,7 @@ public class Program
 
             return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
         });
+        services.AddScoped<SimpleEmailStorageService>();
     }
 
     private static async Task ConfigureApplication(WebApplication app)

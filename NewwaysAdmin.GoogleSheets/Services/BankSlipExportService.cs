@@ -14,18 +14,26 @@ namespace NewwaysAdmin.GoogleSheets.Services
         private readonly GoogleSheetsConfig _config;
         private readonly ILogger<BankSlipExportService> _logger;
 
+        private readonly SheetConfigurationService _sheetConfigService;
+        private readonly SimpleEmailStorageService _emailStorage;
+
+
         public BankSlipExportService(
-            GoogleSheetsService googleSheetsService,
-            UserSheetConfigService configService,
-            ISheetLayout<BankSlipData> bankSlipLayout,
-            GoogleSheetsConfig config,
-            ILogger<BankSlipExportService> logger)
+     GoogleSheetsService googleSheetsService,
+     UserSheetConfigService configService,
+     ISheetLayout<BankSlipData> bankSlipLayout,
+     GoogleSheetsConfig config,
+     ILogger<BankSlipExportService> logger,
+     SheetConfigurationService sheetConfigService,
+     SimpleEmailStorageService emailStorage)
         {
             _googleSheetsService = googleSheetsService ?? throw new ArgumentNullException(nameof(googleSheetsService));
             _configService = configService ?? throw new ArgumentNullException(nameof(configService));
             _bankSlipLayout = bankSlipLayout ?? throw new ArgumentNullException(nameof(bankSlipLayout));
             _config = config ?? throw new ArgumentNullException(nameof(config));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _sheetConfigService = sheetConfigService ?? throw new ArgumentNullException(nameof(sheetConfigService));
+            _emailStorage = emailStorage ?? throw new ArgumentNullException(nameof(emailStorage));
         }
 
         /// <summary>
@@ -37,8 +45,10 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
             try
             {
-                // Get user's email for ownership transfer
-                var userEmail = await _configService.GetSettingAsync<string>(username, "BankSlip", "UserShareEmail", "");
+                // Get user's email for ownership transfer using the new email service
+                _logger.LogInformation("🔄 Getting user email for {Username}...", username);
+                var userEmail = await _emailStorage.GetUserEmailAsync(username);
+                _logger.LogInformation("📧 Retrieved email: {Email}", string.IsNullOrEmpty(userEmail) ? "NONE" : userEmail);
 
                 if (string.IsNullOrEmpty(userEmail))
                 {
@@ -50,14 +60,29 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _logger.LogInformation("Starting bank slip export with ownership transfer for user {Username} to email {Email}", username, userEmail);
 
                 // Get the sheet configuration/template
-                SheetConfiguration? config = null;
+                UserSheetConfiguration? config = null;
                 if (!string.IsNullOrEmpty(templateId))
                 {
+                    _logger.LogInformation("🔄 Loading template configuration: {TemplateId}", templateId);
                     config = await _sheetConfigService.LoadConfigurationAsync(username, "BankSlip", templateId);
                 }
 
-                // Create sheet data using the layout service
-                var sheetData = await _layoutService.CreateSheetDataAsync(bankSlips, config);
+                // If no config found, create a default one
+                if (config == null)
+                {
+                    _logger.LogInformation("🔄 Creating default configuration...");
+                    config = _sheetConfigService.CreateDefaultConfiguration("BankSlips");
+                    config.ConfigurationName = "Default";
+                }
+
+                // Create sheet data using the configuration service
+                _logger.LogInformation("🔄 Generating sheet data...");
+                var bankSlipsList = bankSlips.ToList();
+                var sheetData = _sheetConfigService.GenerateSheetData(
+                    bankSlipsList,
+                    config,
+                    GetBankSlipPropertyValue
+                );
 
                 if (sheetData?.Rows?.Any() != true)
                 {
@@ -66,20 +91,50 @@ namespace NewwaysAdmin.GoogleSheets.Services
                     return result;
                 }
 
+                _logger.LogInformation("✅ Generated sheet data with {RowCount} rows", sheetData.Rows.Count);
+
                 // Generate spreadsheet title
                 var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm");
                 var templateName = config?.ConfigurationName ?? "Default";
                 var title = $"BankSlips_{username}_{templateName}_{timestamp}";
 
-                _logger.LogInformation("Creating spreadsheet '{Title}' for user {Username}", title, username);
+                _logger.LogInformation("🔄 Creating spreadsheet '{Title}' for user {Username}", title, username);
 
-                // Use the new create and transfer method
-                var (success, spreadsheetId, url, error) = await _googleSheetsService.CreateAndTransferSpreadsheetAsync(
-                    title,
-                    sheetData,
-                    userEmail,
-                    "Bank Slips"
-                );
+                // Use the new create and transfer method with enhanced error handling
+                string? spreadsheetId = null;
+                string? url = null;
+                string? error = null;
+                bool success = false;
+                
+                try
+                {
+                    _logger.LogInformation("🔄 About to call CreateAndTransferSpreadsheetAsync...");
+                    _logger.LogInformation("🔄 Parameters: Title={Title}, OwnerEmail={Email}, WorksheetName=Bank Slips", title, userEmail);
+
+                    (success, spreadsheetId, url, error) = await _googleSheetsService.CreateWithProperOAuth2Async(
+                        title,
+                        sheetData,
+                        userEmail
+                    );
+
+                    _logger.LogInformation("✅ CreateAndTransferSpreadsheetAsync completed: Success={Success}, SpreadsheetId={SpreadsheetId}, Error={Error}",
+                        success, spreadsheetId ?? "NULL", error ?? "NONE");
+                }
+                catch (Exception createEx)
+                {
+                    _logger.LogError(createEx, "❌ Exception during CreateAndTransferSpreadsheetAsync for title '{Title}'", title);
+                    result.Success = false;
+                    result.Errors.Add($"Spreadsheet creation exception: {createEx.Message}");
+
+                    // Add more details about the exception
+                    if (createEx.InnerException != null)
+                    {
+                        _logger.LogError("❌ Inner exception: {InnerException}", createEx.InnerException.Message);
+                        result.Errors.Add($"Inner exception: {createEx.InnerException.Message}");
+                    }
+
+                    return result;
+                }
 
                 if (success && !string.IsNullOrEmpty(spreadsheetId))
                 {
@@ -91,42 +146,79 @@ namespace NewwaysAdmin.GoogleSheets.Services
                     _logger.LogInformation("✅ Successfully exported {RowCount} bank slip records with ownership transferred to {Email}. " +
                                          "Spreadsheet: {SheetUrl}", result.RowsExported, userEmail, result.SheetUrl);
 
-                    // Update user's last export info
-                    await _configService.SetUserSettingAsync(username, "BankSlip", "LastExportDate", DateTime.UtcNow, username);
-                    await _configService.SetUserSettingAsync(username, "BankSlip", "LastExportSheetId", spreadsheetId, username);
-                    await _configService.SetUserSettingAsync(username, "BankSlip", "LastExportOwner", userEmail, username);
+                    // Update user's last export info (keeping the old config service for this)
+                    try
+                    {
+                        await _configService.SetUserSettingAsync(username, "BankSlip", "LastExportDate", DateTime.UtcNow, username);
+                        await _configService.SetUserSettingAsync(username, "BankSlip", "LastExportSheetId", spreadsheetId, username);
+                        await _configService.SetUserSettingAsync(username, "BankSlip", "LastExportOwner", userEmail, username);
+                        _logger.LogInformation("✅ Updated user export history");
+                    }
+                    catch (Exception historyEx)
+                    {
+                        _logger.LogWarning(historyEx, "⚠️ Failed to update export history, but export was successful");
+                    }
 
                     // Optional: Still share with admin for visibility (as editor, not owner)
                     if (!string.IsNullOrEmpty(_config.DefaultShareEmail) && _config.DefaultShareEmail != userEmail)
                     {
                         try
                         {
+                            _logger.LogInformation("🔄 Sharing with admin email {AdminEmail}...", _config.DefaultShareEmail);
                             await _googleSheetsService.ShareSpreadsheetAsync(spreadsheetId, _config.DefaultShareEmail, "writer");
-                            _logger.LogInformation("Also shared spreadsheet with admin email {AdminEmail} as editor", _config.DefaultShareEmail);
+                            _logger.LogInformation("✅ Also shared spreadsheet with admin email {AdminEmail} as editor", _config.DefaultShareEmail);
                         }
                         catch (Exception shareEx)
                         {
-                            _logger.LogWarning(shareEx, "Failed to share with admin email, but export was successful");
+                            _logger.LogWarning(shareEx, "⚠️ Failed to share with admin email, but export was successful");
                         }
                     }
                 }
                 else
                 {
                     result.Success = false;
-                    result.Errors.Add(error ?? "Unknown error during spreadsheet creation and transfer");
-                    _logger.LogError("Failed to create and transfer spreadsheet for user {Username}: {Error}", username, error);
+                    var errorMessage = error ?? "Unknown error during spreadsheet creation and transfer";
+                    result.Errors.Add(errorMessage);
+                    _logger.LogError("❌ Failed to create and transfer spreadsheet for user {Username}: {Error}", username, errorMessage);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error during bank slip export with ownership transfer for user {Username}", username);
+                _logger.LogError(ex, "❌ Unexpected error during bank slip export with ownership transfer for user {Username}", username);
                 result.Success = false;
                 result.Errors.Add($"Unexpected error: {ex.Message}");
+
+                // Add stack trace for debugging
+                _logger.LogError("❌ Stack trace: {StackTrace}", ex.StackTrace);
             }
 
             return result;
         }
 
+        /// <summary>
+        /// Get property value from BankSlipData for sheet generation
+        /// </summary>
+        private object? GetBankSlipPropertyValue(BankSlipData bankSlip, string propertyName)
+        {
+            return propertyName switch
+            {
+                "TransactionDate" => bankSlip.TransactionDate,
+                "Amount" => bankSlip.Amount,
+                "AccountName" => bankSlip.AccountName,
+                "AccountNumber" => bankSlip.AccountNumber,
+                "ReceiverName" => bankSlip.ReceiverName,
+                "ReceiverAccount" => bankSlip.ReceiverAccount,
+                "Note" => bankSlip.Note,
+                "SlipCollectionName" => bankSlip.SlipCollectionName,
+                "ProcessedBy" => bankSlip.ProcessedBy,
+                "ProcessedAt" => bankSlip.ProcessedAt,
+                "OriginalFilePath" => bankSlip.OriginalFilePath,
+                "Status" => bankSlip.Status.ToString(),
+                "ErrorReason" => bankSlip.ErrorReason,
+                "Id" => bankSlip.Id,
+                _ => null
+            };
+        }
 
         /// <summary>
         /// Automatically share the spreadsheet with all relevant users
@@ -146,7 +238,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 }
 
                 // 2. Get user's personal email from their settings
-                var userEmail = await _configService.GetSettingAsync<string>(username, "BankSlip", "UserShareEmail", "");
+                var userEmail = await _emailStorage.GetUserEmailAsync(username);
                 if (!string.IsNullOrEmpty(userEmail))
                 {
                     emailsToShare.Add(userEmail);
@@ -253,70 +345,6 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _logger.LogError(ex, "Error retrieving last export info for {Username}", username);
                 return (null, null, null);
             }
-        }
-
-        /// <summary>
-        /// Test the export functionality with sample data and automatic sharing
-        /// </summary>
-        public async Task<ExportResult> TestExportAsync(string username)
-        {
-            try
-            {
-                _logger.LogInformation("Starting test export for user {Username}", username);
-
-                // Create sample data
-                var sampleData = new List<BankSlipData>
-                {
-                    new BankSlipData
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        TransactionDate = DateTime.Now.AddYears(543), // Buddhist calendar
-                        Amount = 1500.00m,
-                        AccountName = "Test User",
-                        AccountNumber = "xxx-1234-567",
-                        ReceiverName = "Test Receiver",
-                        ReceiverAccount = "xxx-9876-543",
-                        Note = "Test bank slip export with auto-sharing",
-                        SlipCollectionName = "Test Collection",
-                        ProcessedBy = username,
-                        ProcessedAt = DateTime.UtcNow,
-                        OriginalFilePath = "test-slip.jpg",
-                        Status = BankSlipProcessingStatus.Completed
-                    },
-                    new BankSlipData
-                    {
-                        Id = Guid.NewGuid().ToString(),
-                        TransactionDate = DateTime.Now.AddDays(-1).AddYears(543),
-                        Amount = 750.50m,
-                        AccountName = "Test User",
-                        AccountNumber = "xxx-1234-567",
-                        ReceiverName = "Another Receiver",
-                        ReceiverAccount = "xxx-5555-666",
-                        Note = "Second test bank slip with auto-sharing",
-                        SlipCollectionName = "Test Collection",
-                        ProcessedBy = username,
-                        ProcessedAt = DateTime.UtcNow,
-                        OriginalFilePath = "test-slip-2.jpg",
-                        Status = BankSlipProcessingStatus.Completed
-                    }
-                };
-
-                var result = await ExportBankSlipsAsync(username, sampleData, DateTime.Now.AddDays(-7), DateTime.Now);
-
-                _logger.LogInformation("Test export completed for user {Username}. Success: {Success}",
-                    username, result.Success);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during test export for user {Username}", username);
-                return new ExportResult
-                {
-                    Success = false,
-                    Errors = { $"Test export failed: {ex.Message}" }
-                };
-            }
-        }
+        }       
     }
 }
