@@ -203,7 +203,7 @@ public class Program
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = @"C:\Keys\newwaysadmin-sheets-v2.json", // Keep this (service account)
+            CredentialsPath = "", // Keep this (service account)
             PersonalAccountOAuthPath = @"C:\Keys\oauth2-credentials.json", // Point to your NEW OAuth2 file
             ApplicationName = "NewwaysAdmin Google Sheets Integration",
             DefaultShareEmail = "superfox75@gmail.com"

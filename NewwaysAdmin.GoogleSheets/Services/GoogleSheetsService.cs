@@ -752,7 +752,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
             try
             {
-                _logger.LogInformation("🚀 Creating spreadsheet using proper OAuth2 UserCredential flow");
+                _logger.LogInformation("🚀 Creating spreadsheet using OAuth2 and sharing with user");
 
                 // 1. Check OAuth2 file exists
                 if (string.IsNullOrEmpty(_config.PersonalAccountOAuthPath) || !File.Exists(_config.PersonalAccountOAuthPath))
@@ -803,15 +803,18 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 var storageGB = Math.Round((about.StorageQuota?.Limit ?? 0) / 1024.0 / 1024.0 / 1024.0, 2);
                 var usedGB = Math.Round((about.StorageQuota?.Usage ?? 0) / 1024.0 / 1024.0 / 1024.0, 2);
 
-                _logger.LogInformation("✅ Connected as: {Email}", about.User?.EmailAddress);
-                _logger.LogInformation("💾 Storage: {Used} GB / {Total} GB available", usedGB, storageGB);
+                _logger.LogInformation("🔍 Connected as: {UserEmail}", about.User?.EmailAddress);
+                _logger.LogInformation("💾 Storage: {UsedGB}GB / {TotalGB}GB", usedGB, storageGB);
 
                 // 6. Create spreadsheet
                 _logger.LogInformation("📄 Creating spreadsheet '{Title}'...", title);
 
                 var spreadsheet = new Spreadsheet
                 {
-                    Properties = new SpreadsheetProperties { Title = title }
+                    Properties = new SpreadsheetProperties
+                    {
+                        Title = title
+                    }
                 };
 
                 var createRequest = oauthSheetsService.Spreadsheets.Create(spreadsheet);
@@ -820,151 +823,63 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 _logger.LogInformation("✅ Created spreadsheet: {SpreadsheetId}", spreadsheetId);
 
-                // 7. Create logical worksheet name with timestamp
-                if (string.IsNullOrEmpty(worksheetName))
-                {
-                    worksheetName = $"BankSlips_{DateTime.Now:yyyyMMdd_HHmmss}";
-                }
+                // 7. Write data to spreadsheet
+                _logger.LogInformation("📝 Writing data to spreadsheet...");
 
-                _logger.LogInformation("📋 Creating worksheet '{WorksheetName}'...", worksheetName);
+                worksheetName ??= "Bank Slips";
 
-                // Rename the default "Sheet1" to our logical name
-                var renameRequest = new BatchUpdateSpreadsheetRequest
-                {
-                    Requests = new List<Request>
-            {
-                new Request
-                {
-                    UpdateSheetProperties = new UpdateSheetPropertiesRequest
-                    {
-                        Properties = new SheetProperties
-                        {
-                            SheetId = 0, // Default sheet ID is always 0
-                            Title = worksheetName
-                        },
-                        Fields = "title"
-                    }
-                }
-            }
-                };
-
-                await oauthSheetsService.Spreadsheets.BatchUpdate(renameRequest, spreadsheetId).ExecuteAsync();
-                _logger.LogInformation("✅ Renamed sheet to '{WorksheetName}'", worksheetName);
-
-                // 8. Write data with proper checkbox support using BatchUpdate
-                _logger.LogInformation("📝 Writing {RowCount} rows of data with checkboxes...", sheetData.Rows.Count);
-
-                // Get the sheet ID
-                var spreadsheetResponse = await oauthSheetsService.Spreadsheets.Get(spreadsheetId).ExecuteAsync();
-                var sheet = spreadsheetResponse.Sheets.FirstOrDefault(s => s.Properties.Title == worksheetName);
-                var sheetId = sheet?.Properties.SheetId ?? 0;
-
-                // Convert to RowData with ExtendedValue
-                var rowDataList = new List<RowData>();
-
+                // Prepare the data
+                var values = new List<IList<object>>();
                 foreach (var row in sheetData.Rows)
                 {
-                    var rowData = new RowData();
-                    var cellDataList = new List<CellData>();
-
+                    var rowValues = new List<object>();
                     foreach (var cell in row.Cells)
                     {
-                        var cellData = new CellData();
-
-                        if (cell.IsCheckbox)
-                        {
-                            // Use ExtendedValue for boolean checkboxes
-                            cellData.UserEnteredValue = new ExtendedValue { BoolValue = false };
-
-                            // Add data validation for checkbox
-                            cellData.DataValidation = new DataValidationRule
-                            {
-                                Condition = new BooleanCondition { Type = "BOOLEAN" },
-                                ShowCustomUi = true,
-                                Strict = false
-                            };
-                        }
-                        else
-                        {
-                            // Check if this is a formula (starts with =)
-                            var value = cell.Value?.ToString() ?? string.Empty;
-                            if (value.StartsWith("="))
-                            {
-                                // Use FormulaValue for formulas
-                                cellData.UserEnteredValue = new ExtendedValue { FormulaValue = value };
-                            }
-                            else if (double.TryParse(value, out double numericValue))
-                            {
-                                // Use NumberValue for numeric data
-                                cellData.UserEnteredValue = new ExtendedValue { NumberValue = numericValue };
-                            }
-                            else
-                            {
-                                // Regular text values
-                                cellData.UserEnteredValue = new ExtendedValue { StringValue = value };
-                            }
-                        }
-
-                        cellDataList.Add(cellData);
+                        rowValues.Add(cell.Value ?? string.Empty);
                     }
-
-                    rowData.Values = cellDataList;
-                    rowDataList.Add(rowData);
+                    values.Add(rowValues);
                 }
 
-                // Write all data using BatchUpdate
-                var dataRequest = new BatchUpdateSpreadsheetRequest
+                var range = $"{worksheetName}!A1";
+                var valueRange = new ValueRange
                 {
-                    Requests = new List<Request>
-            {
-                new Request
-                {
-                    UpdateCells = new UpdateCellsRequest
-                    {
-                        Start = new GridCoordinate
-                        {
-                            SheetId = sheetId,
-                            RowIndex = 0,
-                            ColumnIndex = 0
-                        },
-                        Rows = rowDataList,
-                        Fields = "userEnteredValue,dataValidation"
-                    }
-                }
-            }
+                    Values = values
                 };
 
-                await oauthSheetsService.Spreadsheets.BatchUpdate(dataRequest, spreadsheetId).ExecuteAsync();
-                _logger.LogInformation("✅ Successfully wrote {RowCount} rows with checkboxes", rowDataList.Count);
+                var updateRequest = oauthSheetsService.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
+                updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 
-                // 9. Transfer ownership to final user (if different from OAuth account)
+                await updateRequest.ExecuteAsync();
+
+                _logger.LogInformation("✅ Successfully wrote {RowCount} rows to spreadsheet", values.Count);
+
+                // 8. Share with user instead of transferring ownership
                 if (!string.IsNullOrEmpty(finalOwnerEmail) &&
                     finalOwnerEmail != about.User?.EmailAddress &&
                     finalOwnerEmail != "superfox75@gmail.com")
                 {
-                    _logger.LogInformation("🔄 Transferring ownership to {Email}...", finalOwnerEmail);
-
-                    var permission = new Google.Apis.Drive.v3.Data.Permission()
-                    {
-                        Type = "user",
-                        Role = "owner",
-                        EmailAddress = finalOwnerEmail
-                    };
-
-                    var transferRequest = oauthDriveService.Permissions.Create(permission, spreadsheetId);
-                    transferRequest.TransferOwnership = true;
-                    transferRequest.SendNotificationEmail = true;
-                    transferRequest.EmailMessage = "Bank slip export from NewwaysAdmin";
+                    _logger.LogInformation("📤 Sharing spreadsheet with {Email} as editor...", finalOwnerEmail);
 
                     try
                     {
-                        await transferRequest.ExecuteAsync();
-                        _logger.LogInformation("✅ Successfully transferred ownership to {Email}", finalOwnerEmail);
+                        var permission = new Google.Apis.Drive.v3.Data.Permission()
+                        {
+                            Type = "user",
+                            Role = "writer", // Give them edit access instead of ownership
+                            EmailAddress = finalOwnerEmail
+                        };
+
+                        var shareRequest = oauthDriveService.Permissions.Create(permission, spreadsheetId);
+                        shareRequest.SendNotificationEmail = true;
+                        shareRequest.EmailMessage = "Bank slip export from NewwaysAdmin - you now have edit access to this spreadsheet.";
+
+                        await shareRequest.ExecuteAsync();
+                        _logger.LogInformation("✅ Successfully shared spreadsheet with {Email}", finalOwnerEmail);
                     }
-                    catch (Exception transferEx)
+                    catch (Exception shareEx)
                     {
-                        _logger.LogWarning(transferEx, "⚠️ Ownership transfer failed, but spreadsheet was created successfully");
-                        // Don't fail the entire operation
+                        _logger.LogWarning(shareEx, "⚠️ Failed to share with user, but spreadsheet was created successfully");
+                        // Don't fail the entire operation if sharing fails
                     }
                 }
                 else
@@ -979,7 +894,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ OAuth2 spreadsheet creation failed: {Message}", ex.Message);
+                _logger.LogError(ex, "❌ Error in OAuth2 create and share operation");
 
                 // Cleanup on failure
                 if (!string.IsNullOrEmpty(spreadsheetId) && oauthDriveService != null)
@@ -987,11 +902,11 @@ namespace NewwaysAdmin.GoogleSheets.Services
                     try
                     {
                         await oauthDriveService.Files.Delete(spreadsheetId).ExecuteAsync();
-                        _logger.LogInformation("🧹 Cleaned up failed spreadsheet");
+                        _logger.LogInformation("🧹 Cleaned up failed spreadsheet {SpreadsheetId}", spreadsheetId);
                     }
                     catch (Exception cleanupEx)
                     {
-                        _logger.LogWarning(cleanupEx, "Failed to cleanup spreadsheet after error");
+                        _logger.LogWarning(cleanupEx, "Failed to cleanup spreadsheet {SpreadsheetId}", spreadsheetId);
                     }
                 }
 
