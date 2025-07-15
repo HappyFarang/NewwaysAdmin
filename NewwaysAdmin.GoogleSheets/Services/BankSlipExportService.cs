@@ -60,11 +60,38 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _logger.LogInformation("Starting bank slip export with ownership transfer for user {Username} to email {Email}", username, userEmail);
 
                 // Get the sheet configuration/template
+                // Get the sheet configuration/template
                 UserSheetConfiguration? config = null;
                 if (!string.IsNullOrEmpty(templateId))
                 {
                     _logger.LogInformation("🔄 Loading template configuration: {TemplateId}", templateId);
-                    config = await _sheetConfigService.LoadConfigurationAsync(username, "BankSlip", templateId);
+
+                    // Extract configuration name from templateId
+                    // templateId format is "BankSlips_ConfigurationName"
+                    string configName = "Default";
+                    if (templateId.StartsWith("BankSlips_"))
+                    {
+                        configName = templateId.Substring("BankSlips_".Length);
+                    }
+                    else
+                    {
+                        // If templateId doesn't match expected format, try using it directly
+                        configName = templateId;
+                    }
+
+                    _logger.LogInformation("🔄 Extracted config name: {ConfigName} from templateId: {TemplateId}", configName, templateId);
+
+                    // Load the configuration with the correct module name "BankSlips" (not "BankSlip")
+                    config = await _sheetConfigService.LoadConfigurationAsync(username, "BankSlips", configName);
+
+                    if (config != null)
+                    {
+                        _logger.LogInformation("✅ Successfully loaded template configuration: {ConfigName}", configName);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠️ Template configuration not found: {ConfigName}, will use default", configName);
+                    }
                 }
 
                 // If no config found, create a default one

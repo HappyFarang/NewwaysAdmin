@@ -372,11 +372,11 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
 
         private SheetRow CreateDataRow<T>(
-    T item,
-    UserSheetConfiguration config,
-    List<ColumnDefinition> enabledColumns,
-    List<CustomColumn> customColumns,
-    Func<T, string, object?> propertyValueGetter)
+            T item,
+            UserSheetConfiguration config,
+            List<ColumnDefinition> enabledColumns,
+            List<CustomColumn> customColumns,
+            Func<T, string, object?> propertyValueGetter)
         {
             var dataRow = new SheetRow();
 
@@ -390,11 +390,10 @@ namespace NewwaysAdmin.GoogleSheets.Services
             // FIXED: Add only one cell per custom column with proper checkbox formatting
             foreach (var customColumn in customColumns)
             {
-                // Create a cell with checkbox formatting
                 var checkboxCell = new SheetCell
                 {
-                    Value = "FALSE", // Initial value
-                    IsCheckbox = true // This property should trigger checkbox formatting
+                    Value = false, 
+                    IsCheckbox = true
                 };
                 dataRow.Cells.Add(checkboxCell);
             }
@@ -491,6 +490,78 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 double dbl when format.Contains("#,##0") => dbl.ToString(format),
                 _ => value.ToString() ?? ""
             };
+        }
+        // <summary>
+        /// Get all configurations for a user and module
+        /// </summary>
+        public async Task<List<UserSheetConfiguration>> GetUserConfigurationsAsync(string username, string moduleName)
+        {
+            try
+            {
+                await EnsureStorageInitializedAsync();
+
+                // Get all identifiers from storage
+                var allIdentifiers = await _configStorage!.ListIdentifiersAsync();
+
+                // Filter to configurations for this user and module
+                var userPrefix = $"{username}_{moduleName}_";
+                var userIdentifiers = allIdentifiers.Where(id => id.StartsWith(userPrefix)).ToList();
+
+                var configurations = new List<UserSheetConfiguration>();
+
+                foreach (var identifier in userIdentifiers)
+                {
+                    try
+                    {
+                        var config = await _configStorage.LoadAsync(identifier);
+                        if (config != null)
+                        {
+                            configurations.Add(config);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error loading configuration {Identifier}", identifier);
+                    }
+                }
+
+                _logger.LogInformation("Loaded {Count} configurations for user {Username}, module {ModuleName}",
+                    configurations.Count, username, moduleName);
+
+                return configurations.OrderBy(c => c.ConfigurationName).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user configurations for {Username}/{Module}", username, moduleName);
+                return new List<UserSheetConfiguration>();
+            }
+        }
+
+        /// <summary>
+        /// Delete a user configuration
+        /// </summary>
+        public async Task<bool> DeleteConfigurationAsync(string username, string moduleName, string configName)
+        {
+            try
+            {
+                await EnsureStorageInitializedAsync();
+                var key = $"{username}_{moduleName}_{configName}";
+
+                if (!await _configStorage!.ExistsAsync(key))
+                {
+                    _logger.LogWarning("Configuration not found: {Key}", key);
+                    return false;
+                }
+
+                await _configStorage.DeleteAsync(key);
+                _logger.LogInformation("Deleted configuration {Username}/{Module}/{Config}", username, moduleName, configName);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting configuration {Username}/{Module}/{Config}", username, moduleName, configName);
+                return false;
+            }
         }
     }
 }

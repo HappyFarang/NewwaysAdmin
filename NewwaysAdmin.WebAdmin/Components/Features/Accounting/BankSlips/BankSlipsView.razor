@@ -533,31 +533,99 @@
     {
         try
         {
-            _userTemplates = new List<UserSheetConfiguration>();
-            
-            // Try to load a default template
-            var defaultTemplate = await SheetConfigService.LoadConfigurationAsync(_currentUsername, "BankSlips", "Default");
-            if (defaultTemplate == null)
+            // Get all configurations for this user and module
+            _userTemplates = await SheetConfigService.GetUserConfigurationsAsync(_currentUsername, "BankSlips");
+
+            // If no templates exist, create a default one
+            if (!_userTemplates.Any())
             {
-                // Create default template if it doesn't exist
-                defaultTemplate = await CreateDefaultTemplate();
+                var defaultTemplate = await CreateDefaultTemplate();
+                _userTemplates.Add(defaultTemplate);
             }
-            
-            _userTemplates.Add(defaultTemplate);
-            
+
+            // Ensure we have a default template
+            var existingDefault = _userTemplates.FirstOrDefault(t => t.ConfigurationName == "Default");
+            if (existingDefault == null)
+            {
+                existingDefault = await CreateDefaultTemplate();
+                _userTemplates.Add(existingDefault);
+            }
+
             // Auto-select the default template
-            _selectedTemplateId = GenerateTemplateId(defaultTemplate);
-            _selectedTemplate = defaultTemplate;
-            
+            _selectedTemplateId = GenerateTemplateId(existingDefault);
+            _selectedTemplate = existingDefault;
+
             Logger.LogInformation("Loaded {Count} templates for user {Username}", _userTemplates.Count, _currentUsername);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading user templates");
             SetStatusMessage($"Error loading templates: {ex.Message}", "error");
+
+            // Fallback: create an empty list with just the default
+            _userTemplates = new List<UserSheetConfiguration>();
+            try
+            {
+                var fallbackDefault = await CreateDefaultTemplate();
+                _userTemplates.Add(fallbackDefault);
+                _selectedTemplateId = GenerateTemplateId(fallbackDefault);
+                _selectedTemplate = fallbackDefault;
+            }
+            catch (Exception fallbackEx)
+            {
+                Logger.LogError(fallbackEx, "Error creating fallback default template");
+                SetStatusMessage("Critical error: Unable to create default template", "error");
+            }
         }
     }
+    // Delete a template
+    private async Task DeleteTemplate(UserSheetConfiguration template)
+    {
+        try
+        {
+            // Prevent deletion of default template
+            if (template.ConfigurationName == "Default")
+            {
+                SetStatusMessage("❌ Cannot delete the Default template", "error");
+                return;
+            }
 
+            var success = await SheetConfigService.DeleteConfigurationAsync(_currentUsername, "BankSlips", template.ConfigurationName);
+            if (success)
+            {
+                // Remove from local list
+                _userTemplates?.Remove(template);
+
+                // If this was the selected template, switch to default
+                if (_selectedTemplate == template)
+                {
+                    var defaultTemplate = _userTemplates?.FirstOrDefault(t => t.ConfigurationName == "Default");
+                    if (defaultTemplate != null)
+                    {
+                        _selectedTemplateId = GenerateTemplateId(defaultTemplate);
+                        _selectedTemplate = defaultTemplate;
+                    }
+                    else
+                    {
+                        _selectedTemplateId = string.Empty;
+                        _selectedTemplate = null;
+                    }
+                }
+
+                SetStatusMessage($"✓ Template '{template.ConfigurationName}' deleted successfully!", "info");
+                StateHasChanged();
+            }
+            else
+            {
+                SetStatusMessage($"❌ Failed to delete template '{template.ConfigurationName}'", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting template {TemplateName}", template.ConfigurationName);
+            SetStatusMessage($"❌ Error deleting template: {ex.Message}", "error");
+        }
+    }
     // Create default template with all columns enabled
     private async Task<UserSheetConfiguration> CreateDefaultTemplate()
     {
@@ -959,19 +1027,24 @@
 
             if (writeResult.Success)
             {
+                // Store the sheet URL and export time for the UI
+                _lastExportedSheetUrl = writeResult.SheetUrl;
+                _lastExportTime = DateTime.Now;
                 // Updated success message for ownership transfer
                 SetStatusMessage($"🎉 SUCCESS!\n" +
-                               $"✅ Exported {writeResult.RowsExported} rows using template '{_selectedTemplate.ConfigurationName}'\n" +
+                               $"✅ Exported {writeResult.RowsExported} rows using template '{_selectedTemplate?.ConfigurationName ?? "Default"}'\n" +
                                $"✅ Ownership transferred to: {_userShareEmail}\n" +
                                $"✅ You now own the spreadsheet - no storage used on our system!\n" +
-                               $"📧 Check your email for Google notification", "success");
+                               $"📧 Check your email for Google notification\n" +
+                               $"🔗 Sheet URL: {writeResult.SheetUrl}", "success");
 
-                Logger.LogInformation("Google Sheets export with ownership transfer successful for user {Username} to {Email}",
-                    _currentUsername, _userShareEmail);
+                Logger.LogInformation("Google Sheets export with ownership transfer successful for user {Username} to {Email}. URL: {Url}",
+         _currentUsername, _userShareEmail, writeResult.SheetUrl);
             }
             else
             {
-                var errorMsg = writeResult.Errors.Any() ? string.Join(", ", writeResult.Errors) : "Unknown error";
+                var errorMsg = writeResult.Errors.Any() ?
+                    string.Join(", ", writeResult.Errors) : "Unknown error";
                 SetStatusMessage($"❌ Export failed: {errorMsg}", "error");
             }
         }
