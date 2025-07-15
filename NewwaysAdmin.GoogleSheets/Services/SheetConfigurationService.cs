@@ -392,7 +392,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
             {
                 var checkboxCell = new SheetCell
                 {
-                    Value = false, 
+                    Value = false, // NEW - boolean value
                     IsCheckbox = true
                 };
                 dataRow.Cells.Add(checkboxCell);

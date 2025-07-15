@@ -67,11 +67,13 @@ namespace NewwaysAdmin.GoogleSheets.Services
         /// This will prompt for browser login the first time, then save tokens
         /// Uses your personal Google account storage (no quota issues!)
         /// </summary>
-       
+
 
         /// <summary>
         /// Apply checkbox validation to columns that have IsCheckbox = true
         /// </summary>
+        // Replace the ApplyCheckboxFormattingAsync method in GoogleSheetsService.cs with this fixed version:
+
         private async Task ApplyCheckboxFormattingAsync(SheetsService service, string spreadsheetId, SheetData sheetData, string worksheetName)
         {
             try
@@ -82,16 +84,23 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 var checkboxColumns = new List<int>();
                 if (sheetData.Rows.Any())
                 {
-                    var firstDataRow = sheetData.Rows.FirstOrDefault(r => !r.IsHeader);
-                    if (firstDataRow != null)
+                    // FIXED: Find a row that actually has checkboxes, not just "not header"
+                    var rowWithCheckboxes = sheetData.Rows.FirstOrDefault(r => r.Cells.Any(c => c.IsCheckbox));
+                    if (rowWithCheckboxes != null)
                     {
-                        for (int i = 0; i < firstDataRow.Cells.Count; i++)
+                        _logger.LogInformation("🔍 Found row with checkboxes, scanning for checkbox columns...");
+                        for (int i = 0; i < rowWithCheckboxes.Cells.Count; i++)
                         {
-                            if (firstDataRow.Cells[i].IsCheckbox)
+                            if (rowWithCheckboxes.Cells[i].IsCheckbox)
                             {
                                 checkboxColumns.Add(i);
+                                _logger.LogInformation("🔲 Found checkbox at column {ColumnIndex}", i);
                             }
                         }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("🔍 No rows with checkboxes found");
                     }
                 }
 
@@ -136,9 +145,65 @@ namespace NewwaysAdmin.GoogleSheets.Services
                         Strict = false
                     };
 
-                    // Apply to the entire column (excluding header if present)
-                    var startRow = sheetData.Rows.Any(r => r.IsHeader) ? 1 : 0; // Skip header row
-                    var endRow = totalRows - 1;
+                    // Apply checkbox validation ONLY to data rows, NOT to header or formula rows
+                    var startRow = 0;
+
+                    // Find where the actual data rows start (skip header and formula rows)
+                    for (int rowIndex = 0; rowIndex < sheetData.Rows.Count; rowIndex++)
+                    {
+                        var row = sheetData.Rows[rowIndex];
+
+                        // Skip header rows
+                        if (row.IsHeader)
+                        {
+                            startRow = rowIndex + 1;
+                            continue;
+                        }
+
+                        // Skip formula rows (rows where this column contains a formula)
+                        if (columnIndex < row.Cells.Count &&
+                            row.Cells[columnIndex].Value?.ToString()?.StartsWith("=") == true)
+                        {
+                            startRow = rowIndex + 1;
+                            _logger.LogInformation("🔲 Skipping formula row {RowIndex} for column {Column}", rowIndex, columnIndex);
+                            continue;
+                        }
+
+                        // If this row has a checkbox in this column, this is where data starts
+                        if (columnIndex < row.Cells.Count && row.Cells[columnIndex].IsCheckbox)
+                        {
+                            startRow = rowIndex;
+                            _logger.LogInformation("🔲 Found data start at row {RowIndex} for column {Column}", rowIndex, columnIndex);
+                            break;
+                        }
+                    }
+
+                    // Find where data rows end (count rows with checkboxes in this column)
+                    var dataRowCount = 0;
+                    for (int rowIndex = startRow; rowIndex < sheetData.Rows.Count; rowIndex++)
+                    {
+                        var row = sheetData.Rows[rowIndex];
+                        if (columnIndex < row.Cells.Count && row.Cells[columnIndex].IsCheckbox)
+                        {
+                            dataRowCount++;
+                        }
+                        else
+                        {
+                            // Stop when we hit non-checkbox rows (summary rows, etc.)
+                            break;
+                        }
+                    }
+
+                    if (dataRowCount == 0)
+                    {
+                        _logger.LogInformation("🔲 No data rows with checkboxes found for column {Column}", columnIndex);
+                        continue;
+                    }
+
+                    var endRow = startRow + dataRowCount - 1;
+
+                    _logger.LogInformation("🔲 Applying checkbox validation to column {Column} rows {StartRow} to {EndRow} ({DataRowCount} data rows)",
+                        columnIndex, startRow, endRow, dataRowCount);
 
                     var request = new Request
                     {
@@ -740,11 +805,13 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _disposed = true;
             }
         }
+        // Replace your entire CreateWithProperOAuth2Async method in GoogleSheetsService.cs with this:
+
         public async Task<(bool success, string? spreadsheetId, string? url, string? error)> CreateWithProperOAuth2Async(
-    string title,
-    SheetData sheetData,
-    string finalOwnerEmail,
-    string? worksheetName = null)
+            string title,
+            SheetData sheetData,
+            string finalOwnerEmail,
+            string? worksheetName = null)
         {
             DriveService? oauthDriveService = null;
             SheetsService? oauthSheetsService = null;
@@ -828,32 +895,88 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 worksheetName ??= "Bank Slips";
 
-                // Prepare the data
+                // First, rename the default "Sheet1" to our desired name
+                _logger.LogInformation("📋 Renaming default sheet to '{WorksheetName}'...", worksheetName);
+
+                var renameRequest = new BatchUpdateSpreadsheetRequest
+                {
+                    Requests = new List<Request>
+            {
+                new Request
+                {
+                    UpdateSheetProperties = new UpdateSheetPropertiesRequest
+                    {
+                        Properties = new SheetProperties
+                        {
+                            SheetId = 0, // Default sheet ID is always 0
+                            Title = worksheetName
+                        },
+                        Fields = "title"
+                    }
+                }
+            }
+                };
+
+                await oauthSheetsService.Spreadsheets.BatchUpdate(renameRequest, spreadsheetId).ExecuteAsync();
+                _logger.LogInformation("✅ Renamed sheet to '{WorksheetName}'", worksheetName);
+
+                // 8. Now write the data first
+                _logger.LogInformation("📝 Writing data to spreadsheet...");
+
+                // Prepare the data - use actual boolean false for checkbox cells
                 var values = new List<IList<object>>();
                 foreach (var row in sheetData.Rows)
                 {
                     var rowValues = new List<object>();
                     foreach (var cell in row.Cells)
                     {
-                        rowValues.Add(cell.Value ?? string.Empty);
+                        // For checkbox cells, use actual boolean false (not string)
+                        if (cell.IsCheckbox)
+                        {
+                            rowValues.Add(false); // Boolean false - should become unchecked checkbox with validation
+                        }
+                        else
+                        {
+                            rowValues.Add(cell.Value ?? string.Empty);
+                        }
                     }
                     values.Add(rowValues);
                 }
 
-                var range = $"{worksheetName}!A1";
+                // Handle worksheet names with spaces by wrapping in single quotes
+                var range = worksheetName.Contains(' ') ? $"'{worksheetName}'!A1" : $"{worksheetName}!A1";
                 var valueRange = new ValueRange
                 {
                     Values = values
                 };
 
                 var updateRequest = oauthSheetsService.Spreadsheets.Values.Update(valueRange, spreadsheetId, range);
+                // Use USER_ENTERED to preserve formulas but also handle boolean values correctly
                 updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
 
                 await updateRequest.ExecuteAsync();
 
                 _logger.LogInformation("✅ Successfully wrote {RowCount} rows to spreadsheet", values.Count);
 
-                // 8. Share with user instead of transferring ownership
+                // 9. THEN apply checkbox formatting to columns that need it
+                _logger.LogInformation("🔲 Applying checkbox formatting to columns with data...");
+
+                // Debug: Count how many checkbox cells we expect
+                var totalCheckboxCells = 0;
+                foreach (var row in sheetData.Rows)
+                {
+                    var checkboxCount = row.Cells.Count(c => c.IsCheckbox);
+                    if (checkboxCount > 0)
+                    {
+                        _logger.LogInformation("🔲 Row has {Count} checkbox cells", checkboxCount);
+                        totalCheckboxCells += checkboxCount;
+                    }
+                }
+                _logger.LogInformation("🔲 Total checkbox cells expected: {Total}", totalCheckboxCells);
+
+                await ApplyCheckboxFormattingAsync(oauthSheetsService, spreadsheetId, sheetData, worksheetName);
+
+                // 10. Share with user instead of transferring ownership
                 if (!string.IsNullOrEmpty(finalOwnerEmail) &&
                     finalOwnerEmail != about.User?.EmailAddress &&
                     finalOwnerEmail != "superfox75@gmail.com")
@@ -918,7 +1041,6 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 oauthSheetsService?.Dispose();
             }
         }
-
 
         /// <summary>
         /// Convert column index to Excel-style letter (0=A, 1=B, 25=Z, 26=AA, etc.)
