@@ -808,10 +808,10 @@ namespace NewwaysAdmin.GoogleSheets.Services
         // Replace your entire CreateWithProperOAuth2Async method in GoogleSheetsService.cs with this:
 
         public async Task<(bool success, string? spreadsheetId, string? url, string? error)> CreateWithProperOAuth2Async(
-            string title,
-            SheetData sheetData,
-            string finalOwnerEmail,
-            string? worksheetName = null)
+    string title,
+    SheetData sheetData,
+    string finalOwnerEmail,
+    string? worksheetName = null)
         {
             DriveService? oauthDriveService = null;
             SheetsService? oauthSheetsService = null;
@@ -873,8 +873,13 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 _logger.LogInformation("🔍 Connected as: {UserEmail}", about.User?.EmailAddress);
                 _logger.LogInformation("💾 Storage: {UsedGB}GB / {TotalGB}GB", usedGB, storageGB);
 
-                // 6. Create spreadsheet
-                _logger.LogInformation("📄 Creating spreadsheet '{Title}'...", title);
+                // 6. Create or get the NewwaysAdminSheets folder
+                _logger.LogInformation("📁 Setting up NewwaysAdminSheets folder...");
+                string? folderId = await GetOrCreateFolderAsync(oauthDriveService, "NewwaysAdminSheets");
+                _logger.LogInformation("✅ Folder ready: {FolderId}", folderId);
+
+                // 7. Create spreadsheet in the folder
+                _logger.LogInformation("📄 Creating spreadsheet '{Title}' in folder...", title);
 
                 var spreadsheet = new Spreadsheet
                 {
@@ -890,7 +895,25 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 _logger.LogInformation("✅ Created spreadsheet: {SpreadsheetId}", spreadsheetId);
 
-                // 7. Write data to spreadsheet
+                // 8. Move spreadsheet to the folder
+                if (!string.IsNullOrEmpty(folderId))
+                {
+                    _logger.LogInformation("📁 Moving spreadsheet to NewwaysAdminSheets folder...");
+                    try
+                    {
+                        var moveRequest = oauthDriveService.Files.Update(new Google.Apis.Drive.v3.Data.File(), spreadsheetId);
+                        moveRequest.AddParents = folderId;
+                        moveRequest.RemoveParents = "root"; // Remove from root folder
+                        await moveRequest.ExecuteAsync();
+                        _logger.LogInformation("✅ Moved spreadsheet to folder successfully");
+                    }
+                    catch (Exception moveEx)
+                    {
+                        _logger.LogWarning(moveEx, "⚠️ Failed to move to folder, but spreadsheet was created successfully");
+                    }
+                }
+
+                // 9. Write data to spreadsheet
                 _logger.LogInformation("📝 Writing data to spreadsheet...");
 
                 worksheetName ??= "Bank Slips";
@@ -920,7 +943,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 await oauthSheetsService.Spreadsheets.BatchUpdate(renameRequest, spreadsheetId).ExecuteAsync();
                 _logger.LogInformation("✅ Renamed sheet to '{WorksheetName}'", worksheetName);
 
-                // 8. Now write the data first
+                // 10. Now write the data first
                 _logger.LogInformation("📝 Writing data to spreadsheet...");
 
                 // Prepare the data - use actual boolean false for checkbox cells
@@ -958,7 +981,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 _logger.LogInformation("✅ Successfully wrote {RowCount} rows to spreadsheet", values.Count);
 
-                // 9. THEN apply checkbox formatting to columns that need it
+                // 11. THEN apply checkbox formatting to columns that need it
                 _logger.LogInformation("🔲 Applying checkbox formatting to columns with data...");
 
                 // Debug: Count how many checkbox cells we expect
@@ -976,7 +999,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 await ApplyCheckboxFormattingAsync(oauthSheetsService, spreadsheetId, sheetData, worksheetName);
 
-                // 10. Share with user instead of transferring ownership
+                // 12. Share with user instead of transferring ownership
                 if (!string.IsNullOrEmpty(finalOwnerEmail) &&
                     finalOwnerEmail != about.User?.EmailAddress &&
                     finalOwnerEmail != "superfox75@gmail.com")
@@ -1039,6 +1062,51 @@ namespace NewwaysAdmin.GoogleSheets.Services
             {
                 oauthDriveService?.Dispose();
                 oauthSheetsService?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Get or create a folder in Google Drive
+        /// </summary>
+        private async Task<string?> GetOrCreateFolderAsync(DriveService driveService, string folderName)
+        {
+            try
+            {
+                // First, check if folder already exists
+                var listRequest = driveService.Files.List();
+                listRequest.Q = $"name='{folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false";
+                listRequest.Fields = "files(id, name)";
+
+                var listResponse = await listRequest.ExecuteAsync();
+
+                if (listResponse.Files?.Any() == true)
+                {
+                    var existingFolder = listResponse.Files.First();
+                    _logger.LogInformation("📁 Found existing folder '{FolderName}': {FolderId}", folderName, existingFolder.Id);
+                    return existingFolder.Id;
+                }
+
+                // Create new folder
+                _logger.LogInformation("📁 Creating new folder '{FolderName}'...", folderName);
+
+                var folderMetadata = new Google.Apis.Drive.v3.Data.File()
+                {
+                    Name = folderName,
+                    MimeType = "application/vnd.google-apps.folder"
+                };
+
+                var createRequest = driveService.Files.Create(folderMetadata);
+                createRequest.Fields = "id, name";
+
+                var folder = await createRequest.ExecuteAsync();
+
+                _logger.LogInformation("✅ Created folder '{FolderName}': {FolderId}", folderName, folder.Id);
+                return folder.Id;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Error creating/finding folder '{FolderName}'", folderName);
+                return null; // Return null so spreadsheet still gets created in root if folder creation fails
             }
         }
 
