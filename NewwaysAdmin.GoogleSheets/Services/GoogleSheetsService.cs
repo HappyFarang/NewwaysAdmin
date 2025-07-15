@@ -1000,9 +1000,11 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 await ApplyCheckboxFormattingAsync(oauthSheetsService, spreadsheetId, sheetData, worksheetName);
 
                 // 12. Share with user instead of transferring ownership
+                _logger.LogInformation("🔍 Checking sharing logic: finalOwnerEmail='{FinalOwner}', oauthEmail='{OAuthEmail}'",
+                    finalOwnerEmail ?? "NULL", about.User?.EmailAddress ?? "NULL");
+
                 if (!string.IsNullOrEmpty(finalOwnerEmail) &&
-                    finalOwnerEmail != about.User?.EmailAddress &&
-                    finalOwnerEmail != "superfox75@gmail.com")
+                    finalOwnerEmail != about.User?.EmailAddress)
                 {
                     _logger.LogInformation("📤 Sharing spreadsheet with {Email} as editor...", finalOwnerEmail);
 
@@ -1016,21 +1018,38 @@ namespace NewwaysAdmin.GoogleSheets.Services
                         };
 
                         var shareRequest = oauthDriveService.Permissions.Create(permission, spreadsheetId);
-                        shareRequest.SendNotificationEmail = true;
-                        shareRequest.EmailMessage = "Bank slip export from NewwaysAdmin - you now have edit access to this spreadsheet.";
+                        shareRequest.SendNotificationEmail = true; // MUST be true to send email message
+                        shareRequest.EmailMessage = "You now have edit access to this bank slip spreadsheet from NewwaysAdmin.";
 
-                        await shareRequest.ExecuteAsync();
-                        _logger.LogInformation("✅ Successfully shared spreadsheet with {Email}", finalOwnerEmail);
+                        var shareResponse = await shareRequest.ExecuteAsync();
+                        _logger.LogInformation("✅ Successfully shared spreadsheet with {Email} as editor. Permission ID: {PermissionId}",
+                            finalOwnerEmail, shareResponse.Id);
+
+                        // Verify the share worked by listing permissions
+                        try
+                        {
+                            var permissionsRequest = oauthDriveService.Permissions.List(spreadsheetId);
+                            var permissions = await permissionsRequest.ExecuteAsync();
+                            _logger.LogInformation("📋 Current permissions on spreadsheet:");
+                            foreach (var perm in permissions.Permissions)
+                            {
+                                _logger.LogInformation("  - {Email} ({Role})", perm.EmailAddress ?? perm.Id, perm.Role);
+                            }
+                        }
+                        catch (Exception listEx)
+                        {
+                            _logger.LogWarning(listEx, "Could not list permissions for verification");
+                        }
                     }
                     catch (Exception shareEx)
                     {
-                        _logger.LogWarning(shareEx, "⚠️ Failed to share with user, but spreadsheet was created successfully");
+                        _logger.LogError(shareEx, "❌ Failed to share with user {Email}: {Error}", finalOwnerEmail, shareEx.Message);
                         // Don't fail the entire operation if sharing fails
                     }
                 }
                 else
                 {
-                    _logger.LogInformation("ℹ️ Keeping ownership with OAuth account: {Email}", about.User?.EmailAddress);
+                    _logger.LogInformation("ℹ️ No sharing needed. finalOwnerEmail is null, empty, or same as OAuth account");
                 }
 
                 var url = $"https://docs.google.com/spreadsheets/d/{spreadsheetId}";
