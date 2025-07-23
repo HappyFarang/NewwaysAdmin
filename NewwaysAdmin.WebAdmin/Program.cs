@@ -310,11 +310,11 @@ public class Program
         if (!app.Environment.IsDevelopment())
         {
             app.UseExceptionHandler("/Error");
-            app.UseHsts();
+            //app.UseHsts();
         }
 
         // Configure middleware pipeline
-        app.UseHttpsRedirection();
+        //app.UseHttpsRedirection();
         app.UseStaticFiles();
         app.UseRouting();
 
