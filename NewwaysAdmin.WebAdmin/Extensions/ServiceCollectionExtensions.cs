@@ -24,10 +24,10 @@ namespace NewwaysAdmin.WebAdmin.Extensions
             services.AddScoped<OriginalSlipParser>();
             services.AddScoped<KBizSlipParser>();
 
-            // Export services (existing)
-            services.AddScoped<BankSlipExportService>();
-            services.AddScoped<UserSheetConfigService>();
-            services.AddScoped<SheetConfigurationService>();
+            // REMOVED: Export services - these are registered elsewhere
+            // services.AddScoped<BankSlipExportService>();       // ❌ REMOVED
+            // services.AddScoped<UserSheetConfigService>();      // ❌ REMOVED  
+            // services.AddScoped<SheetConfigurationService>();   // ❌ REMOVED
 
             return services;
         }
@@ -44,7 +44,7 @@ namespace NewwaysAdmin.WebAdmin.Extensions
         }
     }
 
-    /// <summary>
+    // <summary>
     /// Configuration options for bank slip services
     /// </summary>
     public class BankSlipServiceOptions
@@ -64,8 +64,8 @@ namespace NewwaysAdmin.WebAdmin.Extensions
         /// </summary>
         public string[] SupportedExtensions { get; set; } =
         {
-            ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"
-        };
+        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"
+    };
 
         /// <summary>
         /// Enable enhanced validation by default

@@ -74,7 +74,62 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         // TTB = 3,
         // etc.
     }
+    /// <summary>
+    /// Enum for tracking bank slip processing status
+    /// </summary>
+    public enum BankSlipProcessingStatus
+    {
+        /// <summary>
+        /// Processing not started yet
+        /// </summary>
+        Pending = 0,
 
+        /// <summary>
+        /// Currently being processed
+        /// </summary>
+        Processing = 1,
+
+        /// <summary>
+        /// Successfully completed processing
+        /// </summary>
+        Completed = 2,
+
+        /// <summary>
+        /// Failed during processing
+        /// </summary>
+        Failed = 3,
+
+        /// <summary>
+        /// Completed but needs manual review
+        /// </summary>
+        RequiresReview = 4,
+
+        /// <summary>
+        /// Skipped during processing
+        /// </summary>
+        Skipped = 5
+    }
+
+    /// <summary>
+    /// Enum for different image processing passes
+    /// </summary>
+    public enum ProcessingPass
+    {
+        /// <summary>
+        /// Default processing settings
+        /// </summary>
+        Default = 0,
+
+        /// <summary>
+        /// Fallback processing with enhanced settings
+        /// </summary>
+        Fallback = 1,
+
+        /// <summary>
+        /// Optimized for tablet-captured images
+        /// </summary>
+        Tablet = 2
+    }
     // Enhanced processing parameters with format-specific settings
     [MessagePackObject]
     public class ProcessingParameters
@@ -202,5 +257,64 @@ namespace NewwaysAdmin.SharedModels.BankSlips
                 collection.ProcessingSettings.ValidateAccountFormat = true;
             }
         }
+    }
+    /// <summary>
+    /// Result of bank slip processing operation
+    /// </summary>
+    public class BankSlipProcessingResult
+    {
+        public DateTime ProcessingStarted { get; set; } = DateTime.UtcNow;
+        public DateTime ProcessingCompleted { get; set; }
+        public ProcessingSummary Summary { get; set; } = new();
+        public List<BankSlipData> ProcessedSlips { get; set; } = new();
+        public List<ProcessingError> Errors { get; set; } = new();
+
+        /// <summary>
+        /// Total processing duration
+        /// </summary>
+        public TimeSpan ProcessingDuration => ProcessingCompleted - ProcessingStarted;
+
+        /// <summary>
+        /// Whether processing completed successfully (no critical errors)
+        /// </summary>
+        public bool IsSuccessful => Errors.Count == 0 || Errors.All(e => !e.IsCritical);
+    }
+
+    /// <summary>
+    /// Summary statistics for processing operation
+    /// </summary>
+    public class ProcessingSummary
+    {
+        public int TotalFiles { get; set; }
+        public int ProcessedFiles { get; set; }
+        public int FailedFiles { get; set; }
+        public TimeSpan ProcessingDuration { get; set; }
+
+        /// <summary>
+        /// Success rate as percentage
+        /// </summary>
+        public double SuccessRate => TotalFiles > 0 ? (double)ProcessedFiles / TotalFiles * 100 : 0;
+
+        /// <summary>
+        /// Files remaining to process
+        /// </summary>
+        public int RemainingFiles => TotalFiles - ProcessedFiles - FailedFiles;
+    }
+
+    /// <summary>
+    /// Error that occurred during processing
+    /// </summary>
+    public class ProcessingError
+    {
+        public string FilePath { get; set; } = string.Empty;
+        public string Reason { get; set; } = string.Empty;
+        public DateTime ErrorTime { get; set; } = DateTime.UtcNow;
+        public bool IsCritical { get; set; } = false;
+        public string? StackTrace { get; set; }
+
+        /// <summary>
+        /// User-friendly error message
+        /// </summary>
+        public string FriendlyMessage => $"{Path.GetFileName(FilePath)}: {Reason}";
     }
 }

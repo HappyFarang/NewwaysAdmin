@@ -27,10 +27,7 @@ using NewwaysAdmin.GoogleSheets.Extensions;
 using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
-using NewwaysAdmin.WebAdmin.Services.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
-
-
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -42,7 +39,41 @@ public class Program
 
         ConfigureServices(builder.Services, builder.Configuration, args);
 
-        var app = builder.Build();
+        // ADD THIS DEBUG CODE TO SEE EXACTLY WHAT'S FAILING:
+        WebApplication app;
+        try
+        {
+            app = builder.Build();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("=== DEPENDENCY INJECTION ERROR ===");
+            Console.WriteLine($"Error: {ex.Message}");
+
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+            }
+
+            // If it's an AggregateException, show all inner exceptions
+            if (ex is AggregateException aggEx)
+            {
+                Console.WriteLine("=== ALL INNER EXCEPTIONS ===");
+                foreach (var innerEx in aggEx.InnerExceptions)
+                {
+                    Console.WriteLine($"- {innerEx.Message}");
+                    if (innerEx.InnerException != null)
+                    {
+                        Console.WriteLine($"  -> {innerEx.InnerException.Message}");
+                    }
+                }
+            }
+
+            Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+            Console.WriteLine("Press any key to exit...");
+            Console.ReadKey();
+            throw; // Re-throw to see in debugger
+        }
 
         await ConfigureApplication(app);
 
@@ -55,7 +86,7 @@ public class Program
         services.AddRazorPages();
         services.AddServerSideBlazor(options =>
         {
-            options.DetailedErrors = true; // Shows better error messages in development
+            options.DetailedErrors = true;
             options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
             options.DisconnectedCircuitMaxRetained = 100;
             options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(1);
@@ -69,8 +100,6 @@ public class Program
             logging.AddConsole();
             logging.AddDebug();
         });
-
-        // services.AddGoogleSheetsTemplateServices();
 
         // Pass command line args to MachineConfigProvider for test modes
         services.AddSingleton<MachineConfigProvider>(sp => {
@@ -113,7 +142,6 @@ public class Program
                 ApplicationName = "NewwaysAdmin.WebAdmin"
             };
         });
-
 
         // Add EnhancedStorageFactory which IOManager needs
         services.AddSingleton<EnhancedStorageFactory>(sp =>
@@ -191,7 +219,7 @@ public class Program
         services.AddScoped<CircuitHandler, CustomCircuitHandler>();
         services.AddSingleton<ICircuitManager, CircuitManager>();
 
-        // Authentication and navigation - FIXED: Only register once
+        // Authentication and navigation
         services.AddScoped<IAuthenticationService, AuthenticationService>();
         services.AddScoped<INavigationService, NavigationService>();
         services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
@@ -199,14 +227,11 @@ public class Program
         // Module system
         services.AddModuleRegistry();
 
-        // Bank slip service
-        services.AddScoped<IBankSlipOcrService, BankSlipOcrService>();
-
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
-            CredentialsPath = "", // Keep this (service account)
-            PersonalAccountOAuthPath = @"C:\Keys\oauth2-credentials.json", // Point to your NEW OAuth2 file
+            CredentialsPath = "",
+            PersonalAccountOAuthPath = @"C:\Keys\oauth2-credentials.json",
             ApplicationName = "NewwaysAdmin Google Sheets Integration",
             DefaultShareEmail = "superfox75@gmail.com"
         };
@@ -215,23 +240,39 @@ public class Program
         services.AddGoogleSheetsServices(googleSheetsConfig);
         services.AddSingleton<ModuleColumnRegistry>();
 
+        // Register the Bank Slip layout
+        // Register the Bank Slip layout
+        services.AddSheetLayout(new BankSlipSheetLayout());
 
-        // Register User Sheet Config Service
+        // Register bank slip services (core only)
+        services.AddBankSlipServices(options =>
+        {
+            options.DefaultCredentialsPath = configuration.GetValue<string>("BankSlips:DefaultCredentialsPath")
+                ?? @"C:\Keys\purrfectocr-db2d9d796b58.json";
+            options.MaxFileSizeBytes = configuration.GetValue("BankSlips:MaxFileSizeBytes", 50L * 1024L * 1024L);
+            options.EnableEnhancedValidation = configuration.GetValue("BankSlips:EnableEnhancedValidation", true);
+            options.EnableAutoFormatDetection = configuration.GetValue("BankSlips:EnableAutoFormatDetection", true);
+        });
+
+        // ADD THESE BACK (no longer in extension method):
         services.AddScoped<UserSheetConfigService>(sp =>
         {
             var storageManager = sp.GetRequiredService<StorageManager>();
             var logger = sp.GetRequiredService<ILogger<UserSheetConfigService>>();
-
             var userConfigStorage = storageManager.GetStorageSync<List<UserSheetConfig>>("GoogleSheets_UserConfigs");
             var adminConfigStorage = storageManager.GetStorageSync<List<AdminSheetConfig>>("GoogleSheets_AdminConfigs");
-
             return new UserSheetConfigService(userConfigStorage, adminConfigStorage, logger);
         });
 
-        // Register the Bank Slip layout
-        services.AddSheetLayout(new BankSlipSheetLayout());
+        services.AddScoped<SheetConfigurationService>(sp =>
+        {
+            var columnRegistry = sp.GetRequiredService<ModuleColumnRegistry>();
+            var ioManager = sp.GetRequiredService<IOManager>();
+            var logger = sp.GetRequiredService<ILogger<SheetConfigurationService>>();
+            var config = sp.GetRequiredService<GoogleSheetsConfig>();
+            return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
+        });
 
-        // Register the Bank Slip export service with explicit config
         services.AddScoped<BankSlipExportService>(sp =>
         {
             var googleSheetsService = sp.GetRequiredService<GoogleSheetsService>();
@@ -240,32 +281,12 @@ public class Program
             var config = sp.GetRequiredService<GoogleSheetsConfig>();
             var logger = sp.GetRequiredService<ILogger<BankSlipExportService>>();
             var sheetConfigService = sp.GetRequiredService<SheetConfigurationService>();
-            var emailStorage = sp.GetRequiredService<NewwaysAdmin.GoogleSheets.Services.SimpleEmailStorageService>();
-
+            var emailStorage = sp.GetRequiredService<SimpleEmailStorageService>();
             return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger, sheetConfigService, emailStorage);
         });
-        // Register bank slip services
-        builder.Services.AddBankSlipServices(options =>
-        {
-            options.DefaultCredentialsPath = builder.Configuration.GetValue<string>("BankSlips:DefaultCredentialsPath")
-                ?? @"C:\Keys\purrfectocr-db2d9d796b58.json";
-            options.MaxFileSizeBytes = builder.Configuration.GetValue<long>("BankSlips:MaxFileSizeBytes")
-                ?? 50 * 1024 * 1024;
-            options.EnableEnhancedValidation = builder.Configuration.GetValue<bool>("BankSlips:EnableEnhancedValidation")
-                ?? true;
-            options.EnableAutoFormatDetection = builder.Configuration.GetValue<bool>("BankSlips:EnableAutoFormatDetection")
-                ?? true;
-        });
-        // Register SheetConfigurationService
-        services.AddScoped<SheetConfigurationService>(sp =>
-        {
-            var columnRegistry = sp.GetRequiredService<ModuleColumnRegistry>();
-            var ioManager = sp.GetRequiredService<IOManager>();
-            var logger = sp.GetRequiredService<ILogger<SheetConfigurationService>>();
-            var config = sp.GetRequiredService<GoogleSheetsConfig>();
 
-            return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
-        });
+
+        // Register additional services that aren't included in AddBankSlipServices
         services.AddScoped<SimpleEmailStorageService>();
     }
 
@@ -303,7 +324,6 @@ public class Program
         // Configure CSP
         app.Use(async (context, next) =>
         {
-
             var cspValue = new StringValues(new[]
             {
                 "default-src 'self';" +
@@ -323,11 +343,9 @@ public class Program
         if (!app.Environment.IsDevelopment())
         {
             app.UseExceptionHandler("/Error");
-            //app.UseHsts();
         }
 
         // Configure middleware pipeline
-        //app.UseHttpsRedirection();
         app.UseStaticFiles();
         app.UseRouting();
 
