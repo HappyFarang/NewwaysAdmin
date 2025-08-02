@@ -21,7 +21,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.DevTools", "Ne
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.GoogleSheets", "NewwaysAdmin.GoogleSheets\NewwaysAdmin.GoogleSheets.csproj", "{5F1C638A-B081-44E3-B2C0-318A793C5BB4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.Accounting", "NewwaysAdmin.Accounting\NewwaysAdmin.Accounting.csproj", "{5E299178-2D1C-4FA9-929A-8CA140E2A9E2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.Accounting", "NewwaysAdmin.Accounting\NewwaysAdmin.Accounting.csproj", "{5E299178-2D1C-4FA9-929A-8CA140E2A9E2}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

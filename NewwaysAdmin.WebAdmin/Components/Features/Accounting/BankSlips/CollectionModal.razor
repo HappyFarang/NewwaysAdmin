@@ -1,0 +1,307 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/CollectionModal.razor *@
+@using NewwaysAdmin.SharedModels.BankSlips
+@using Microsoft.AspNetCore.Components.Forms
+
+<div class="modal fade show" style="display: block;" tabindex="-1" aria-hidden="false">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi @(IsEditMode ? "bi-pencil" : "bi-plus-circle") me-2"></i>
+                    @(IsEditMode ? "Edit" : "Create") Collection
+                </h5>
+                <button type="button" class="btn-close" @onclick="Cancel"></button>
+            </div>
+
+            <EditForm Model="@EditingCollection" OnValidSubmit="@Save">
+                <DataAnnotationsValidator />
+
+                <div class="modal-body">
+                    @if (!string.IsNullOrEmpty(ErrorMessage))
+                    {
+                        <div class="alert alert-danger">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            @ErrorMessage
+                        </div>
+                    }
+
+                    <!-- Basic Information -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Collection Name</label>
+                            <InputText @bind-Value="EditingCollection.Name" class="form-control" placeholder="Enter collection name" />
+                            <ValidationMessage For="@(() => EditingCollection.Name)" />
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <InputTextArea @bind-Value="EditingCollection.Description" class="form-control" rows="2"
+                                           placeholder="Optional description for this collection" />
+                            <ValidationMessage For="@(() => EditingCollection.Description)" />
+                        </div>
+                    </div>
+
+                    <!-- Format Selection -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <label class="form-label fw-bold">
+                                <i class="bi bi-bank me-1"></i>
+                                Bank Slip Format
+                            </label>
+                            <div class="card">
+                                <div class="card-body p-3">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="slipFormat" id="originalFormat"
+                                                       checked="@(!EditingCollection.IsKBizFormat)"
+                                                       @onchange="@(() => SetFormat(false))" />
+                                                <label class="form-check-label" for="originalFormat">
+                                                    <i class="bi bi-bank text-primary me-2"></i>
+                                                    <strong>Original Format</strong>
+                                                    <small class="d-block text-muted">
+                                                        Standard bank slip format with PromptPay sections
+                                                    </small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="slipFormat" id="kbizFormat"
+                                                       checked="@EditingCollection.IsKBizFormat"
+                                                       @onchange="@(() => SetFormat(true))" />
+                                                <label class="form-check-label" for="kbizFormat">
+                                                    <i class="bi bi-bank2 text-success me-2"></i>
+                                                    <strong>K-BIZ Format</strong>
+                                                    <small class="d-block text-muted">
+                                                        K-BIZ bank slips with dual-language names and memo sections
+                                                    </small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    @if (EditingCollection.IsKBizFormat)
+                                    {
+                                        <div class="alert alert-info mt-3 mb-0">
+                                            <i class="bi bi-info-circle me-2"></i>
+                                            <strong>K-BIZ Format Features:</strong>
+                                            <ul class="mb-0 mt-1">
+                                                <li>Account numbers in xxx-xxx-xxxx format</li>
+                                                <li>Dual-language receiver names (Thai + English)</li>
+                                                <li>Memo field parsing</li>
+                                                <li>Enhanced date validation</li>
+                                            </ul>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Directory Configuration -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Source Directory</label>
+                            <InputText @bind-Value="EditingCollection.SourceDirectory" class="form-control"
+                                       placeholder="C:\BankSlips\Input" />
+                            <ValidationMessage For="@(() => EditingCollection.SourceDirectory)" />
+                            <small class="form-text text-muted">Folder containing bank slip images to process</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Output Directory</label>
+                            <InputText @bind-Value="EditingCollection.OutputDirectory" class="form-control"
+                                       placeholder="C:\BankSlips\Output" />
+                            <ValidationMessage For="@(() => EditingCollection.OutputDirectory)" />
+                            <small class="form-text text-muted">Folder for processed files and results</small>
+                        </div>
+                    </div>
+
+                    <!-- Credentials Configuration -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Google Vision API Credentials</label>
+                            <InputText @bind-Value="EditingCollection.CredentialsPath" class="form-control"
+                                       placeholder="C:\Keys\credentials.json" />
+                            <ValidationMessage For="@(() => EditingCollection.CredentialsPath)" />
+                            <small class="form-text text-muted">
+                                Path to Google Cloud Vision API service account key file
+                                @if (File.Exists(EditingCollection.CredentialsPath))
+                                {
+                                    <span class="text-success ms-2">
+                                        <i class="bi bi-check-circle"></i> File exists
+                                    </span>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(EditingCollection.CredentialsPath))
+                                {
+                                    <span class="text-warning ms-2">
+                                        <i class="bi bi-exclamation-triangle"></i> File not found
+                                    </span>
+                                }
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Processing Settings -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="accordion" id="processingSettings">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse"
+                                                data-bs-target="#processingPanel" aria-expanded="false">
+                                            <i class="bi bi-gear me-2"></i>
+                                            Advanced Processing Settings
+                                        </button>
+                                    </h2>
+                                    <div id="processingPanel" class="accordion-collapse collapse">
+                                        <div class="accordion-body">
+                                            <div class="row">
+                                                <div class="col-md-6 mb-3">
+                                                    <label class="form-label">Gaussian Sigma</label>
+                                                    <InputNumber @bind-Value="EditingCollection.ProcessingSettings.GaussianSigma"
+                                                                 class="form-control" step="0.1" />
+                                                    <small class="form-text text-muted">Image smoothing (0.1 - 2.0)</small>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <label class="form-label">Binarization Window</label>
+                                                    <InputNumber @bind-Value="EditingCollection.ProcessingSettings.BinarizationWindow"
+                                                                 class="form-control" />
+                                                    <small class="form-text text-muted">Adaptive threshold window size</small>
+                                                </div>
+                                            </div>
+
+                                            <div class="row">
+                                                <div class="col-md-6 mb-3">
+                                                    <div class="form-check">
+                                                        <InputCheckbox @bind-Value="EditingCollection.ProcessingSettings.UseEnhancedDateValidation"
+                                                                       class="form-check-input" id="enhancedDateValidation" />
+                                                        <label class="form-check-label" for="enhancedDateValidation">
+                                                            Enhanced Date Validation
+                                                        </label>
+                                                        <small class="d-block form-text text-muted">
+                                                            Reject impossible dates (e.g., month > 12)
+                                                        </small>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-6 mb-3">
+                                                    <div class="form-check">
+                                                        <InputCheckbox @bind-Value="EditingCollection.ProcessingSettings.ValidateAccountFormat"
+                                                                       class="form-check-input" id="validateAccountFormat" />
+                                                        <label class="form-check-label" for="validateAccountFormat">
+                                                            Validate Account Formats
+                                                        </label>
+                                                        <small class="d-block form-text text-muted">
+                                                            Check account numbers match expected patterns
+                                                        </small>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            @if (EditingCollection.IsKBizFormat)
+                                            {
+                                                <div class="row">
+                                                    <div class="col-12">
+                                                        <div class="form-check">
+                                                            <InputCheckbox @bind-Value="EditingCollection.ProcessingSettings.ExtractDualLanguageNames"
+                                                                           class="form-check-input" id="dualLanguageNames" />
+                                                            <label class="form-check-label" for="dualLanguageNames">
+                                                                Extract Dual Language Names
+                                                            </label>
+                                                            <small class="d-block form-text text-muted">
+                                                                Automatically enabled for K-BIZ format to extract both Thai and English receiver names
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="form-check">
+                                <InputCheckbox @bind-Value="EditingCollection.IsActive" class="form-check-input" id="isActive" />
+                                <label class="form-check-label" for="isActive">
+                                    <strong>Active Collection</strong>
+                                </label>
+                                <small class="d-block form-text text-muted">
+                                    Only active collections are available for processing
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="Cancel" disabled="@IsSaving">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary" disabled="@IsSaving">
+                        @if (IsSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        @(IsEditMode ? "Update" : "Create") Collection
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public SlipCollection EditingCollection { get; set; } = new();
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public bool IsEditMode { get; set; }
+    [Parameter] public bool IsSaving { get; set; }
+    [Parameter] public string ErrorMessage { get; set; } = string.Empty;
+    [Parameter] public EventCallback OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // Auto-configure settings based on format selection
+        if (EditingCollection.IsKBizFormat)
+        {
+            EditingCollection.ProcessingSettings.ExtractDualLanguageNames = true;
+            EditingCollection.ProcessingSettings.UseEnhancedDateValidation = true;
+            EditingCollection.ProcessingSettings.ValidateAccountFormat = true;
+        }
+    }
+
+    private void SetFormat(bool isKBiz)
+    {
+        EditingCollection.IsKBizFormat = isKBiz;
+
+        // Auto-configure settings based on format
+        if (isKBiz)
+        {
+            EditingCollection.ProcessingSettings.ExtractDualLanguageNames = true;
+            EditingCollection.ProcessingSettings.UseEnhancedDateValidation = true;
+        }
+        else
+        {
+            EditingCollection.ProcessingSettings.ExtractDualLanguageNames = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task Save()
+    {
+        await OnSave.InvokeAsync();
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+}

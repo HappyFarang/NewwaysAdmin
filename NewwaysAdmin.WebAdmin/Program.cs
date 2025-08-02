@@ -27,7 +27,8 @@ using NewwaysAdmin.GoogleSheets.Extensions;
 using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
-
+using NewwaysAdmin.WebAdmin.Services.BankSlips;
+using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
 
 
 
@@ -69,7 +70,7 @@ public class Program
             logging.AddDebug();
         });
 
-        services.AddGoogleSheetsTemplateServices();
+        // services.AddGoogleSheetsTemplateServices();
 
         // Pass command line args to MachineConfigProvider for test modes
         services.AddSingleton<MachineConfigProvider>(sp => {
@@ -112,6 +113,7 @@ public class Program
                 ApplicationName = "NewwaysAdmin.WebAdmin"
             };
         });
+
 
         // Add EnhancedStorageFactory which IOManager needs
         services.AddSingleton<EnhancedStorageFactory>(sp =>
@@ -242,7 +244,18 @@ public class Program
 
             return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger, sheetConfigService, emailStorage);
         });
-
+        // Register bank slip services
+        builder.Services.AddBankSlipServices(options =>
+        {
+            options.DefaultCredentialsPath = builder.Configuration.GetValue<string>("BankSlips:DefaultCredentialsPath")
+                ?? @"C:\Keys\purrfectocr-db2d9d796b58.json";
+            options.MaxFileSizeBytes = builder.Configuration.GetValue<long>("BankSlips:MaxFileSizeBytes")
+                ?? 50 * 1024 * 1024;
+            options.EnableEnhancedValidation = builder.Configuration.GetValue<bool>("BankSlips:EnableEnhancedValidation")
+                ?? true;
+            options.EnableAutoFormatDetection = builder.Configuration.GetValue<bool>("BankSlips:EnableAutoFormatDetection")
+                ?? true;
+        });
         // Register SheetConfigurationService
         services.AddScoped<SheetConfigurationService>(sp =>
         {
