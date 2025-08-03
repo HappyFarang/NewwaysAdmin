@@ -226,9 +226,10 @@
 
 .results-section {
     flex: 1;
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to visible */
     display: flex;
     flex-direction: column;
+    min-height: 400px; /* Ensure minimum height */
 }
 
 .content-container {
@@ -236,7 +237,8 @@
     display: grid;
     grid-template-columns: 1fr 400px;
     gap: 1rem;
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to visible */
+    min-height: 400px; /* Ensure minimum height */
 }
 
 .text-display {
@@ -245,7 +247,8 @@
     background: white;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to visible */
+    min-height: 300px; /* Ensure minimum height */
 }
 
 .text-header {
@@ -255,6 +258,7 @@
     padding: 1rem 1.5rem;
     border-bottom: 1px solid #dee2e6;
     background: #f8f9fa;
+    flex-shrink: 0; /* Prevent shrinking */
 }
 
     .text-header h5 {
@@ -266,6 +270,8 @@
     flex: 1;
     overflow: auto;
     padding: 1rem;
+    min-height: 200px; /* Ensure minimum height */
+    max-height: 600px; /* Prevent excessive height */
 }
 
 .raw-text {
@@ -275,6 +281,8 @@
     line-height: 1.4;
     margin: 0;
     color: #212529;
+    word-wrap: break-word; /* Handle long words */
+    overflow-wrap: break-word; /* Handle long words */
 }
 
 .highlighted-text {
@@ -282,6 +290,8 @@
     font-size: 0.875rem;
     line-height: 1.4;
     white-space: pre-wrap;
+    word-wrap: break-word; /* Handle long words */
+    overflow-wrap: break-word; /* Handle long words */
 }
 
 .highlight-1 {

@@ -249,11 +249,11 @@ public class Program
         {
             options.DefaultCredentialsPath = configuration.GetValue<string>("BankSlips:DefaultCredentialsPath")
                 ?? @"C:\Keys\purrfectocr-db2d9d796b58.json";
-            options.MaxFileSizeBytes = configuration.GetValue("BankSlips:MaxFileSizeBytes", 50L * 1024L * 1024L);
-            options.EnableEnhancedValidation = configuration.GetValue("BankSlips:EnableEnhancedValidation", true);
-            options.EnableAutoFormatDetection = configuration.GetValue("BankSlips:EnableAutoFormatDetection", true);
+            options.MaxFileSizeBytes = 50_000_000; // 50MB
+            options.EnableEnhancedValidation = true;
+            options.EnableAutoFormatDetection = true;
         });
-
+        services.AddTestingServices();
         // ADD THESE BACK (no longer in extension method):
         services.AddScoped<UserSheetConfigService>(sp =>
         {
@@ -285,6 +285,7 @@ public class Program
             return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger, sheetConfigService, emailStorage);
         });
 
+        services.AddScoped<SimpleEmailStorageService>();
 
         // Register additional services that aren't included in AddBankSlipServices
         services.AddScoped<SimpleEmailStorageService>();

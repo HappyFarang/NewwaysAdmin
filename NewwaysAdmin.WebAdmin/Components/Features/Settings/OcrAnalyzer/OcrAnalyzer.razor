@@ -1,4 +1,5 @@
 ﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/OcrAnalyzer.razor *@
+@* NOTE: NO @page directive - this is a component, not a routable page *@
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.Components.Forms
 @using NewwaysAdmin.WebAdmin.Services.Testing
@@ -128,6 +129,12 @@
             <small class="form-text">Select a collection to use its specific processing settings and credentials</small>
         </div>
 
+        <!-- Test Button for UI Debug -->
+        <div class="test-section">
+            <button class="btn btn-warning" @onclick="TestUI">Test UI Update</button>
+            <small>Click to test if UI updates work</small>
+        </div>
+
         <!-- Regex Testing Section -->
         <div class="regex-section">
             <div class="regex-controls">
@@ -204,7 +211,7 @@
                 <!-- Text Display -->
                 <div class="text-display">
                     <div class="text-header">
-                        <h5>Extracted Text</h5>
+                        <h5>Extracted Text (@extractedText.Length characters)</h5>
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="CopyTextToClipboard">
                             <i class="bi bi-clipboard"></i> Copy Text
@@ -293,6 +300,55 @@
                 }
             </div>
         }
+        else if (ocrResult != null && !ocrResult.Success)
+        {
+            <div class="no-results">
+                <i class="bi bi-exclamation-circle"></i>
+                <p>No text could be extracted from the image.</p>
+                <small>Try uploading a clearer image or check the processing settings.</small>
+                @if (!string.IsNullOrEmpty(ocrResult.ErrorMessage))
+                {
+                    <div class="alert alert-warning mt-2">
+                        <small>Error: @ocrResult.ErrorMessage</small>
+                    </div>
+                }
+            </div>
+        }
+        else if (!isProcessing)
+        {
+            <div class="no-results">
+                <i class="bi bi-upload"></i>
+                <p>Upload an image to start OCR text extraction.</p>
+                <small>Select a collection and upload an image file to see extracted text and test regex patterns.</small>
+            </div>
+        }
+
+        <!-- Debug Information (remove this after testing) -->
+        @if (ocrResult != null)
+        {
+            <div class="alert alert-info">
+                <strong>Debug Info:</strong><br />
+                Success: @ocrResult.Success<br />
+                Text Length: @(ocrResult.ExtractedText?.Length ?? 0)<br />
+                ExtractedText Variable Length: @(extractedText?.Length ?? 0)<br />
+                Error: @(ocrResult.ErrorMessage ?? "None")<br />
+                Processing Time: @ocrResult.ProcessingTime.TotalSeconds.ToString("F2")s<br />
+                Collection: @ocrResult.CollectionUsed<br />
+                Text Preview: @(string.IsNullOrEmpty(extractedText) ? "No text" : extractedText.Substring(0, Math.Min(100, extractedText.Length)) + "...")
+            </div>
+        }
+
+        <!-- Simple Text Test -->
+        @if (!string.IsNullOrEmpty(extractedText))
+        {
+            <div class="alert alert-success">
+                <strong>Text Found!</strong> Length: @extractedText.Length characters
+                <br />
+                <strong>First 200 characters:</strong>
+                <br />
+                <code style="white-space: pre-wrap;">@(extractedText.Length > 200 ? extractedText.Substring(0, 200) + "..." : extractedText)</code>
+            </div>
+        }
     </div>
 </div>
 
@@ -347,8 +403,9 @@
     private void HandleDragOver(DragEventArgs e)
     {
         // Prevent default to allow drop - this is handled by preventDefault in the markup
-    }    
+    }
 
+    
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
         if (e.File != null)
@@ -361,7 +418,11 @@
     {
         errorMessage = "";
         isProcessing = true;
+        extractedText = ""; // Clear previous results
+        ocrResult = null;
         StateHasChanged();
+
+        Console.WriteLine($"[OCR] Starting to process file: {file.Name}");
 
         try
         {
@@ -369,10 +430,14 @@
             var tempPath = Path.GetTempFileName();
             var finalPath = Path.ChangeExtension(tempPath, Path.GetExtension(file.Name));
 
+            Console.WriteLine($"[OCR] Created temp file: {finalPath}");
+
             await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024); // 50MB limit
             await using var fileStream = File.Create(finalPath);
             await stream.CopyToAsync(fileStream);
             fileStream.Close();
+
+            Console.WriteLine($"[OCR] File saved, starting OCR processing");
 
             // Get selected collection or use default
             SlipCollection? selectedCollection = null;
@@ -384,15 +449,25 @@
             // Process with existing OCR pipeline
             ocrResult = await OcrTestingService.ProcessImageWithExistingPipelineAsync(finalPath, selectedCollection);
 
-            if (ocrResult.Success)
+            Console.WriteLine($"[OCR] OCR completed. Success: {ocrResult?.Success}, TextLength: {ocrResult?.ExtractedText?.Length ?? 0}");
+
+            if (ocrResult?.Success == true && !string.IsNullOrEmpty(ocrResult.ExtractedText))
             {
                 extractedText = ocrResult.ExtractedText;
+                Console.WriteLine($"[OCR] Set extractedText variable. Length: {extractedText.Length}");
+
                 await TestAllRegexPatterns();
+                errorMessage = ""; // Clear any previous errors
+
+                Console.WriteLine($"[OCR] About to call StateHasChanged");
+                StateHasChanged(); // Force update after setting text
+                Console.WriteLine($"[OCR] StateHasChanged called");
             }
             else
             {
-                errorMessage = ocrResult.ErrorMessage;
+                errorMessage = ocrResult?.ErrorMessage ?? "No text could be extracted from the image";
                 extractedText = "";
+                Console.WriteLine($"[OCR] OCR failed: {errorMessage}");
             }
 
             // Clean up temp file
@@ -401,11 +476,15 @@
         catch (Exception ex)
         {
             errorMessage = $"Error processing file: {ex.Message}";
+            extractedText = "";
+            ocrResult = null;
+            Console.WriteLine($"[OCR] Exception: {ex.Message}");
         }
         finally
         {
             isProcessing = false;
-            StateHasChanged();
+            Console.WriteLine($"[OCR] Processing finished. Final extractedText length: {extractedText?.Length ?? 0}");
+            StateHasChanged(); // Force UI update
         }
     }
 
@@ -504,5 +583,15 @@
         if (bytes < 1024) return $"{bytes} B";
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
         return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+
+    // Test method to verify UI updates work
+    private void TestUI()
+    {
+        Console.WriteLine("[UI] Test button clicked");
+        extractedText = "This is a test text to verify UI updates work properly. If you can see this, the UI is working!";
+        Console.WriteLine($"[UI] Set test text. Length: {extractedText.Length}");
+        StateHasChanged();
+        Console.WriteLine("[UI] StateHasChanged called for test");
     }
 }

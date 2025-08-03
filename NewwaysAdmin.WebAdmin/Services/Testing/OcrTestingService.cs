@@ -54,27 +54,20 @@ namespace NewwaysAdmin.WebAdmin.Services.Testing
                 _logger.LogDebug("Processing image {FileName} using existing OCR pipeline with collection {CollectionName}",
                     Path.GetFileName(imagePath), collection.Name);
 
-                // Use the existing bank slip OCR service with the same processing pipeline
-                var bankSlipResult = await _bankSlipOcrService.TestProcessSingleFileAsync(imagePath, collection);
+                // Extract text directly using the same pipeline components but skip validation
+                result = await ExtractTextUsingExistingPipeline(imagePath, collection, result);
+                result.Success = !string.IsNullOrEmpty(result.ExtractedText);
 
-                if (bankSlipResult != null && bankSlipResult.Status == BankSlipProcessingStatus.Completed)
+                if (result.Success)
                 {
-                    // The bank slip service doesn't directly return extracted text, but we can extract it
-                    // by using the same pipeline components directly
-                    result = await ExtractTextUsingExistingPipeline(imagePath, collection, result);
-                    result.Success = !string.IsNullOrEmpty(result.ExtractedText);
-
-                    if (result.Success)
-                    {
-                        _logger.LogDebug("Successfully extracted {CharCount} characters using existing pipeline",
-                            result.ExtractedText.Length);
-                    }
+                    _logger.LogDebug("Successfully extracted {CharCount} characters using existing pipeline",
+                        result.ExtractedText.Length);
                 }
                 else
                 {
-                    result.ErrorMessage = bankSlipResult?.ErrorReason ?? "OCR processing failed through existing pipeline";
-                    _logger.LogWarning("OCR processing failed for {FileName}: {Error}",
-                        Path.GetFileName(imagePath), result.ErrorMessage);
+                    result.ErrorMessage = "No text could be extracted from the image";
+                    _logger.LogWarning("No text extracted from {FileName}",
+                        Path.GetFileName(imagePath));
                 }
             }
             catch (Exception ex)
@@ -96,32 +89,39 @@ namespace NewwaysAdmin.WebAdmin.Services.Testing
         {
             try
             {
-                // Use the injected image processor
+                _logger.LogDebug("Starting text extraction using existing image processing pipeline");
+
+                // Step 1: Use the injected image processor (same as bank slip system)
                 var processedImagePath = await _imageProcessor.ProcessImageAsync(imagePath, collection.ProcessingSettings);
                 result.ProcessedImagePath = processedImagePath ?? imagePath;
 
-                // Use the bank slip OCR service's vision client setup
-                // Since we can't access private methods directly, we'll create our own vision client
-                // using the same credentials path
+                _logger.LogDebug("Image processing completed. Using image: {ImagePath}",
+                    Path.GetFileName(result.ProcessedImagePath));
+
+                // Step 2: Extract text using Google Vision API (same setup as bank slip system)
                 await SetupVisionClientAndExtractText(result.ProcessedImagePath, collection, result);
+
+                return result;
             }
             catch (Exception ex)
             {
-                result.ErrorMessage = $"Error in text extraction: {ex.Message}";
+                result.ErrorMessage = $"Error in text extraction pipeline: {ex.Message}";
                 _logger.LogError(ex, "Error extracting text using existing pipeline");
+                return result;
             }
-
-            return result;
         }
 
         private async Task SetupVisionClientAndExtractText(string imagePath, SlipCollection collection, OcrTestResult result)
         {
             try
             {
+                _logger.LogDebug("Setting up Google Vision client with collection credentials");
+
                 // Set up credentials the same way as BankSlipOcrService
                 if (File.Exists(collection.CredentialsPath))
                 {
                     Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", collection.CredentialsPath);
+                    _logger.LogDebug("Using collection credentials: {CredentialsPath}", collection.CredentialsPath);
                 }
                 else
                 {
@@ -129,34 +129,44 @@ namespace NewwaysAdmin.WebAdmin.Services.Testing
                     if (File.Exists(defaultPath))
                     {
                         Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", defaultPath);
+                        _logger.LogDebug("Using default credentials: {CredentialsPath}", defaultPath);
                     }
                     else
                     {
-                        throw new InvalidOperationException("No valid Google Vision credentials found");
+                        throw new InvalidOperationException($"No valid Google Vision credentials found. Checked: {collection.CredentialsPath}, {defaultPath}");
                     }
                 }
 
                 // Use Google Vision API the same way as the existing service
                 var client = Google.Cloud.Vision.V1.ImageAnnotatorClient.Create();
                 var image = Google.Cloud.Vision.V1.Image.FromFile(imagePath);
+
+                _logger.LogDebug("Calling Google Vision API for text detection");
                 var response = await client.DetectTextAsync(image);
 
                 if (response.Any())
                 {
+                    // Extract all text annotations (same as bank slip service)
                     result.ExtractedText = string.Join("\n", response.Select(r => r.Description));
-                    _logger.LogDebug("Extracted {CharCount} characters from processed image",
-                        result.ExtractedText.Length);
+                    _logger.LogInformation("Successfully extracted {CharCount} characters from {FileName}",
+                        result.ExtractedText.Length, Path.GetFileName(imagePath));
+
+                    // Log first 200 characters for debugging
+                    var preview = result.ExtractedText.Length > 200
+                        ? result.ExtractedText.Substring(0, 200) + "..."
+                        : result.ExtractedText;
+                    _logger.LogDebug("Text preview: {TextPreview}", preview);
                 }
                 else
                 {
-                    result.ErrorMessage = "No text detected in processed image";
-                    _logger.LogWarning("No text detected in processed image {ImagePath}", Path.GetFileName(imagePath));
+                    result.ErrorMessage = "Google Vision API returned no text annotations";
+                    _logger.LogWarning("No text detected by Google Vision API for {FileName}", Path.GetFileName(imagePath));
                 }
             }
             catch (Exception ex)
             {
                 result.ErrorMessage = $"Vision API error: {ex.Message}";
-                _logger.LogError(ex, "Error using Vision API for text extraction");
+                _logger.LogError(ex, "Error using Google Vision API for text extraction from {FileName}", Path.GetFileName(imagePath));
             }
         }
 

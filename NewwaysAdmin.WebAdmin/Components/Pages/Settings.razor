@@ -4,9 +4,9 @@
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.Accounts
 @using NewwaysAdmin.SharedModels.Config
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.PdfProcessor
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.PdfAnalyzer
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
-@inject IAuthenticationService AuthService
-@inject NavigationManager NavigationManager
 @inject IAuthenticationService AuthService
 @inject NavigationManager NavigationManager
 
@@ -32,6 +32,10 @@
                         @onclick="() => SwitchView(ViewType.PdfAnalyzer)">
                     PDF Analyzer
                 </button>
+                <button class="btn @(ActiveView == ViewType.OcrAnalyzer ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.OcrAnalyzer)">
+                    OCR Analyzer
+                </button>
             </div>
         </div>
     </div>
@@ -54,10 +58,12 @@
                 case ViewType.PdfAnalyzer:
                     <PdfAnalyzer />
                     break;
+                case ViewType.OcrAnalyzer:
+                    <OcrAnalyzer />
+                    break;
                 case ViewType.GoogleSheets:
                     <GoogleSheetsSettings />
                     break;
-
             }
         }
     </div>
@@ -67,7 +73,7 @@
     [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
     private ProcessorConfig? _config;
     private bool isAdmin = false;
-    private enum ViewType { Accounts, PdfProcessor, PdfAnalyzer, GoogleSheets }
+    private enum ViewType { Accounts, PdfProcessor, PdfAnalyzer, OcrAnalyzer, GoogleSheets }
     private ViewType ActiveView { get; set; } = ViewType.Accounts;
 
     protected override async Task OnInitializedAsync()
