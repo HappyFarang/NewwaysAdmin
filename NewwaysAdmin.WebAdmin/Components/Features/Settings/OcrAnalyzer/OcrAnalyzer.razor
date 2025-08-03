@@ -1,0 +1,508 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/OcrAnalyzer.razor *@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Forms
+@using NewwaysAdmin.WebAdmin.Services.Testing
+@using NewwaysAdmin.SharedModels.BankSlips
+@using System.Text.Json
+@inject IOcrTestingService OcrTestingService
+@inject IJSRuntime JSRuntime
+
+<div class="ocr-analyzer-container">
+    <div class="controls-section">
+        <!-- File Upload Section -->
+        <div class="upload-zone @(isDragging ? "dragging" : "") @(isProcessing ? "processing" : "")"
+             @ondragenter="HandleDragEnter"
+             @ondragenter:preventDefault="true"
+             @ondragleave="HandleDragLeave"
+             @ondragover="HandleDragOver"
+             @ondragover:preventDefault="true">
+            <InputFile OnChange="OnFileSelected" class="file-input" accept=".jpg,.jpeg,.png,.bmp,.gif,.tiff" />
+            <div class="upload-content">
+                @if (isProcessing)
+                {
+                    <div class="processing-indicator">
+                        <div class="spinner"></div>
+                        <p>Processing image with OCR...</p>
+                        <small>This may take a few seconds</small>
+                    </div>
+                }
+                else
+                {
+                    <i class="bi bi-image"></i>
+                    <p>Click to select your image file</p>
+                    <small>Supported formats: JPG, PNG, BMP, GIF, TIFF</small>
+                }
+            </div>
+        </div>
+
+        <!-- OCR Results Info -->
+        @if (ocrResult != null)
+        {
+            <div class="ocr-info">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>File:</label>
+                        <span>@Path.GetFileName(ocrResult.ImagePath)</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Size:</label>
+                        <span>@FormatFileSize(ocrResult.FileSizeBytes)</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Dimensions:</label>
+                        <span>@ocrResult.ImageDimensions</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Processing Time:</label>
+                        <span>@ocrResult.ProcessingTime.TotalSeconds.ToString("F2")s</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Characters Extracted:</label>
+                        <span>@ocrResult.ExtractedText.Length</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Collection Used:</label>
+                        <span>@ocrResult.CollectionUsed</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Status:</label>
+                        <span class="@(ocrResult.Success ? "status-success" : "status-error")">
+                            @(ocrResult.Success ? "Success" : "Failed")
+                        </span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(ocrResult.ProcessedImagePath) && ocrResult.ProcessedImagePath != ocrResult.ImagePath)
+                    {
+                        <div class="info-item">
+                            <label>Image Processing:</label>
+                            <span class="status-success">Applied</span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Processing Settings Display -->
+                @if (ocrResult.UsedSettings != null)
+                {
+                    <details class="processing-details">
+                        <summary>Processing Settings Used</summary>
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label>Gaussian Sigma:</label>
+                                <span>@ocrResult.UsedSettings.GaussianSigma</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Binarization Window:</label>
+                                <span>@ocrResult.UsedSettings.BinarizationWindow</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Binarization K:</label>
+                                <span>@ocrResult.UsedSettings.BinarizationK</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Preserve Grays:</label>
+                                <span>@(ocrResult.UsedSettings.PreserveGrays ? "Yes" : "No")</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Border Size:</label>
+                                <span>@ocrResult.UsedSettings.BorderSize px</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Processing Passes:</label>
+                                <span>@string.Join(", ", ocrResult.UsedSettings.ProcessingPasses)</span>
+                            </div>
+                        </div>
+                    </details>
+                }
+            </div>
+        }
+
+        <!-- Collection Selection -->
+        <div class="collection-selection">
+            <label>Processing Collection:</label>
+            <select @bind="selectedCollectionId" class="form-control">
+                <option value="">Default Test Collection</option>
+                @foreach (var collection in availableCollections)
+                {
+                    <option value="@collection.Id">@collection.Name (@collection.FormatDisplayName)</option>
+                }
+            </select>
+            <small class="form-text">Select a collection to use its specific processing settings and credentials</small>
+        </div>
+
+        <!-- Regex Testing Section -->
+        <div class="regex-section">
+            <div class="regex-controls">
+                <div class="regex-input-group">
+                    <input @bind="currentRegexPattern"
+                           @bind:event="oninput"
+                           @onkeypress="HandleRegexKeyPress"
+                           placeholder="Enter regex pattern (e.g., \d{4}-\d{2}-\d{2} for dates)"
+                           class="form-control"
+                           disabled="@(string.IsNullOrEmpty(extractedText))" />
+                    <button class="btn btn-primary"
+                            @onclick="AddRegexPattern"
+                            disabled="@(string.IsNullOrWhiteSpace(currentRegexPattern) || string.IsNullOrEmpty(extractedText))">
+                        <i class="bi bi-plus"></i> Add Pattern
+                    </button>
+                </div>
+
+                <div class="view-controls">
+                    <div class="view-toggle">
+                        <button class="btn @(IsRawView ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => IsRawView = true"
+                                disabled="@(string.IsNullOrEmpty(extractedText))">
+                            Raw View
+                        </button>
+                        <button class="btn @(!IsRawView ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => IsRawView = false"
+                                disabled="@(string.IsNullOrEmpty(extractedText))">
+                            Highlighted View
+                        </button>
+                    </div>
+                    <button class="btn btn-outline-secondary"
+                            @onclick="ClearAllPatterns"
+                            disabled="@(!regexPatterns.Any())">
+                        <i class="bi bi-trash"></i> Clear All
+                    </button>
+                </div>
+            </div>
+
+            <!-- Active Regex Patterns -->
+            @if (regexPatterns.Any())
+            {
+                <div class="active-patterns">
+                    <h6>Active Patterns:</h6>
+                    <div class="pattern-list">
+                        @foreach (var pattern in regexPatterns.Select((p, i) => new { Pattern = p, Index = i }))
+                        {
+                            <div class="pattern-item">
+                                <code class="pattern-code">@pattern.Pattern</code>
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => RemoveRegexPattern(pattern.Index)">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="results-section">
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                @errorMessage
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(extractedText))
+        {
+            <div class="content-container">
+                <!-- Text Display -->
+                <div class="text-display">
+                    <div class="text-header">
+                        <h5>Extracted Text</h5>
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="CopyTextToClipboard">
+                            <i class="bi bi-clipboard"></i> Copy Text
+                        </button>
+                    </div>
+
+                    <div class="text-content">
+                        @if (IsRawView)
+                        {
+                            <pre class="raw-text">@extractedText</pre>
+                        }
+                        else
+                        {
+                            <div class="highlighted-text">
+                                @((MarkupString)GetHighlightedText())
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Regex Results -->
+                @if (regexResults.Any())
+                {
+                    <div class="regex-results">
+                        <div class="results-header">
+                            <h5>Regex Test Results</h5>
+                            <small>@regexResults.Sum(r => r.MatchCount) total matches found</small>
+                        </div>
+
+                        <div class="results-content">
+                            @foreach (var result in regexResults.Where(r => r.IsValid))
+                            {
+                                <div class="result-item @(result.MatchCount > 0 ? "has-matches" : "no-matches")">
+                                    <div class="result-header">
+                                        <code class="pattern">@result.Pattern</code>
+                                        <span class="match-count">@result.MatchCount matches</span>
+                                    </div>
+
+                                    @if (result.Matches.Any())
+                                    {
+                                        <div class="matches">
+                                            @foreach (var match in result.Matches.Take(10)) // Limit to first 10 matches
+                                            {
+                                                <div class="match-item">
+                                                    <div class="match-value">
+                                                        <strong>Match:</strong> <code>@match.Value</code>
+                                                        <small>(Position: @match.StartIndex)</small>
+                                                    </div>
+                                                    @if (match.Groups.Any())
+                                                    {
+                                                        <div class="match-groups">
+                                                            @foreach (var group in match.Groups)
+                                                            {
+                                                                <div class="group">
+                                                                    <span class="group-name">@group.Key:</span>
+                                                                    <code class="group-value">@group.Value</code>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                            @if (result.Matches.Count > 10)
+                                            {
+                                                <div class="more-matches">
+                                                    ... and @(result.Matches.Count - 10) more matches
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            @foreach (var result in regexResults.Where(r => !r.IsValid))
+                            {
+                                <div class="result-item error">
+                                    <div class="result-header">
+                                        <code class="pattern">@result.Pattern</code>
+                                        <span class="error-indicator">Error</span>
+                                    </div>
+                                    <div class="error-message">@result.ErrorMessage</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string extractedText = "";
+    private string currentRegexPattern = "";
+    private string errorMessage = "";
+    private string selectedCollectionId = "";
+    private bool isDragging = false;
+    private bool isProcessing = false;
+    private bool IsRawView = true;
+
+    private List<string> regexPatterns = new();
+    private List<RegexTestResult> regexResults = new();
+    private List<SlipCollection> availableCollections = new();
+    private OcrTestResult? ocrResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load available collections
+        await LoadAvailableCollections();
+
+        // Add some example patterns to help users get started
+        regexPatterns.AddRange(new[] {
+            @"\d{4}-\d{2}-\d{2}", // Date pattern
+            @"[\d,]+\.?\d*\s*บาท" // Thai amount pattern
+        });
+    }
+
+    private async Task LoadAvailableCollections()
+    {
+        try
+        {
+            availableCollections = await OcrTestingService.GetAvailableCollectionsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading collections: {ex.Message}";
+        }
+    }
+
+    private void HandleDragEnter(DragEventArgs e)
+    {
+        isDragging = true;
+    }
+
+    private void HandleDragLeave(DragEventArgs e)
+    {
+        isDragging = false;
+    }
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+        // Prevent default to allow drop - this is handled by preventDefault in the markup
+    }    
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        if (e.File != null)
+        {
+            await ProcessUploadedFile(e.File);
+        }
+    }
+
+    private async Task ProcessUploadedFile(IBrowserFile file)
+    {
+        errorMessage = "";
+        isProcessing = true;
+        StateHasChanged();
+
+        try
+        {
+            // Create temporary file
+            var tempPath = Path.GetTempFileName();
+            var finalPath = Path.ChangeExtension(tempPath, Path.GetExtension(file.Name));
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024); // 50MB limit
+            await using var fileStream = File.Create(finalPath);
+            await stream.CopyToAsync(fileStream);
+            fileStream.Close();
+
+            // Get selected collection or use default
+            SlipCollection? selectedCollection = null;
+            if (!string.IsNullOrEmpty(selectedCollectionId))
+            {
+                selectedCollection = availableCollections.FirstOrDefault(c => c.Id == selectedCollectionId);
+            }
+
+            // Process with existing OCR pipeline
+            ocrResult = await OcrTestingService.ProcessImageWithExistingPipelineAsync(finalPath, selectedCollection);
+
+            if (ocrResult.Success)
+            {
+                extractedText = ocrResult.ExtractedText;
+                await TestAllRegexPatterns();
+            }
+            else
+            {
+                errorMessage = ocrResult.ErrorMessage;
+                extractedText = "";
+            }
+
+            // Clean up temp file
+            try { File.Delete(finalPath); } catch { }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error processing file: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleRegexKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(currentRegexPattern))
+        {
+            await AddRegexPattern();
+        }
+    }
+
+    private async Task AddRegexPattern()
+    {
+        if (!string.IsNullOrWhiteSpace(currentRegexPattern) && !regexPatterns.Contains(currentRegexPattern))
+        {
+            regexPatterns.Add(currentRegexPattern);
+            currentRegexPattern = "";
+            await TestAllRegexPatterns();
+        }
+    }
+
+    private async Task RemoveRegexPattern(int index)
+    {
+        if (index >= 0 && index < regexPatterns.Count)
+        {
+            regexPatterns.RemoveAt(index);
+            await TestAllRegexPatterns();
+        }
+    }
+
+    private async Task ClearAllPatterns()
+    {
+        regexPatterns.Clear();
+        regexResults.Clear();
+        StateHasChanged();
+    }
+
+    private async Task TestAllRegexPatterns()
+    {
+        if (!string.IsNullOrEmpty(extractedText) && regexPatterns.Any())
+        {
+            regexResults = await OcrTestingService.TestRegexPatterns(extractedText, regexPatterns);
+            StateHasChanged();
+        }
+        else
+        {
+            regexResults.Clear();
+        }
+    }
+
+    private string GetHighlightedText()
+    {
+        if (string.IsNullOrEmpty(extractedText) || !regexResults.Any())
+            return extractedText;
+
+        var highlightedText = extractedText;
+        var colorClasses = new[] { "highlight-1", "highlight-2", "highlight-3", "highlight-4", "highlight-5" };
+
+        // Apply highlights in reverse order to maintain indices
+        var allMatches = regexResults
+            .Where(r => r.IsValid && r.Matches.Any())
+            .SelectMany((result, resultIndex) => result.Matches.Select(match => new
+            {
+                Match = match,
+                ColorClass = colorClasses[resultIndex % colorClasses.Length],
+                Pattern = result.Pattern
+            }))
+            .OrderByDescending(x => x.Match.StartIndex)
+            .ToList();
+
+        foreach (var item in allMatches)
+        {
+            var match = item.Match;
+            var before = highlightedText.Substring(0, match.StartIndex);
+            var matchText = highlightedText.Substring(match.StartIndex, match.Length);
+            var after = highlightedText.Substring(match.StartIndex + match.Length);
+
+            var highlighted = $"<span class=\"{item.ColorClass}\" title=\"Pattern: {item.Pattern}\">{System.Net.WebUtility.HtmlEncode(matchText)}</span>";
+            highlightedText = before + highlighted + after;
+        }
+
+        // Convert line breaks to HTML
+        return highlightedText.Replace("\n", "<br/>").Replace("\r", "");
+    }
+
+    private async Task CopyTextToClipboard()
+    {
+        if (!string.IsNullOrEmpty(extractedText))
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", extractedText);
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}
