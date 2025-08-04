@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿// NewwaysAdmin.WebAdmin/Extensions/ServiceCollectionExtensions.cs
+using Microsoft.Extensions.DependencyInjection;
 using NewwaysAdmin.GoogleSheets.Services;
 using NewwaysAdmin.WebAdmin.Services.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
@@ -24,10 +25,9 @@ namespace NewwaysAdmin.WebAdmin.Extensions
             services.AddScoped<OriginalSlipParser>();
             services.AddScoped<KBizSlipParser>();
 
-            // REMOVED: Export services - these are registered elsewhere
-            // services.AddScoped<BankSlipExportService>();       // ❌ REMOVED
-            // services.AddScoped<UserSheetConfigService>();      // ❌ REMOVED  
-            // services.AddScoped<SheetConfigurationService>();   // ❌ REMOVED
+            // ✅ FIXED: Re-add export services (these should be registered here for bank slips)
+            services.AddScoped<BankSlipExportService>();
+            services.AddScoped<SimpleEmailStorageService>();  // For user email storage
 
             return services;
         }
@@ -44,7 +44,7 @@ namespace NewwaysAdmin.WebAdmin.Extensions
         }
     }
 
-    // <summary>
+    /// <summary>
     /// Configuration options for bank slip services
     /// </summary>
     public class BankSlipServiceOptions
@@ -55,36 +55,18 @@ namespace NewwaysAdmin.WebAdmin.Extensions
         public string DefaultCredentialsPath { get; set; } = @"C:\Keys\purrfectocr-db2d9d796b58.json";
 
         /// <summary>
-        /// Maximum file size for processing (in bytes)
-        /// </summary>
-        public long MaxFileSizeBytes { get; set; } = 50 * 1024 * 1024; // 50MB
-
-        /// <summary>
-        /// Supported image file extensions
-        /// </summary>
-        public string[] SupportedExtensions { get; set; } =
-        {
-        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff"
-    };
-
-        /// <summary>
-        /// Enable enhanced validation by default
+        /// Enable enhanced date validation
         /// </summary>
         public bool EnableEnhancedValidation { get; set; } = true;
 
         /// <summary>
-        /// Enable automatic format detection
+        /// Enable automatic K-BIZ format detection
         /// </summary>
         public bool EnableAutoFormatDetection { get; set; } = true;
 
         /// <summary>
-        /// Timeout for OCR processing per image (in seconds)
+        /// Maximum file size in bytes for processing
         /// </summary>
-        public int OcrTimeoutSeconds { get; set; } = 30;
-
-        /// <summary>
-        /// Number of retry attempts for failed OCR operations
-        /// </summary>
-        public int MaxRetryAttempts { get; set; } = 2;
+        public long MaxFileSizeBytes { get; set; } = 50_000_000; // 50MB
     }
 }

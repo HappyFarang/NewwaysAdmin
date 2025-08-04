@@ -273,6 +273,10 @@ public class Program
             return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
         });
 
+        // Register email storage service (only once!)
+        services.AddScoped<SimpleEmailStorageService>();
+
+        // Register bank slip export service with all dependencies
         services.AddScoped<BankSlipExportService>(sp =>
         {
             var googleSheetsService = sp.GetRequiredService<GoogleSheetsService>();
@@ -284,11 +288,6 @@ public class Program
             var emailStorage = sp.GetRequiredService<SimpleEmailStorageService>();
             return new BankSlipExportService(googleSheetsService, userConfigService, bankSlipLayout, config, logger, sheetConfigService, emailStorage);
         });
-
-        services.AddScoped<SimpleEmailStorageService>();
-
-        // Register additional services that aren't included in AddBankSlipServices
-        services.AddScoped<SimpleEmailStorageService>();
     }
 
     private static async Task ConfigureApplication(WebApplication app)

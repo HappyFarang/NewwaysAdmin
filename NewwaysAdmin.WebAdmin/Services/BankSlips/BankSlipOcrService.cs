@@ -136,11 +136,11 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 }
 
                 // Save processed slips
-                if (processedSlips.Any())
+                 if (processedSlips.Any())
                 {
                     await SaveProcessedSlipsAsync(processedSlips, username);
                 }
-
+                
                 result.ProcessedSlips = processedSlips;
                 result.ProcessingCompleted = DateTime.UtcNow;
                 result.Summary.ProcessingDuration = result.ProcessingCompleted - result.ProcessingStarted;
@@ -479,7 +479,19 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         {
             try
             {
-                var existingSlips = await _slipsStorage!.LoadAsync(username) ?? new List<BankSlipData>();
+                // FIXED: Handle first-time users gracefully
+                List<BankSlipData> existingSlips;
+                try
+                {
+                    existingSlips = await _slipsStorage!.LoadAsync(username) ?? new List<BankSlipData>();
+                    _logger.LogDebug("Loaded {Count} existing slips for user {Username}", existingSlips.Count, username);
+                }
+                catch (Exception ex) when (ex.Message.Contains("Data not found") || ex is NewwaysAdmin.Shared.IO.StorageException)
+                {
+                    // First-time user - no existing data, start with empty list
+                    existingSlips = new List<BankSlipData>();
+                    _logger.LogInformation("First-time processing for user {Username}, starting with empty slip list", username);
+                }
 
                 // Add new slips (avoid duplicates based on file path)
                 var newSlips = slips.Where(newSlip =>
@@ -491,14 +503,20 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                     existingSlips.AddRange(newSlips);
                     await _slipsStorage.SaveAsync(username, existingSlips);
 
-                    _logger.LogInformation("Saved {Count} new processed slips for user {Username}",
-                        newSlips.Count, username);
+                    _logger.LogInformation("✅ Saved {Count} new processed slips for user {Username} (total: {Total})",
+                        newSlips.Count, username, existingSlips.Count);
+                }
+                else
+                {
+                    _logger.LogInformation("No new slips to save for user {Username} - all {Count} slips already exist",
+                        username, slips.Count);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving processed slips for user {Username}", username);
-                throw;
+                _logger.LogError(ex, "❌ Error saving processed slips for user {Username}", username);
+                // IMPORTANT: Don't throw - let processing continue even if save fails
+                _logger.LogWarning("Processing will continue but slips won't be persisted to storage");
             }
         }
 

@@ -80,22 +80,39 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 return false;
             }
 
-            // Date range validation (reasonable business dates)
+            // FIXED: Handle Thai Buddhist calendar dates properly
+            var transactionYear = slipData.TransactionDate.Year;
+            var transactionDate = slipData.TransactionDate;
+
+            // Convert Thai Buddhist year to Western if needed
+            DateTime westernDate = transactionDate;
+            if (transactionYear > 2400) // Likely Thai Buddhist calendar (543 years ahead)
+            {
+                westernDate = transactionDate.AddYears(-543);
+                _logger.LogDebug("Converted Thai date {ThaiDate} to Western date {WesternDate}",
+                    transactionDate.ToString("yyyy-MM-dd"), westernDate.ToString("yyyy-MM-dd"));
+            }
+
+            // Date range validation using Western equivalent
             var minDate = new DateTime(2017, 1, 1);
             var maxDate = DateTime.Now.AddDays(1); // Allow next day for different timezones
 
-            if (slipData.TransactionDate < minDate || slipData.TransactionDate > maxDate)
+            if (westernDate < minDate || westernDate > maxDate)
             {
-                issues.Add($"Transaction date out of valid range: {slipData.TransactionDate:yyyy-MM-dd}");
+                issues.Add($"Transaction date out of valid range: {slipData.TransactionDate:yyyy-MM-dd} " +
+                          $"(Western equivalent: {westernDate:yyyy-MM-dd})");
                 return false;
             }
+
+            _logger.LogDebug("Date validation passed: {OriginalDate} (Western: {WesternDate})",
+                transactionDate.ToString("yyyy-MM-dd"), westernDate.ToString("yyyy-MM-dd"));
 
             return true;
         }
 
         private bool ValidateEnhancedDate(BankSlipData slipData, List<string> issues)
         {
-            // Additional date validation for impossible dates (like month > 12)
+            // Additional date validation
             var date = slipData.TransactionDate;
 
             if (date.Month > 12 || date.Month < 1)
@@ -110,11 +127,31 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 return false;
             }
 
-            // Check for common OCR errors (like 2568-34-09)
-            if (date.Year > 2570 || date.Year < 2560)
+            // ✅ FIXED: Properly handle Thai Buddhist calendar years
+            var year = date.Year;
+            if (year > 2400) // Thai Buddhist calendar
             {
-                issues.Add($"Suspicious year in Buddhist calendar: {date.Year}");
-                return false;
+                // Convert to Western for validation
+                var westernYear = year - 543;
+
+                // Validate Western year range (more reasonable)
+                if (westernYear < 2017 || westernYear > DateTime.Now.Year + 2)
+                {
+                    issues.Add($"Thai Buddhist year {year} converts to invalid Western year: {westernYear}");
+                    return false;
+                }
+
+                _logger.LogDebug("Enhanced validation passed for Thai year {ThaiYear} (Western: {WesternYear})",
+                    year, westernYear);
+            }
+            else
+            {
+                // Western calendar validation
+                if (year < 2017 || year > DateTime.Now.Year + 2)
+                {
+                    issues.Add($"Western year out of range: {year}");
+                    return false;
+                }
             }
 
             return true;

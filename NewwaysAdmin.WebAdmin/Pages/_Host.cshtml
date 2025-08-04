@@ -35,3 +35,63 @@
     <script src="lib/bootstrap/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+<script>
+    // ✅ CSV Download Function - Missing JavaScript Function
+    window.downloadFile = function (filename, content, contentType) {
+        // Create a blob with the content
+        const blob = new Blob([content], { type: contentType });
+
+        // Create a temporary URL for the blob
+        const url = window.URL.createObjectURL(blob);
+
+        // Create a temporary anchor element to trigger download
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+
+        // Trigger the download
+        document.body.appendChild(a);
+        a.click();
+
+        // Clean up
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        console.log('✅ Downloaded file:', filename);
+    };
+
+    // ✅ Copy to Clipboard Function (also useful for sheet URLs)
+    window.copyToClipboard = function (text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).then(function () {
+                console.log('✅ Copied to clipboard:', text.substring(0, 50) + '...');
+                return true;
+            }).catch(function (err) {
+                console.error('❌ Could not copy to clipboard:', err);
+                return false;
+            });
+        } else {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                if (successful) {
+                    console.log('✅ Copied to clipboard (fallback):', text.substring(0, 50) + '...');
+                    return Promise.resolve(true);
+                } else {
+                    console.error('❌ Copy command failed');
+                    return Promise.resolve(false);
+                }
+            } catch (err) {
+                console.error('❌ Copy failed:', err);
+                document.body.removeChild(textArea);
+                return Promise.resolve(false);
+            }
+        }
+    };
+</script>
