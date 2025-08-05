@@ -64,6 +64,10 @@
                                         <h6 class="mb-1">@collection.Name</h6>
                                         <small class="@(_selectedCollection?.Id == collection.Id ? "text-light" : "text-muted")">
                                             @(collection.IsActive ? "Active" : "Inactive")
+                                            @if (collection.IsKBizFormat)
+                                            {
+                                                <span class="badge bg-success ms-1">K-BIZ</span>
+                                            }
                                         </small>
                                     </div>
                                     <p class="mb-1 small">@collection.SourceDirectory</p>
@@ -107,6 +111,14 @@
                     <div class="card-header">
                         <h5 class="mb-0">
                             <i class="bi bi-cpu me-2"></i>Process Bank Slips - @_selectedCollection.Name
+                            @if (_selectedCollection.IsKBizFormat)
+                            {
+                                <span class="badge bg-success ms-2">K-BIZ Format</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-primary ms-2">Original Format</span>
+                            }
                         </h5>
                     </div>
                     <div class="card-body">
@@ -119,6 +131,7 @@
                                 </div>
                                 <div class="col-md-6">
                                     <strong>Credentials:</strong> @(File.Exists(_selectedCollection.CredentialsPath) ? "✓ Valid" : "⚠ Not Found")<br />
+                                    <strong>Format:</strong> @(_selectedCollection.IsKBizFormat ? "K-BIZ" : "Original")<br />
                                     <strong>Active:</strong> @(_selectedCollection.IsActive ? "✓ Yes" : "✗ No")
                                 </div>
                             </div>
@@ -277,8 +290,8 @@
                                                         </select>
                                                     </div>
                                                     <div class="col-sm-4">
-                                                        <button class="btn btn-outline-primary btn-sm me-2" 
-                                                                @onclick="EditTemplate" 
+                                                        <button class="btn btn-outline-primary btn-sm me-2"
+                                                                @onclick="EditTemplate"
                                                                 disabled="@(string.IsNullOrEmpty(_selectedTemplateId))">
                                                             <i class="bi bi-pencil me-1"></i>Edit
                                                         </button>
@@ -299,12 +312,12 @@
                                                                 </h6>
                                                                 <div class="template-preview">
                                                                     <small class="text-muted">
-                                                                        <strong>Columns:</strong> 
+                                                                        <strong>Columns:</strong>
                                                                         @string.Join(", ", GetSelectedColumnNames(_selectedTemplate))
                                                                         @if (_selectedTemplate.CustomColumns.Any())
                                                                         {
                                                                             <br />
-                                                                            <strong>Custom Columns:</strong> 
+                                                                            <strong>Custom Columns:</strong>
                                                                             @string.Join(", ", _selectedTemplate.CustomColumns.Select(c => $"{c.Name} (SUMIF)"))
                                                                         }
                                                                     </small>
@@ -318,7 +331,7 @@
                                                 <div class="row mb-3">
                                                     <label class="col-sm-2 col-form-label">Share with Email:</label>
                                                     <div class="col-sm-6">
-                                                        <input type="email" class="form-control" @bind="_userShareEmail" 
+                                                        <input type="email" class="form-control" @bind="_userShareEmail"
                                                                placeholder="your-email@gmail.com" />
                                                     </div>
                                                     <div class="col-sm-4">
@@ -331,8 +344,8 @@
                                                 <!-- Export Button -->
                                                 <div class="row">
                                                     <div class="col-12">
-                                                        <button class="btn btn-success btn-lg" 
-                                                                @onclick="ExportToGoogleSheets" 
+                                                        <button class="btn btn-success btn-lg"
+                                                                @onclick="ExportToGoogleSheets"
                                                                 disabled="@(_isExportingToSheets || string.IsNullOrEmpty(_selectedTemplateId) || string.IsNullOrWhiteSpace(_userShareEmail))">
                                                             @if (_isExportingToSheets)
                                                             {
@@ -374,68 +387,26 @@
     </div>
 </div>
 
-<!-- Collection Modal -->
-@if (_showCollectionModal)
+<!-- Use the proper CollectionModal component instead of inline modal -->
+@if (_showCollectionModal && _editingCollection != null)
 {
-    <div class="modal fade show" style="display: block;" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(_editingCollection?.Id == null ? "Create" : "Edit") Collection</h5>
-                    <button type="button" class="btn-close" @onclick="CloseCollectionModal"></button>
-                </div>
-                <div class="modal-body">
-                    @if (_editingCollection != null)
-                    {
-                        <div class="mb-3">
-                            <label class="form-label">Collection Name</label>
-                            <input type="text" class="form-control" @bind="_editingCollection.Name" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Source Directory</label>
-                            <input type="text" class="form-control" @bind="_editingCollection.SourceDirectory" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Output Directory</label>
-                            <input type="text" class="form-control" @bind="_editingCollection.OutputDirectory" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Credentials Path</label>
-                            <input type="text" class="form-control" @bind="_editingCollection.CredentialsPath" />
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" @bind="_editingCollection.IsActive" />
-                            <label class="form-check-label">Active</label>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(_saveErrorMessage))
-                    {
-                        <div class="alert alert-danger mt-3">@_saveErrorMessage</div>
-                    }
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" @onclick="CloseCollectionModal">Cancel</button>
-                    <button type="button" class="btn btn-primary" @onclick="SaveCollection" disabled="@_isSaving">
-                        @if (_isSaving)
-                        {
-                            <span class="spinner-border spinner-border-sm me-1"></span>
-                        }
-                        Save
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="modal-backdrop fade show"></div>
+    <CollectionModal EditingCollection="_editingCollection"
+                     IsVisible="_showCollectionModal"
+                     IsEditMode="@(_editingCollection.Id != null)"
+                     IsSaving="_isSaving"
+                     ErrorMessage="_saveErrorMessage"
+                     OnSave="SaveCollection"
+                     OnCancel="CloseCollectionModal" />
 }
 
 <!-- Template Configuration Modal -->
 <TemplateConfigurationModal @ref="_templateModal"
-                          IsVisible="_showTemplateModal"
-                          Template="_editingTemplate"
-                          ModuleName="BankSlips"
-                          OnSave="HandleTemplateSave"
-                          OnCancel="HandleTemplateCancel" />
+                            IsVisible="_showTemplateModal"
+                            Template="_editingTemplate"
+                            ModuleName="BankSlips"
+                            OnSave="HandleTemplateSave"
+                            OnCancel="HandleTemplateCancel" />
+
 
 @code {
     // User state
@@ -814,13 +785,15 @@
     private void ShowCreateCollectionModal()
     {
         _editingCollection = new SlipCollection
-        {
-            Name = "",
-            SourceDirectory = "",
-            OutputDirectory = "",
-            CredentialsPath = "",
-            IsActive = true
-        };
+            {
+                Name = "",
+                SourceDirectory = "",
+                OutputDirectory = "",
+                CredentialsPath = "",
+                IsActive = true,
+                IsKBizFormat = false,  // Add this - default to Original format
+                ProcessingSettings = new ProcessingParameters()  // Add this - initialize with defaults
+            };
         _saveErrorMessage = string.Empty;
         _showCollectionModal = true;
     }
@@ -828,14 +801,17 @@
     private void EditCollection(SlipCollection collection)
     {
         _editingCollection = new SlipCollection
-        {
-            Id = collection.Id,
-            Name = collection.Name,
-            SourceDirectory = collection.SourceDirectory,
-            OutputDirectory = collection.OutputDirectory,
-            CredentialsPath = collection.CredentialsPath,
-            IsActive = collection.IsActive
-        };
+            {
+                Id = collection.Id,
+                Name = collection.Name,
+                SourceDirectory = collection.SourceDirectory,
+                OutputDirectory = collection.OutputDirectory,
+                CredentialsPath = collection.CredentialsPath,
+                IsActive = collection.IsActive,
+                IsKBizFormat = collection.IsKBizFormat,  // Add this
+                ProcessingSettings = collection.ProcessingSettings ?? new ProcessingParameters(),  // Add this with null check
+                Description = collection.Description  // Add this if it exists
+            };
         _saveErrorMessage = string.Empty;
         _showCollectionModal = true;
     }
@@ -854,7 +830,8 @@
         try
         {
             _isSaving = true;
-            _saveErrorMessage = string.Empty;
+            _saveErrorMessage = string.Empty; // Clear immediately
+            StateHasChanged(); // Force UI update
 
             // Basic validation
             if (string.IsNullOrWhiteSpace(_editingCollection.Name))
@@ -868,6 +845,9 @@
                 _saveErrorMessage = "Source directory is required.";
                 return;
             }
+
+            // Store the collection name BEFORE clearing it
+            string collectionName = _editingCollection.Name;
 
             bool success = true;
             try
@@ -883,9 +863,9 @@
 
             if (success)
             {
-                CloseCollectionModal();
+                CloseCollectionModal(); // This sets _editingCollection to null
                 await LoadAvailableCollections();
-                SetStatusMessage($"Collection '{_editingCollection.Name}' saved successfully.", "info");
+                SetStatusMessage($"Collection '{collectionName}' saved successfully.", "info"); // Use stored name
             }
         }
         catch (Exception ex)
