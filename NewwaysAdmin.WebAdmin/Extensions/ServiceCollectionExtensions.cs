@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NewwaysAdmin.GoogleSheets.Services;
 using NewwaysAdmin.WebAdmin.Services.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
+using NewwaysAdmin.SharedModels.Models.Ocr.Core; // NEW: Add OCR services
 
 namespace NewwaysAdmin.WebAdmin.Extensions
 {
@@ -28,6 +29,9 @@ namespace NewwaysAdmin.WebAdmin.Extensions
             // ✅ FIXED: Re-add export services (these should be registered here for bank slips)
             services.AddScoped<BankSlipExportService>();
             services.AddScoped<SimpleEmailStorageService>();  // For user email storage
+
+            // ✅ NEW: Add spatial OCR services
+            services.AddScoped<ISpatialOcrService, SpatialOcrService>();
 
             return services;
         }

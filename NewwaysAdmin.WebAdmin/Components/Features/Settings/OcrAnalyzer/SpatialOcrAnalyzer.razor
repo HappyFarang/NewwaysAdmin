@@ -4,6 +4,7 @@
 @using NewwaysAdmin.WebAdmin.Services.Testing
 @using NewwaysAdmin.SharedModels.Models.Ocr.Core
 @inject IOcrTestingService OcrTestingService
+@inject ISpatialOcrService SpatialOcrService
 
 <div class="spatial-ocr-container">
     <div class="header-section">
@@ -13,14 +14,14 @@
 
     <!-- File Upload Section -->
     <div class="upload-section">
-        <div class="upload-zone @(isProcessing ? "processing" : "")" 
-             @ondragenter="HandleDragEnter" 
-             @ondragleave="HandleDragLeave" 
-             @ondragover:preventDefault="true" 
+        <div class="upload-zone @(isProcessing ? "processing" : "")"
+             @ondragenter="HandleDragEnter"
+             @ondragleave="HandleDragLeave"
+             @ondragover:preventDefault="true"
              @ondrop="HandleDrop">
-            
+
             <InputFile OnChange="HandleFileSelect" class="file-input" disabled="@isProcessing" />
-            
+
             @if (isProcessing)
             {
                 <div class="processing-indicator">
@@ -143,7 +144,7 @@
                                     }
                                 </tbody>
                             </table>
-                            
+
                             @if (filteredWords.Count() > 100)
                             {
                                 <div class="table-note">
@@ -161,14 +162,14 @@
                             <h4>Extraction Result</h4>
                             <pre class="debug-info">@spatialResult.GetDetailedInfo()</pre>
                         </div>
-                        
+
                         @if (spatialResult.Document != null)
                         {
                             <div class="debug-section">
                                 <h4>Document Statistics</h4>
                                 <pre class="debug-info">@spatialResult.Document.GetDebugInfo()</pre>
                             </div>
-                            
+
                             <div class="debug-section">
                                 <h4>Processing Metadata</h4>
                                 <pre class="debug-info">@GetMetadataInfo()</pre>
@@ -204,9 +205,9 @@
     private string activeView = "text";
     private string searchFilter = string.Empty;
 
-    private IEnumerable<WordBoundingBox> filteredWords => 
-        spatialResult?.Document?.Words?.Where(w => 
-            string.IsNullOrEmpty(searchFilter) || 
+    private IEnumerable<WordBoundingBox> filteredWords =>
+        spatialResult?.Document?.Words?.Where(w =>
+            string.IsNullOrEmpty(searchFilter) ||
             w.Text.Contains(searchFilter, StringComparison.OrdinalIgnoreCase)
         ) ?? Enumerable.Empty<WordBoundingBox>();
 
@@ -217,17 +218,16 @@
         await ProcessFile(e.File);
     }
 
-    private async Task HandleDrop(DragEventArgs e)
-    {
-        if (e.DataTransfer?.Files?.Length > 0)
-        {
-            var file = e.DataTransfer.Files[0];
-            await ProcessFile(file);
-        }
-    }
-
     private void HandleDragEnter(DragEventArgs e) => e.DataTransfer!.DropEffect = "copy";
     private void HandleDragLeave(DragEventArgs e) { }
+
+    private async Task HandleDrop(DragEventArgs e)
+    {
+        // Note: Drag and drop file handling in Blazor requires special handling
+        // For now, we'll just prevent the default and let users use the file input
+        e.DataTransfer!.DropEffect = "none";
+        // TODO: Implement proper drag and drop file handling
+    }
 
     private async Task ProcessFile(IBrowserFile file)
     {
@@ -257,13 +257,7 @@
             StateHasChanged();
 
             // Process with spatial OCR service
-            // TODO: We need to create and register ISpatialOcrService first
-            // For now, let's create a manual instance to test
-            var spatialOcrService = new NewwaysAdmin.SharedModels.Models.Ocr.Core.SpatialOcrService(
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<NewwaysAdmin.SharedModels.Models.Ocr.Core.SpatialOcrService>.Instance
-            );
-            
-            spatialResult = await spatialOcrService.ExtractSpatialTextAsync(finalPath);
+            spatialResult = await SpatialOcrService.ExtractSpatialTextAsync(finalPath);
 
             if (spatialResult?.Success == true)
             {
@@ -296,7 +290,7 @@
 
     private bool IsWordHighlighted(WordBoundingBox word)
     {
-        return !string.IsNullOrEmpty(searchFilter) && 
+        return !string.IsNullOrEmpty(searchFilter) &&
                word.Text.Contains(searchFilter, StringComparison.OrdinalIgnoreCase);
     }
 

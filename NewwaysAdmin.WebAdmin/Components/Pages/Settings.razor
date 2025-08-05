@@ -34,7 +34,7 @@
                 </button>
                 <button class="btn @(ActiveView == ViewType.OcrAnalyzer ? "active" : "")"
                         @onclick="() => SwitchView(ViewType.OcrAnalyzer)">
-                    OCR Analyzer
+                    <i class="bi bi-eye"></i> Spatial OCR <!-- Updated name -->
                 </button>
             </div>
         </div>
@@ -59,7 +59,7 @@
                     <PdfAnalyzer />
                     break;
                 case ViewType.OcrAnalyzer:
-                    <OcrAnalyzer />
+                    <SpatialOcrAnalyzer /> @* NEW - Replaced OcrAnalyzer with SpatialOcrAnalyzer *@
                     break;
                 case ViewType.GoogleSheets:
                     <GoogleSheetsSettings />
@@ -73,32 +73,40 @@
     [Inject] public ConfigProvider ConfigProvider { get; set; } = null!;
     private ProcessorConfig? _config;
     private bool isAdmin = false;
-    private enum ViewType { Accounts, PdfProcessor, PdfAnalyzer, OcrAnalyzer, GoogleSheets }
+
+    public enum ViewType
+    {
+        Accounts,
+        PdfProcessor,
+        PdfAnalyzer,
+        OcrAnalyzer,
+        GoogleSheets
+    }
+
     private ViewType ActiveView { get; set; } = ViewType.Accounts;
 
     protected override async Task OnInitializedAsync()
     {
-        var session = await AuthService.GetCurrentSessionAsync();
-        isAdmin = session?.IsAdmin ?? false;
+        var currentSession = await AuthService.GetCurrentSessionAsync();
+        isAdmin = currentSession?.IsAdmin == true;
 
-        if (!isAdmin)
+        if (isAdmin)
         {
-            NavigationManager.NavigateTo("/");
-            return;
-        }
-
-        try
-        {
-            _config = await ConfigProvider.LoadAsync();
-        }
-        catch (Exception _)
-        {
-            // Handle error
+            try
+            {
+                _config = await ConfigProvider.LoadAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading config: {ex.Message}");
+                _config = new ProcessorConfig();
+            }
         }
     }
 
-    private void SwitchView(ViewType view)
+    private void SwitchView(ViewType viewType)
     {
-        ActiveView = view;
+        ActiveView = viewType;
+        StateHasChanged();
     }
 }
