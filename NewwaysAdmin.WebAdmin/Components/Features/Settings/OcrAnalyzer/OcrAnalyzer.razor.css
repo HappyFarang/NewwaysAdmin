@@ -1,318 +1,631 @@
-﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer.razor *@
-@* NEW Spatial OCR Analyzer - Replaces old one *@
-@using Microsoft.AspNetCore.Components.Forms
-@using NewwaysAdmin.WebAdmin.Services.Testing
-@using NewwaysAdmin.SharedModels.Models.Ocr.Core
-@inject IOcrTestingService OcrTestingService
+﻿/* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/OcrAnalyzer.razor.css */
 
-<div class="spatial-ocr-container">
-    <div class="header-section">
-        <h2><i class="bi bi-eye"></i> Spatial OCR Analyzer</h2>
-        <p class="subtitle">Test spatial OCR extraction with word positioning and coordinates</p>
-    </div>
+.ocr-analyzer-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1rem;
+    height: 100vh;
+    background-color: #f8f9fa;
+    overflow: hidden;
+}
 
-    <!-- File Upload Section -->
-    <div class="upload-section">
-        <div class="upload-zone @(isProcessing ? "processing" : "")" 
-             @ondragenter="HandleDragEnter" 
-             @ondragleave="HandleDragLeave" 
-             @ondragover:preventDefault="true" 
-             @ondrop="HandleDrop">
-            
-            <InputFile OnChange="HandleFileSelect" class="file-input" disabled="@isProcessing" />
-            
-            @if (isProcessing)
-            {
-                <div class="processing-indicator">
-                    <div class="spinner"></div>
-                    <span>Processing image...</span>
-                </div>
-            }
-            else
-            {
-                <div class="upload-content">
-                    <i class="bi bi-cloud-upload"></i>
-                    <p>Drop image here or click to browse</p>
-                    <small>Supports: JPG, PNG, BMP, TIFF (max 50MB)</small>
-                </div>
-            }
-        </div>
+.controls-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    background-color: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    flex-shrink: 0;
+}
 
-        @if (!string.IsNullOrEmpty(status))
-        {
-            <div class="status-message @(spatialResult?.Success == true ? "success" : "error")">
-                <i class="bi @(spatialResult?.Success == true ? "bi-check-circle" : "bi-exclamation-triangle")"></i>
-                @status
-            </div>
+.upload-zone {
+    border: 2px dashed #dee2e6;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    background: #fff;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.3s ease;
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+    .upload-zone:hover {
+        border-color: #007bff;
+        background-color: rgba(0,123,255,0.05);
+    }
+
+    .upload-zone.dragging {
+        border-color: #007bff;
+        background-color: rgba(0,123,255,0.1);
+        transform: scale(1.02);
+    }
+
+    .upload-zone.processing {
+        border-color: #ffc107;
+        background-color: rgba(255,193,7,0.1);
+        cursor: not-allowed;
+    }
+
+.file-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+}
+
+.upload-content {
+    pointer-events: none;
+}
+
+    .upload-content i {
+        font-size: 2.5rem;
+        color: #6c757d;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .upload-content p {
+        margin: 0.5rem 0 0.25rem 0;
+        color: #495057;
+        font-weight: 500;
+    }
+
+    .upload-content small {
+        color: #6c757d;
+        display: block;
+    }
+
+.processing-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.ocr-info {
+    background: #e3f2fd;
+    border: 1px solid #bbdefb;
+    border-radius: 6px;
+    padding: 1rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0;
+}
+
+    .info-item label {
+        font-weight: 600;
+        color: #495057;
+        margin: 0;
+    }
+
+    .info-item span {
+        color: #212529;
+    }
+
+.status-success {
+    color: #28a745 !important;
+    font-weight: 600;
+}
+
+.status-error {
+    color: #dc3545 !important;
+    font-weight: 600;
+}
+
+.regex-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.regex-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.regex-input-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+    .regex-input-group input {
+        flex: 1;
+        min-width: 300px;
+    }
+
+.view-controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.view-toggle {
+    display: flex;
+    gap: 0.25rem;
+}
+
+    .view-toggle .btn {
+        border-radius: 4px;
+    }
+
+.active-patterns {
+    margin-top: 1rem;
+}
+
+    .active-patterns h6 {
+        margin: 0 0 0.75rem 0;
+        color: #495057;
+        font-weight: 600;
+    }
+
+.pattern-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.pattern-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+}
+
+.pattern-code {
+    background: #e9ecef;
+    color: #495057;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+}
+
+.results-section {
+    flex: 1;
+    overflow: visible; /* Changed from hidden to visible */
+    display: flex;
+    flex-direction: column;
+    min-height: 400px; /* Ensure minimum height */
+}
+
+.content-container {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 1rem;
+    overflow: visible; /* Changed from hidden to visible */
+    min-height: 400px; /* Ensure minimum height */
+}
+
+.text-display {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: visible; /* Changed from hidden to visible */
+    min-height: 300px; /* Ensure minimum height */
+}
+
+.text-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+    .text-header h5 {
+        margin: 0;
+        color: #495057;
+    }
+
+.text-content {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+    min-height: 200px; /* Ensure minimum height */
+    max-height: 600px; /* Prevent excessive height */
+}
+
+.raw-text {
+    white-space: pre-wrap;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    margin: 0;
+    color: #212529;
+    word-wrap: break-word; /* Handle long words */
+    overflow-wrap: break-word; /* Handle long words */
+}
+
+.highlighted-text {
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word; /* Handle long words */
+    overflow-wrap: break-word; /* Handle long words */
+}
+
+.highlight-1 {
+    background-color: rgba(255, 193, 7, 0.3);
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+.highlight-2 {
+    background-color: rgba(40, 167, 69, 0.3);
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+.highlight-3 {
+    background-color: rgba(220, 53, 69, 0.3);
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+.highlight-4 {
+    background-color: rgba(0, 123, 255, 0.3);
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+.highlight-5 {
+    background-color: rgba(108, 117, 125, 0.3);
+    border-radius: 2px;
+    padding: 1px 2px;
+}
+
+.regex-results {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+.results-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #dee2e6;
+    background: #f8f9fa;
+}
+
+    .results-header h5 {
+        margin: 0 0 0.25rem 0;
+        color: #495057;
+    }
+
+    .results-header small {
+        color: #6c757d;
+    }
+
+.results-content {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+}
+
+.result-item {
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+    .result-item.has-matches {
+        border-color: #28a745;
+    }
+
+    .result-item.no-matches {
+        border-color: #ffc107;
+    }
+
+    .result-item.error {
+        border-color: #dc3545;
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+
+.result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+}
+
+    .result-header .pattern {
+        background: #e9ecef;
+        color: #495057;
+        padding: 0.25rem 0.5rem;
+        border-radius: 3px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.875rem;
+    }
+
+.match-count {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #28a745;
+}
+
+.error-indicator {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #dc3545;
+}
+
+.error-message {
+    padding: 0.75rem 1rem;
+    color: #dc3545;
+    font-size: 0.875rem;
+}
+
+.matches {
+    padding: 1rem;
+}
+
+.match-item {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(40, 167, 69, 0.05);
+    border: 1px solid rgba(40, 167, 69, 0.2);
+    border-radius: 4px;
+}
+
+    .match-item:last-child {
+        margin-bottom: 0;
+    }
+
+.match-value {
+    margin-bottom: 0.5rem;
+}
+
+    .match-value strong {
+        color: #495057;
+    }
+
+    .match-value code {
+        background: rgba(40, 167, 69, 0.1);
+        color: #28a745;
+        padding: 0.25rem 0.5rem;
+        border-radius: 3px;
+        font-family: 'Courier New', monospace;
+    }
+
+    .match-value small {
+        color: #6c757d;
+        margin-left: 0.5rem;
+    }
+
+.match-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.group {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 3px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.group-name {
+    font-weight: 600;
+    color: #495057;
+}
+
+.group-value {
+    background: #f8f9fa;
+    color: #0056b3;
+    padding: 0.125rem 0.25rem;
+    border-radius: 2px;
+    font-family: 'Courier New', monospace;
+}
+
+.more-matches {
+    text-align: center;
+    padding: 0.75rem;
+    color: #6c757d;
+    font-style: italic;
+    border-top: 1px solid #dee2e6;
+    margin-top: 0.5rem;
+}
+
+.alert {
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.alert-danger {
+    background-color: rgba(220, 53, 69, 0.1);
+    border: 1px solid rgba(220, 53, 69, 0.2);
+    color: #721c24;
+}
+
+.alert i {
+    font-size: 1.25rem;
+}
+
+.collection-selection {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: #e8f4fd;
+    border: 1px solid #bee5eb;
+    border-radius: 6px;
+}
+
+    .collection-selection label {
+        font-weight: 600;
+        color: #495057;
+        margin: 0;
+    }
+
+    .collection-selection select {
+        padding: 0.5rem;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        background: white;
+    }
+
+    .collection-selection small {
+        color: #6c757d;
+        font-size: 0.875rem;
+    }
+
+.processing-details {
+    margin-top: 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: white;
+}
+
+    .processing-details summary {
+        padding: 0.75rem 1rem;
+        background: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        cursor: pointer;
+        font-weight: 600;
+        color: #495057;
+    }
+
+        .processing-details summary:hover {
+            background: #e9ecef;
         }
-    </div>
 
-    <!-- Results Section -->
-    @if (spatialResult != null)
-    {
-        <div class="results-section">
-            <!-- Summary Cards -->
-            <div class="summary-cards">
-                <div class="summary-card">
-                    <div class="card-icon"><i class="bi bi-file-text"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">@spatialResult.WordCount</div>
-                        <div class="card-label">Words Extracted</div>
-                    </div>
-                </div>
-                <div class="summary-card">
-                    <div class="card-icon"><i class="bi bi-speedometer2"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">@($"{spatialResult.ProcessingTime.TotalMilliseconds:F0}ms")</div>
-                        <div class="card-label">Processing Time</div>
-                    </div>
-                </div>
-                <div class="summary-card">
-                    <div class="card-icon"><i class="bi bi-graph-up"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">@($"{spatialResult.AverageConfidence:F1}%")</div>
-                        <div class="card-label">Avg Confidence</div>
-                    </div>
-                </div>
-                <div class="summary-card">
-                    <div class="card-icon"><i class="bi bi-bounding-box"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">@($"{spatialResult.Document?.DocumentWidth}x{spatialResult.Document?.DocumentHeight}")</div>
-                        <div class="card-label">Image Size</div>
-                    </div>
-                </div>
-            </div>
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+}
 
-            <!-- View Controls -->
-            <div class="view-controls">
-                <div class="view-tabs">
-                    <button class="btn @(activeView == "text" ? "active" : "")" @onclick="@(() => SetActiveView("text"))">
-                        <i class="bi bi-file-text"></i> Extracted Text
-                    </button>
-                    <button class="btn @(activeView == "spatial" ? "active" : "")" @onclick="@(() => SetActiveView("spatial"))">
-                        <i class="bi bi-grid-3x3-gap"></i> Spatial Data
-                    </button>
-                    <button class="btn @(activeView == "debug" ? "active" : "")" @onclick="@(() => SetActiveView("debug"))">
-                        <i class="bi bi-bug"></i> Debug Info
-                    </button>
-                </div>
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
 
-                <div class="search-controls">
-                    <input @bind="searchFilter" @bind:event="oninput" placeholder="Search words..." class="form-control search-input" />
-                    @if (!string.IsNullOrEmpty(searchFilter))
-                    {
-                        <span class="search-results">@filteredWords.Count() results</span>
-                    }
-                </div>
-            </div>
-
-            <!-- Content Display -->
-            <div class="content-display">
-                @if (activeView == "text")
-                {
-                    <div class="text-content">
-                        <pre class="extracted-text">@spatialResult.ExtractedText</pre>
-                    </div>
-                }
-                else if (activeView == "spatial" && spatialResult.Document != null)
-                {
-                    <div class="spatial-content">
-                        <div class="spatial-table-container">
-                            <table class="spatial-table">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Text</th>
-                                        <th>Position (Raw)</th>
-                                        <th>Position (Norm)</th>
-                                        <th>Size</th>
-                                        <th>Confidence</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var word in filteredWords.Take(100)) // Limit to first 100 for performance
-                                    {
-                                        <tr class="@(IsWordHighlighted(word) ? "highlighted" : "")">
-                                            <td>@word.OriginalIndex</td>
-                                            <td class="word-text">@word.Text</td>
-                                            <td class="coordinate-text">(@word.RawX1,@word.RawY1) - (@word.RawX2,@word.RawY2)</td>
-                                            <td class="coordinate-text">(@word.NormX1.ToString("F3"),@word.NormY1.ToString("F3")) - (@word.NormX2.ToString("F3"),@word.NormY2.ToString("F3"))</td>
-                                            <td>@word.RawWidth x @word.RawHeight</td>
-                                            <td class="confidence-text">@word.Confidence.ToString("F2")</td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                            
-                            @if (filteredWords.Count() > 100)
-                            {
-                                <div class="table-note">
-                                    <i class="bi bi-info-circle"></i>
-                                    Showing first 100 of @filteredWords.Count() words. Use search to filter results.
-                                </div>
-                            }
-                        </div>
-                    </div>
-                }
-                else if (activeView == "debug")
-                {
-                    <div class="debug-content">
-                        <div class="debug-section">
-                            <h4>Extraction Result</h4>
-                            <pre class="debug-info">@spatialResult.GetDetailedInfo()</pre>
-                        </div>
-                        
-                        @if (spatialResult.Document != null)
-                        {
-                            <div class="debug-section">
-                                <h4>Document Statistics</h4>
-                                <pre class="debug-info">@spatialResult.Document.GetDebugInfo()</pre>
-                            </div>
-                            
-                            <div class="debug-section">
-                                <h4>Processing Metadata</h4>
-                                <pre class="debug-info">@GetMetadataInfo()</pre>
-                            </div>
-                        }
-
-                        @if (spatialResult.HasWarnings)
-                        {
-                            <div class="debug-section">
-                                <h4>Warnings</h4>
-                                <div class="warnings-list">
-                                    @foreach (var warning in spatialResult.Warnings)
-                                    {
-                                        <div class="warning-item">
-                                            <i class="bi bi-exclamation-triangle"></i>
-                                            @warning
-                                        </div>
-                                    }
-                                </div>
-                            </div>
-                        }
-                    </div>
-                }
-            </div>
-        </div>
-    }
-</div>
-
-@code {
-    private bool isProcessing = false;
-    private string status = string.Empty;
-    private OcrExtractionResult? spatialResult = null;
-    private string activeView = "text";
-    private string searchFilter = string.Empty;
-
-    private IEnumerable<WordBoundingBox> filteredWords => 
-        spatialResult?.Document?.Words?.Where(w => 
-            string.IsNullOrEmpty(searchFilter) || 
-            w.Text.Contains(searchFilter, StringComparison.OrdinalIgnoreCase)
-        ) ?? Enumerable.Empty<WordBoundingBox>();
-
-    private async Task HandleFileSelect(InputFileChangeEventArgs e)
-    {
-        if (e.File == null) return;
-
-        await ProcessFile(e.File);
+    .setting-item label {
+        font-weight: 500;
+        color: #495057;
+        margin: 0;
     }
 
-    private async Task HandleDrop(DragEventArgs e)
-    {
-        if (e.DataTransfer?.Files?.Length > 0)
-        {
-            var file = e.DataTransfer.Files[0];
-            await ProcessFile(file);
+    .setting-item span {
+        color: #212529;
+        font-family: monospace;
+        font-size: 0.875rem;
+    }
+
+.content-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+}
+
+.regex-results {
+    max-height: 400px;
+}
+
+}
+
+@media (max-width: 768px) {
+    .ocr-analyzer-container {
+        padding: 0.5rem;
+        gap: 1rem;
+    }
+
+    .controls-section {
+        padding: 1rem;
+    }
+
+    .regex-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .regex-input-group {
+        flex-direction: column;
+    }
+
+        .regex-input-group input {
+            min-width: auto;
         }
+
+    .view-controls {
+        flex-direction: column;
+        gap: 0.5rem;
     }
 
-    private void HandleDragEnter(DragEventArgs e) => e.DataTransfer!.DropEffect = "copy";
-    private void HandleDragLeave(DragEventArgs e) { }
-
-    private async Task ProcessFile(IBrowserFile file)
-    {
-        if (isProcessing) return;
-
-        isProcessing = true;
-        status = "Processing image with spatial OCR...";
-        spatialResult = null;
-        StateHasChanged();
-
-        try
-        {
-            // Create temp file
-            var tempPath = Path.GetTempFileName();
-            var finalPath = Path.ChangeExtension(tempPath, Path.GetExtension(file.Name));
-
-            status = $"Saving file: {Path.GetFileName(finalPath)}";
-            StateHasChanged();
-
-            // Save uploaded file
-            using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
-            using var fileStream = File.Create(finalPath);
-            await stream.CopyToAsync(fileStream);
-            fileStream.Close();
-
-            status = "Extracting spatial text data...";
-            StateHasChanged();
-
-            // Process with spatial OCR service
-            // TODO: We need to create and register ISpatialOcrService first
-            // For now, let's create a manual instance to test
-            var spatialOcrService = new NewwaysAdmin.SharedModels.Models.Ocr.Core.SpatialOcrService(
-                Microsoft.Extensions.Logging.Abstractions.NullLogger<NewwaysAdmin.SharedModels.Models.Ocr.Core.SpatialOcrService>.Instance
-            );
-            
-            spatialResult = await spatialOcrService.ExtractSpatialTextAsync(finalPath);
-
-            if (spatialResult?.Success == true)
-            {
-                status = $"SUCCESS! Extracted {spatialResult.WordCount} words in {spatialResult.ProcessingTime.TotalMilliseconds:F0}ms";
-            }
-            else
-            {
-                status = $"FAILED: {spatialResult?.ErrorMessage ?? "Unknown error"}";
-            }
-
-            // Cleanup
-            try { File.Delete(finalPath); } catch { }
-        }
-        catch (Exception ex)
-        {
-            status = $"EXCEPTION: {ex.Message}";
-        }
-        finally
-        {
-            isProcessing = false;
-            StateHasChanged();
-        }
+    .info-grid {
+        grid-template-columns: 1fr;
     }
 
-    private void SetActiveView(string view)
-    {
-        activeView = view;
-        StateHasChanged();
-    }
-
-    private bool IsWordHighlighted(WordBoundingBox word)
-    {
-        return !string.IsNullOrEmpty(searchFilter) && 
-               word.Text.Contains(searchFilter, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string GetMetadataInfo()
-    {
-        if (spatialResult?.Metadata == null) return "No metadata available";
-
-        var metadata = spatialResult.Metadata;
-        return $"Google Vision API: {metadata.GoogleVisionApiVersion}\n" +
-               $"Collection: {metadata.CollectionName}\n" +
-               $"Processing Engine: {metadata.ProcessingEngine}\n" +
-               $"Image Preprocessed: {metadata.ImageWasPreprocessed}\n" +
-               $"Original Size: {metadata.OriginalImageWidth}x{metadata.OriginalImageHeight}\n" +
-               $"Processed Size: {metadata.ProcessedImageWidth}x{metadata.ProcessedImageHeight}\n" +
-               $"Raw Annotations: {metadata.RawAnnotationsCount}\n" +
-               $"Filtered Words: {metadata.FilteredWordsCount}\n" +
-               $"Scale Factor: {metadata.ImageScaleFactor:F2}";
+    .pattern-list {
+        flex-direction: column;
     }
 }
