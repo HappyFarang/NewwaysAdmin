@@ -1,0 +1,422 @@
+﻿// NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/PatternTester.razor
+@using NewwaysAdmin.SharedModels.Models.Ocr.Core
+@inject ISpatialOcrService SpatialOcrService
+@inject ILogger<PatternTester> Logger
+
+<div class="pattern-tester-container">
+    <div class="header-section">
+        <h2><i class="fas fa-project-diagram"></i> Pattern Tester</h2>
+        <p class="subtitle">Test and visualize spatial grouping patterns</p>
+    </div>
+
+    <!-- File Upload Section -->
+    <div class="upload-section">
+        <div class="upload-zone @(isProcessing ? "processing" : "")">
+            <InputFile OnChange="HandleFileSelect" class="file-input" disabled="@isProcessing" />
+
+            @if (isProcessing)
+            {
+                <div class="processing-indicator">
+                    <div class="spinner"></div>
+                    <span>Processing image...</span>
+                </div>
+            }
+            else
+            {
+                <div class="upload-content">
+                    <i class="fas fa-cloud-upload"></i>
+                    <p>Click here to browse for an image file</p>
+                    <small>Supports: JPG, PNG, BMP, TIFF (max 50MB)</small>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger mt-3">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                @errorMessage
+            </div>
+        }
+    </div>
+
+    @if (spatialDocument != null)
+    {
+        <div class="row mt-4">
+            <!-- Left Panel: Pattern Configuration -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-cog me-2"></i>Pattern Configuration</h5>
+                    </div>
+                    <div class="card-body">
+
+                        <!-- Pattern Type -->
+                        <div class="mb-3">
+                            <label class="form-label">Pattern Type</label>
+                            <select @bind="selectedPatternType" class="form-select">
+                                <option value="VerticalColumn">Vertical Column</option>
+                                <option value="Sequential" disabled>Sequential (Coming Soon)</option>
+                            </select>
+                        </div>
+
+                        <!-- Search Term -->
+                        <div class="mb-3">
+                            <label class="form-label">Search Term</label>
+                            <input @bind="searchTerm" class="form-control" placeholder="e.g., To, ไปยัง, Total" />
+                        </div>
+
+                        <!-- Tolerances -->
+                        <div class="mb-3">
+                            <label class="form-label">Y Tolerance (pixels)</label>
+                            <input @bind="yTolerance" type="number" class="form-control" min="5" max="100" />
+                            <div class="form-text">Max gap between lines before stopping</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">X Tolerance (pixels)</label>
+                            <input @bind="xTolerance" type="number" class="form-control" min="1" max="50" />
+                            <div class="form-text">Tolerance for same-line alignment</div>
+                        </div>
+
+                        <!-- Stop Words (optional) -->
+                        <div class="mb-3">
+                            <label class="form-label">Stop Words (optional)</label>
+                            <input @bind="stopWordsInput" class="form-control" placeholder="e.g., Total, End (comma separated)" />
+                            <div class="form-text">Stop search when these words are found</div>
+                        </div>
+
+                        <!-- Test Button -->
+                        <button @onclick="TestPattern" class="btn btn-primary w-100" disabled="@(string.IsNullOrEmpty(searchTerm))">
+                            <i class="fas fa-play me-2"></i>Test Pattern
+                        </button>
+
+                        <!-- Clear Button -->
+                        @if (testResult != null)
+                        {
+                            <button @onclick="ClearResults" class="btn btn-outline-secondary w-100 mt-2">
+                                <i class="fas fa-eraser me-2"></i>Clear Results
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <!-- Results Panel -->
+                @if (testResult != null)
+                {
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6><i class="fas fa-list me-2"></i>Found Group</h6>
+                            <span class="badge @(testResult.Success ? "bg-success" : "bg-danger")">
+                                @(testResult.Success ? $"{testResult.GroupedWords.Count} words" : "No match")
+                            </span>
+                        </div>
+                        @if (testResult.Success)
+                        {
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <strong>Extracted Text:</strong>
+                                    <div class="extracted-text-preview">
+                                        @testResult.CombinedText
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <strong>Words Found:</strong>
+                                    <div class="small text-muted">
+                                        @foreach (var word in testResult.GroupedWords)
+                                        {
+                                            <span class="badge bg-light text-dark me-1">@word.Text</span>
+                                        }
+                                    </div>
+                                </div>
+
+                                <button class="btn btn-success btn-sm w-100" disabled>
+                                    <i class="fas fa-save me-2"></i>Save Pattern (Coming Soon)
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="card-body">
+                                <div class="text-muted">
+                                    @if (string.IsNullOrEmpty(searchTerm))
+                                    {
+                                        <span>Enter a search term to test</span>
+                                    }
+                                    else
+                                    {
+                                        <span>No words found for "@searchTerm"</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <!-- Right Panel: Visual Results -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-eye me-2"></i>Visual Results</h5>
+                        <div class="form-check form-switch">
+                            <input @bind="showHeatMap" class="form-check-input" type="checkbox" id="showHeatMap">
+                            <label class="form-check-label" for="showHeatMap">Show All Words</label>
+                        </div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="visualization-container">
+                            @if (!string.IsNullOrEmpty(imageDataUrl))
+                            {
+                                <img src="@imageDataUrl" class="base-image" />
+
+                                <!-- Heat Map Overlay (all words) -->
+                                @if (showHeatMap)
+                                {
+                                    @foreach (var word in spatialDocument.Words.Take(100))
+                                    {
+                                        <div class="word-heat-box" style="@GetHeatMapStyle(word)" title="@word.Text">
+                                        </div>
+                                    }
+                                }
+
+                                <!-- Pattern Result Overlay -->
+                                @if (testResult?.Success == true)
+                                {
+                                    <!-- Anchor word (red) -->
+                                    @if (testResult.AnchorWord != null)
+                                    {
+                                        <div class="anchor-word-box" style="@GetAnchorStyle(testResult.AnchorWord)"
+                                             title="Anchor: @testResult.AnchorWord.Text">
+                                        </div>
+                                    }
+
+                                    <!-- Grouped words (green) -->
+                                    @foreach (var word in testResult.GroupedWords.Where(w => w != testResult.AnchorWord))
+                                    {
+                                        <div class="grouped-word-box" style="@GetGroupedStyle(word)"
+                                             title="Grouped: @word.Text">
+                                        </div>
+                                    }
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // State variables
+    private bool isProcessing = false;
+    private string? errorMessage = null;
+    private string? imageDataUrl = null;
+    private SpatialDocument? spatialDocument = null;
+
+    // Pattern configuration
+    private string selectedPatternType = "VerticalColumn";
+    private string searchTerm = "";
+    private int yTolerance = 20;
+    private int xTolerance = 10;
+    private string stopWordsInput = "";
+
+    // UI state
+    private bool showHeatMap = true;
+
+    // Results
+    private PatternTestResult? testResult = null;
+
+    private async Task HandleFileSelect(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        isProcessing = true;
+        errorMessage = null;
+        spatialDocument = null;
+        testResult = null;
+        StateHasChanged();
+
+        try
+        {
+            // Create temporary file
+            var tempPath = Path.GetTempFileName();
+            using (var stream = File.Create(tempPath))
+            {
+                await file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024).CopyToAsync(stream);
+            }
+
+            // Convert to data URL for display
+            var imageBytes = await File.ReadAllBytesAsync(tempPath);
+            imageDataUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(imageBytes)}";
+
+            // Extract spatial document
+            var ocrResult = await SpatialOcrService.ExtractSpatialTextAsync(tempPath);
+            if (ocrResult.Success && ocrResult.Document != null)
+            {
+                spatialDocument = ocrResult.Document;
+                Logger.LogInformation("Loaded spatial document with {WordCount} words", spatialDocument.WordCount);
+            }
+            else
+            {
+                errorMessage = $"OCR extraction failed: {ocrResult.ErrorMessage}";
+            }
+
+            // Clean up temp file
+            File.Delete(tempPath);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error processing file: {ex.Message}";
+            Logger.LogError(ex, "Error in HandleFileSelect");
+        }
+        finally
+        {
+            isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void TestPattern()
+    {
+        if (spatialDocument == null || string.IsNullOrEmpty(searchTerm))
+        {
+            testResult = new PatternTestResult { Success = false };
+            return;
+        }
+
+        try
+        {
+            // For now, just implement basic vertical column pattern
+            testResult = TestVerticalColumnPattern();
+            Logger.LogInformation("Pattern test completed. Success: {Success}, Words: {WordCount}",
+                testResult.Success, testResult.GroupedWords.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error testing pattern");
+            testResult = new PatternTestResult { Success = false };
+        }
+
+        StateHasChanged();
+    }
+
+    private PatternTestResult TestVerticalColumnPattern()
+    {
+        var result = new PatternTestResult();
+
+        // Find anchor word
+        var anchorWord = spatialDocument!.FindWordsByText(searchTerm, exactMatch: false).FirstOrDefault();
+        if (anchorWord == null)
+        {
+            return result; // Success = false by default
+        }
+
+        result.AnchorWord = anchorWord;
+        result.GroupedWords.Add(anchorWord);
+
+        // Parse stop words
+        var stopWords = stopWordsInput.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                     .Select(w => w.Trim())
+                                     .Where(w => !string.IsNullOrEmpty(w))
+                                     .ToList();
+
+        // Simple vertical search implementation
+        var currentY = anchorWord.RawY2; // Start below anchor
+        var searchX = anchorWord.RawX1;  // Use anchor's left edge for reference
+
+        while (true)
+        {
+            // Find words at the next Y level
+            var nextWords = spatialDocument.Words
+                .Where(w => w != anchorWord && !result.GroupedWords.Contains(w))
+                .Where(w => w.RawY1 >= currentY && w.RawY1 <= currentY + yTolerance)
+                .Where(w => Math.Abs(w.RawX1 - searchX) <= xTolerance)
+                .OrderBy(w => w.RawY1)
+                .ThenBy(w => w.RawX1)
+                .ToList();
+
+            if (!nextWords.Any())
+                break; // No more words found
+
+            // Check for stop words
+            if (stopWords.Any() && nextWords.Any(w => stopWords.Any(stop =>
+                w.Text.Contains(stop, StringComparison.OrdinalIgnoreCase))))
+            {
+                break; // Stop word found
+            }
+
+            // Add the found words
+            result.GroupedWords.AddRange(nextWords);
+
+            // Update search position for next iteration
+            currentY = nextWords.Max(w => w.RawY2);
+        }
+
+        result.Success = result.GroupedWords.Count > 1; // At least anchor + 1 more word
+        result.CombinedText = string.Join("\n", result.GroupedWords.Select(w => w.Text));
+
+        return result;
+    }
+
+    private void ClearResults()
+    {
+        testResult = null;
+        StateHasChanged();
+    }
+
+    // Styling methods
+    private string GetHeatMapStyle(WordBoundingBox word)
+    {
+        if (spatialDocument == null) return "";
+
+        var leftPercent = (word.RawX1 / (float)spatialDocument.DocumentWidth) * 100;
+        var topPercent = (word.RawY1 / (float)spatialDocument.DocumentHeight) * 100;
+        var widthPercent = (word.RawWidth / (float)spatialDocument.DocumentWidth) * 100;
+        var heightPercent = (word.RawHeight / (float)spatialDocument.DocumentHeight) * 100;
+
+        return $"position: absolute; left: {leftPercent:F2}%; top: {topPercent:F2}%; " +
+               $"width: {widthPercent:F2}%; height: {heightPercent:F2}%; " +
+               $"background-color: rgba(0, 123, 255, 0.2); border: 1px solid rgba(0, 123, 255, 0.4);";
+    }
+
+    private string GetAnchorStyle(WordBoundingBox word)
+    {
+        if (spatialDocument == null) return "";
+
+        var leftPercent = (word.RawX1 / (float)spatialDocument.DocumentWidth) * 100;
+        var topPercent = (word.RawY1 / (float)spatialDocument.DocumentHeight) * 100;
+        var widthPercent = (word.RawWidth / (float)spatialDocument.DocumentWidth) * 100;
+        var heightPercent = (word.RawHeight / (float)spatialDocument.DocumentHeight) * 100;
+
+        return $"position: absolute; left: {leftPercent:F2}%; top: {topPercent:F2}%; " +
+               $"width: {widthPercent:F2}%; height: {heightPercent:F2}%; " +
+               $"background-color: rgba(255, 0, 0, 0.4); border: 2px solid rgba(255, 0, 0, 0.8);";
+    }
+
+    private string GetGroupedStyle(WordBoundingBox word)
+    {
+        if (spatialDocument == null) return "";
+
+        var leftPercent = (word.RawX1 / (float)spatialDocument.DocumentWidth) * 100;
+        var topPercent = (word.RawY1 / (float)spatialDocument.DocumentHeight) * 100;
+        var widthPercent = (word.RawWidth / (float)spatialDocument.DocumentWidth) * 100;
+        var heightPercent = (word.RawHeight / (float)spatialDocument.DocumentHeight) * 100;
+
+        return $"position: absolute; left: {leftPercent:F2}%; top: {topPercent:F2}%; " +
+               $"width: {widthPercent:F2}%; height: {heightPercent:F2}%; " +
+               $"background-color: rgba(0, 255, 0, 0.4); border: 2px solid rgba(0, 255, 0, 0.8);";
+    }
+
+    // Simple data class for now
+    public class PatternTestResult
+    {
+        public bool Success { get; set; } = false;
+        public WordBoundingBox? AnchorWord { get; set; }
+        public List<WordBoundingBox> GroupedWords { get; set; } = new();
+        public string CombinedText { get; set; } = "";
+    }
+}

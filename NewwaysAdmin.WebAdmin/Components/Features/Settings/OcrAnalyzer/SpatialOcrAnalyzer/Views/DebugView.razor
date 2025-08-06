@@ -1,0 +1,83 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Views/DebugView.razor *@
+
+<div class="debug-content">
+    <h4><i class="bi bi-info-circle"></i> Processing Metadata</h4>
+    <pre class="debug-info">@State.GetMetadataInfo()</pre>
+
+    @if (State.ShowDebugInfo)
+    {
+        <div class="debug-sections mt-4">
+            <div class="row">
+                <div class="col-md-4">
+                    <h6>In Bounds Words (@State.GetInBoundsWords().Count())</h6>
+                    <div class="debug-word-list">
+                        @foreach (var word in State.GetInBoundsWords().Take(10))
+                        {
+                            <div class="debug-word-item">
+                                <strong>@word.Text</strong> - @word.RawWidth×@word.RawHeight
+                            </div>
+                        }
+                        @if (State.GetInBoundsWords().Count() > 10)
+                        {
+                            <div class="text-muted small">... and @(State.GetInBoundsWords().Count() - 10) more</div>
+                        }
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <h6>Out of Bounds (@State.GetOutOfBoundsWords().Count())</h6>
+                    <div class="debug-word-list">
+                        @foreach (var word in State.GetOutOfBoundsWords().Take(10))
+                        {
+                            <div class="debug-word-item text-danger">
+                                <strong>@word.Text</strong> - (@word.NormX1.ToString("F3"), @word.NormY1.ToString("F3"))
+                            </div>
+                        }
+                        @if (State.GetOutOfBoundsWords().Count() > 10)
+                        {
+                            <div class="text-muted small">... and @(State.GetOutOfBoundsWords().Count() - 10) more</div>
+                        }
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <h6>Too Small (@State.GetTooSmallWords().Count())</h6>
+                    <div class="debug-word-list">
+                        @foreach (var word in State.GetTooSmallWords().Take(10))
+                        {
+                            <div class="debug-word-item text-warning">
+                                <strong>@word.Text</strong> - @((word.NormX2 - word.NormX1).ToString("F4"))×@((word.NormY2 - word.NormY1).ToString("F4"))
+                            </div>
+                        }
+                        @if (State.GetTooSmallWords().Count() > 10)
+                        {
+                            <div class="text-muted small">... and @(State.GetTooSmallWords().Count() - 10) more</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="mt-3">
+            <button class="btn btn-outline-primary btn-sm" @onclick="@(() => State.ShowDebugInfo = true)">
+                Show Detailed Debug Info
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        State.StateChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        State.StateChanged -= StateHasChanged;
+    }
+}

@@ -1,0 +1,269 @@
+﻿/* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/PatternTester.razor.css */
+
+.pattern-tester-container {
+    padding: 1rem;
+}
+
+.header-section h2 {
+    color: #495057;
+    margin-bottom: 0;
+}
+
+.subtitle {
+    color: #6c757d;
+    margin-bottom: 1.5rem;
+}
+
+/* Upload Section */
+.upload-section {
+    margin-bottom: 2rem;
+}
+
+.upload-zone {
+    border: 2px dashed #dee2e6;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    background-color: #f8f9fa;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+    .upload-zone:hover {
+        border-color: #007bff;
+        background-color: #e7f3ff;
+    }
+
+    .upload-zone.processing {
+        border-color: #ffc107;
+        background-color: #fff8e1;
+        cursor: not-allowed;
+    }
+
+.file-input {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.upload-content i {
+    font-size: 2rem;
+    color: #6c757d;
+    margin-bottom: 0.5rem;
+}
+
+.upload-content p {
+    font-size: 1.1rem;
+    color: #495057;
+    margin-bottom: 0.5rem;
+}
+
+.upload-content small {
+    color: #6c757d;
+}
+
+.processing-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: #856404;
+}
+
+.spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Card Styling */
+.card {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+    .card-header h5, .card-header h6 {
+        margin: 0;
+        color: #495057;
+    }
+
+/* Form Controls */
+.form-label {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 0.5rem;
+}
+
+.form-control, .form-select {
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+    .form-control:focus, .form-select:focus {
+        border-color: #007bff;
+        box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        outline: none;
+    }
+
+.form-text {
+    font-size: 0.75rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+}
+
+/* Results Panel */
+.extracted-text-preview {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 0.75rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    white-space: pre-line;
+    margin-top: 0.5rem;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.badge {
+    font-size: 0.75rem;
+}
+
+    .badge.bg-light {
+        border: 1px solid #dee2e6;
+    }
+
+/* Visualization */
+.visualization-container {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 400px;
+    background-color: #fafafa;
+    overflow: hidden;
+}
+
+.base-image {
+    max-width: 100%;
+    max-height: 600px;
+    height: auto;
+    border-radius: 4px;
+}
+
+/* Word Overlays */
+.word-heat-box {
+    pointer-events: none;
+    z-index: 10;
+    transition: all 0.2s ease;
+}
+
+.anchor-word-box {
+    pointer-events: none;
+    z-index: 30;
+    transition: all 0.2s ease;
+}
+
+.grouped-word-box {
+    pointer-events: none;
+    z-index: 20;
+    transition: all 0.2s ease;
+}
+
+/* Form Switch */
+.form-check-input:checked {
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+/* Button Styling */
+.btn {
+    border-radius: 4px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+.btn-primary {
+    background-color: #007bff;
+    border-color: #007bff;
+}
+
+    .btn-primary:hover:not(:disabled) {
+        background-color: #0056b3;
+        border-color: #0056b3;
+    }
+
+.btn-outline-secondary {
+    color: #6c757d;
+    border-color: #6c757d;
+}
+
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        color: white;
+    }
+
+.btn-success {
+    background-color: #28a745;
+    border-color: #28a745;
+}
+
+/* Alert Styling */
+.alert {
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    border: 1px solid transparent;
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .pattern-tester-container {
+        padding: 0.5rem;
+    }
+
+    .upload-zone {
+        padding: 1rem;
+    }
+
+    .visualization-container {
+        min-height: 300px;
+    }
+}

@@ -1,0 +1,160 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Views/HeatMapView.razor *@
+
+<div class="heatmap-section">
+    <div class="heatmap-controls">
+        <div class="control-group">
+            <label>Size:</label>
+            <select @bind="State.VisualizationSize" class="form-select">
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>
+                <input type="checkbox" @bind="State.ShowOutOfBounds" />
+                Show Out-of-Bounds
+            </label>
+        </div>
+        <div class="control-group">
+            <label>
+                <input type="checkbox" @bind="State.ShowDebugInfo" />
+                Show Debug Info
+            </label>
+        </div>
+        <div class="control-group">
+            <label>
+                <input type="checkbox" @bind="State.ShowLabels" />
+                Show Labels
+            </label>
+        </div>
+        <div class="control-group">
+            <button @onclick="State.ClearSelection" class="btn btn-sm btn-outline-secondary">
+                Clear Selection
+            </button>
+        </div>
+    </div>
+
+    @if (State.ShowDebugInfo)
+    {
+        <div class="heatmap-info">
+            <div><strong>Total Words:</strong> @State.SpatialResult.Document.Words.Count</div>
+            <div><strong>Filtered:</strong> @State.FilteredWords.Count()</div>
+            <div><strong>In Bounds:</strong> @State.GetInBoundsWords().Count()</div>
+            <div><strong>Out of Bounds:</strong> @State.GetOutOfBoundsWords().Count()</div>
+            <div><strong>Too Small:</strong> @State.GetTooSmallWords().Count()</div>
+            @if (State.SelectedWord != null)
+            {
+                <div><strong>Selected:</strong> "@State.SelectedWord.Text"</div>
+            }
+        </div>
+    }
+
+    <div class="heatmap-visualization" style="@State.GetVisualizationStyle()">
+        @foreach (var (word, index) in GetWordsForHeatMap().Select((w, i) => (w, i)))
+        {
+            <div class="word-dot @(State.IsWordHighlighted(word) ? "highlighted" : "") @(State.IsWordSelected(word) ? "selected" : "")"
+                 style="@GetWordStyle(word, index)"
+                 title="@GetWordTooltip(word)"
+                 @onclick="@(() => State.SelectWord(word))">
+                @if (State.ShowLabels && ShouldShowLabel(word))
+                {
+                    <span class="word-label">@word.Text</span>
+                }
+            </div>
+        }
+    </div>
+
+    @if (State.SelectedWord != null)
+    {
+        <div class="word-details">
+            <h5><i class="bi bi-info-circle"></i> Selected Word Details</h5>
+            <div class="detail-grid">
+                <div><strong>Text:</strong> "@State.SelectedWord.Text"</div>
+                <div><strong>Confidence:</strong> @State.SelectedWord.Confidence.ToString("F2")%</div>
+                <div><strong>Raw Position:</strong> (@State.SelectedWord.RawX1, @State.SelectedWord.RawY1) - (@State.SelectedWord.RawX2, @State.SelectedWord.RawY2)</div>
+                <div><strong>Normalized:</strong> (@State.SelectedWord.NormX1.ToString("F3"), @State.SelectedWord.NormY1.ToString("F3")) - (@State.SelectedWord.NormX2.ToString("F3"), @State.SelectedWord.NormY2.ToString("F3"))</div>
+                <div><strong>Dimensions:</strong> @State.SelectedWord.RawWidth × @State.SelectedWord.RawHeight pixels</div>
+                <div><strong>Index:</strong> @State.SelectedWord.OriginalIndex</div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        // Subscribe to state changes to trigger re-render
+        State.StateChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        State.StateChanged -= StateHasChanged;
+    }
+
+    private IEnumerable<WordBoundingBox> GetWordsForHeatMap()
+    {
+        var filteredWords = State.FilteredWords;
+
+        // Always show all words - bounds checking is just for debugging
+        return filteredWords.Take(200);
+    }
+
+    private string GetWordStyle(WordBoundingBox word, int index)
+    {
+        if (State.SpatialResult?.Document == null) return "";
+
+        // Calculate position percentages
+        var left = (word.NormX1 * 100);
+        var top = (word.NormY1 * 100);
+        var width = ((word.NormX2 - word.NormX1) * 100);
+        var height = ((word.NormY2 - word.NormY1) * 100);
+
+        // Determine color based on bounds and conditions
+        var color = State.GetWordColor(index);
+
+        // Special coloring for debug mode
+        if (State.ShowDebugInfo)
+        {
+            if (word.NormX1 < 0 || word.NormX1 > 1 || word.NormY1 < 0 || word.NormY1 > 1 ||
+                word.NormX2 < 0 || word.NormX2 > 1 || word.NormY2 < 0 || word.NormY2 > 1)
+            {
+                color = "#FF0000"; // Red for out of bounds
+            }
+            else if ((word.NormX2 - word.NormX1) < 0.001 || (word.NormY2 - word.NormY1) < 0.001)
+            {
+                color = "#FFA500"; // Orange for too small
+            }
+        }
+
+        return $"position: absolute; " +
+               $"left: {left:F2}%; " +
+               $"top: {top:F2}%; " +
+               $"width: {width:F2}%; " +
+               $"height: {height:F2}%; " +
+               $"background-color: {color}; " +
+               $"opacity: 0.7; " +
+               $"cursor: pointer; " +
+               $"border-radius: 2px; " +
+               $"transition: all 0.2s ease; " +
+               $"display: flex; " +
+               $"align-items: center; " +
+               $"justify-content: center; " +
+               $"z-index: 15;";
+    }
+
+    private bool ShouldShowLabel(WordBoundingBox word)
+    {
+        if (!State.ShowLabels) return false;
+        var area = (word.NormX2 - word.NormX1) * (word.NormY2 - word.NormY1);
+        return area > 0.001;
+    }
+
+    private string GetWordTooltip(WordBoundingBox word)
+    {
+        return $"Text: {word.Text}\nPosition: ({word.RawX1}, {word.RawY1}) - ({word.RawX2}, {word.RawY2})\nSize: {word.RawWidth} x {word.RawHeight}";
+    }
+}

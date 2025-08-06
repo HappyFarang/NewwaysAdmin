@@ -1,0 +1,41 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Components/ViewTabsContainer.razor *@
+
+<div class="results-header">
+    <div class="view-controls">
+        <button class="view-btn @(State.ActiveView == "heatmap" ? "active" : "")"
+                @onclick="@(() => State.SetActiveView("heatmap"))">
+            <i class="bi bi-map"></i> Heat Map
+        </button>
+        <button class="view-btn @(State.ActiveView == "text" ? "active" : "")"
+                @onclick="@(() => State.SetActiveView("text"))">
+            <i class="bi bi-file-text"></i> Text
+        </button>
+        <button class="view-btn @(State.ActiveView == "spatial" ? "active" : "")"
+                @onclick="@(() => State.SetActiveView("spatial"))">
+            <i class="bi bi-grid-3x3-gap"></i> Data
+        </button>
+        <button class="view-btn @(State.ActiveView == "debug" ? "active" : "")"
+                @onclick="@(() => State.SetActiveView("debug"))">
+            <i class="bi bi-bug"></i> Debug
+        </button>
+        <button class="view-btn @(State.ActiveView == "patterns" ? "active" : "")"
+                @onclick="@(() => State.SetActiveView("patterns"))">
+            <i class="bi bi-diagram-3"></i> Patterns
+        </button>
+    </div>
+
+    <div class="search-controls">
+        <input @bind="State.SearchFilter"
+               @bind:event="oninput"
+               placeholder="Search words..."
+               class="search-input" />
+        @if (!string.IsNullOrEmpty(State.SearchFilter))
+        {
+            <span class="search-results">@State.FilteredWords.Count() results</span>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+}

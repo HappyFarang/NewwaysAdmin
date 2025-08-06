@@ -1,0 +1,342 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Views/PatternView.razor *@
+
+<div class="patterns-section">
+    <div class="row">
+        <!-- Left: Pattern Configuration -->
+        <div class="col-md-4">
+            <div class="pattern-config-panel">
+                <h5><i class="bi bi-gear"></i> Pattern Configuration</h5>
+                
+                <!-- Pattern Type -->
+                <div class="config-group">
+                    <label class="config-label">Pattern Type</label>
+                    <select @bind="State.SelectedPatternType" class="form-select form-select-sm">
+                        <option value="VerticalColumn">Vertical Column</option>
+                        <option value="Sequential" disabled>Sequential (Coming Soon)</option>
+                    </select>
+                </div>
+
+                <!-- Search Term -->
+                <div class="config-group">
+                    <label class="config-label">Search Term</label>
+                    <input @bind="State.PatternSearchTerm" class="form-control form-control-sm" 
+                           placeholder="e.g., To, ไปยัง, Total" />
+                </div>
+
+                <!-- Tolerances -->
+                <div class="config-group">
+                    <label class="config-label">Y Tolerance (pixels)</label>
+                    <input @bind="State.PatternYTolerance" type="number" class="form-control form-control-sm" 
+                           min="5" max="100" />
+                    <small class="form-text">Max gap between lines before stopping</small>
+                </div>
+
+                <div class="config-group">
+                    <label class="config-label">X Tolerance (pixels)</label>
+                    <input @bind="State.PatternXTolerance" type="number" class="form-control form-control-sm" 
+                           min="1" max="50" />
+                    <small class="form-text">Tolerance for same-line alignment</small>
+                </div>
+
+                <!-- Stop Words -->
+                <div class="config-group">
+                    <label class="config-label">Stop Words (optional)</label>
+                    <input @bind="State.PatternStopWords" class="form-control form-control-sm" 
+                           placeholder="e.g., Total, End (comma separated)" />
+                    <small class="form-text">Hard stop when these words are found</small>
+                </div>
+
+                <!-- Test Button -->
+                <button @onclick="TestCurrentPattern" class="btn btn-primary btn-sm w-100" 
+                        disabled="@(string.IsNullOrEmpty(State.PatternSearchTerm))">
+                    <i class="bi bi-play"></i> Test Pattern
+                </button>
+
+                <!-- Clear Button -->
+                @if (State.CurrentPatternResult != null)
+                {
+                    <button @onclick="State.ClearPatternResults" class="btn btn-outline-secondary btn-sm w-100 mt-2">
+                        <i class="bi bi-eraser"></i> Clear Results
+                    </button>
+                }
+            </div>
+
+            <!-- Results Panel -->
+            @if (State.CurrentPatternResult != null)
+            {
+                <div class="pattern-results-panel mt-3">
+                    <h6>
+                        <i class="bi bi-list-check"></i> Pattern Results
+                        <span class="badge @(State.CurrentPatternResult.Success ? "bg-success" : "bg-danger") ms-2">
+                            @(State.CurrentPatternResult.Success ? $"{State.CurrentPatternResult.GroupedWords.Count} words" : "No match")
+                        </span>
+                    </h6>
+                    
+                    @if (State.CurrentPatternResult.Success)
+                    {
+                        <div class="result-text">
+                            <strong>Extracted Text:</strong>
+                            <div class="extracted-preview">@State.CurrentPatternResult.CombinedText</div>
+                        </div>
+                        
+                        <div class="result-words mt-2">
+                            <strong>Words Found:</strong>
+                            <div class="word-badges">
+                                @foreach (var word in State.CurrentPatternResult.GroupedWords)
+                                {
+                                    <span class="badge bg-light text-dark me-1 mb-1" 
+                                          @onclick="@(() => State.SelectWord(word))"
+                                          style="cursor: pointer;">
+                                        @word.Text
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (State.CurrentPatternResult.Metadata.Any())
+                        {
+                            <div class="result-metadata mt-2">
+                                <strong>Pattern Info:</strong>
+                                <div class="small text-muted">
+                                    @foreach (var (key, value) in State.CurrentPatternResult.Metadata)
+                                    {
+                                        <div>@key: @value</div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        <button class="btn btn-success btn-sm w-100 mt-3" disabled>
+                            <i class="bi bi-download"></i> Save Pattern (Coming Soon)
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="no-results">
+                            @if (string.IsNullOrEmpty(State.PatternSearchTerm))
+                            {
+                                <span>Enter a search term to test</span>
+                            }
+                            else
+                            {
+                                <span>No words found for "@State.PatternSearchTerm"</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Right: Visual Results -->
+        <div class="col-md-8">
+            <div class="pattern-visualization">
+                <div class="viz-header">
+                    <h6><i class="bi bi-eye"></i> Visual Results</h6>
+                    <div class="viz-controls">
+                        <div class="form-check form-check-inline">
+                            <input @bind="State.ShowAllWordsInPattern" class="form-check-input" type="checkbox" id="showAllPattern">
+                            <label class="form-check-label" for="showAllPattern">Show All Words</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input @bind="State.ShowPatternOverlay" class="form-check-input" type="checkbox" id="showPattern">
+                            <label class="form-check-label" for="showPattern">Show Pattern Results</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pattern-heatmap" style="@State.GetVisualizationStyle()">
+                    <!-- All Words Heat Map (when enabled) -->
+                    @if (State.ShowAllWordsInPattern && State.SpatialResult?.Document?.Words != null)
+                    {
+                        @foreach (var word in State.SpatialResult.Document.Words.Take(100))
+                        {
+                            <div class="heat-word-dot" style="@GetHeatWordStyle(word)" 
+                                 title="@word.Text" @onclick="@(() => State.SelectWord(word))"></div>
+                        }
+                    }
+
+                    <!-- Pattern Results Overlay (when enabled) -->
+                    @if (State.ShowPatternOverlay && State.CurrentPatternResult?.Success == true)
+                    {
+                        <!-- Anchor Word (Red) -->
+                        @if (State.CurrentPatternResult.AnchorWord != null)
+                        {
+                            <div class="pattern-anchor" style="@GetPatternAnchorStyle(State.CurrentPatternResult.AnchorWord)" 
+                                 title="Anchor: @State.CurrentPatternResult.AnchorWord.Text"
+                                 @onclick="@(() => State.SelectWord(State.CurrentPatternResult.AnchorWord))"></div>
+                        }
+
+                        <!-- Grouped Words (Green) -->
+                        @foreach (var word in State.CurrentPatternResult.GroupedWords.Where(w => w != State.CurrentPatternResult.AnchorWord))
+                        {
+                            <div class="pattern-grouped" style="@GetPatternGroupStyle(word)" 
+                                 title="Grouped: @word.Text"
+                                 @onclick="@(() => State.SelectWord(word))"></div>
+                        }
+                    }
+                </div>
+
+                <!-- Legend -->
+                @if (State.CurrentPatternResult?.Success == true)
+                {
+                    <div class="pattern-legend mt-2">
+                        <div class="legend-item">
+                            <div class="legend-color anchor-color"></div>
+                            <span>Anchor Word (@State.CurrentPatternResult.AnchorWord?.Text)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color grouped-color"></div>
+                            <span>Grouped Words (@(State.CurrentPatternResult.GroupedWords.Count - 1))</span>
+                        </div>
+                        @if (State.ShowAllWordsInPattern)
+                        {
+                            <div class="legend-item">
+                                <div class="legend-color heat-color"></div>
+                                <span>All Words</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        State.StateChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        State.StateChanged -= StateHasChanged;
+    }
+
+    private void TestCurrentPattern()
+    {
+        if (State.SpatialResult?.Document == null || string.IsNullOrEmpty(State.PatternSearchTerm))
+        {
+            State.SetPatternResult(new PatternTestResult { Success = false });
+            return;
+        }
+
+        try
+        {
+            var result = TestVerticalColumnPattern();
+            State.SetPatternResult(result);
+        }
+        catch (Exception ex)
+        {
+            State.SetStatus($"Error testing pattern: {ex.Message}");
+            State.SetPatternResult(new PatternTestResult { Success = false });
+        }
+    }
+
+    private PatternTestResult TestVerticalColumnPattern()
+    {
+        var result = new PatternTestResult();
+        var document = State.SpatialResult!.Document!;
+        
+        // Find anchor word
+        var anchorWord = document.FindWordsByText(State.PatternSearchTerm, exactMatch: false).FirstOrDefault();
+        if (anchorWord == null)
+        {
+            return result; // Success = false
+        }
+
+        result.AnchorWord = anchorWord;
+        result.GroupedWords.Add(anchorWord);
+
+        // Parse stop words
+        var stopWords = State.PatternStopWords.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                       .Select(w => w.Trim())
+                                       .Where(w => !string.IsNullOrEmpty(w))
+                                       .ToList();
+
+        // Vertical search from anchor
+        var currentY = anchorWord.RawY2;
+        var searchX = anchorWord.RawX1; // Use RawX1 as requested
+
+        while (true)
+        {
+            // Find words at next Y level
+            var nextWords = document.Words
+                .Where(w => w != anchorWord && !result.GroupedWords.Contains(w))
+                .Where(w => w.RawY1 >= currentY && w.RawY1 <= currentY + State.PatternYTolerance)
+                .Where(w => Math.Abs(w.RawX1 - searchX) <= State.PatternXTolerance)
+                .OrderBy(w => w.RawY1)
+                .ThenBy(w => w.RawX1)
+                .ToList();
+
+            if (!nextWords.Any())
+                break;
+
+            // Check for stop words (hard stop)
+            if (stopWords.Any() && nextWords.Any(w => stopWords.Any(stop => 
+                w.Text.Contains(stop, StringComparison.OrdinalIgnoreCase))))
+            {
+                break; // Hard stop as requested
+            }
+
+            result.GroupedWords.AddRange(nextWords);
+            currentY = nextWords.Max(w => w.RawY2);
+        }
+
+        result.Success = result.GroupedWords.Count > 1;
+        result.CombinedText = string.Join("\n", result.GroupedWords.Select(w => w.Text));
+        
+        // Add metadata
+        result.AddMetadata("SearchTerm", State.PatternSearchTerm);
+        result.AddMetadata("PatternType", State.SelectedPatternType);
+        result.AddMetadata("YTolerance", State.PatternYTolerance);
+        result.AddMetadata("XTolerance", State.PatternXTolerance);
+        result.AddMetadata("AnchorPosition", $"{anchorWord.RawX1},{anchorWord.RawY1}");
+        
+        return result;
+    }
+
+    // Styling methods
+    private string GetHeatWordStyle(WordBoundingBox word)
+    {
+        var left = (word.NormX1 * 100);
+        var top = (word.NormY1 * 100);
+        var width = ((word.NormX2 - word.NormX1) * 100);
+        var height = ((word.NormY2 - word.NormY1) * 100);
+
+        return $"position: absolute; left: {left:F2}%; top: {top:F2}%; " +
+               $"width: {width:F2}%; height: {height:F2}%; " +
+               $"background-color: rgba(0, 123, 255, 0.2); border: 1px solid rgba(0, 123, 255, 0.4); " +
+               $"pointer-events: auto; cursor: pointer; z-index: 10; transition: all 0.2s ease;";
+    }
+
+    private string GetPatternAnchorStyle(WordBoundingBox word)
+    {
+        var left = (word.NormX1 * 100);
+        var top = (word.NormY1 * 100);
+        var width = ((word.NormX2 - word.NormX1) * 100);
+        var height = ((word.NormY2 - word.NormY1) * 100);
+
+        return $"position: absolute; left: {left:F2}%; top: {top:F2}%; " +
+               $"width: {width:F2}%; height: {height:F2}%; " +
+               $"background-color: rgba(255, 0, 0, 0.6); border: 2px solid rgba(255, 0, 0, 0.9); " +
+               $"pointer-events: auto; cursor: pointer; z-index: 30; transition: all 0.2s ease; " +
+               $"border-radius: 2px;";
+    }
+
+    private string GetPatternGroupStyle(WordBoundingBox word)
+    {
+        var left = (word.NormX1 * 100);
+        var top = (word.NormY1 * 100);
+        var width = ((word.NormX2 - word.NormX1) * 100);
+        var height = ((word.NormY2 - word.NormY1) * 100);
+
+        return $"position: absolute; left: {left:F2}%; top: {top:F2}%; " +
+               $"width: {width:F2}%; height: {height:F2}%; " +
+               $"background-color: rgba(0, 255, 0, 0.6); border: 2px solid rgba(0, 255, 0, 0.9); " +
+               $"pointer-events: auto; cursor: pointer; z-index: 20; transition: all 0.2s ease; " +
+               $"border-radius: 2px;";
+    }
+}

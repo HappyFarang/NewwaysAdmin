@@ -1,0 +1,53 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Components/SummaryCards.razor *@
+
+<div class="summary-section">
+    <div class="summary-cards">
+        <div class="summary-card">
+            <div class="card-icon">
+                <i class="bi bi-fonts"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">@State.SpatialResult.WordCount</div>
+                <div class="card-label">Words</div>
+            </div>
+        </div>
+
+        <div class="summary-card">
+            <div class="card-icon">
+                <i class="bi bi-stopwatch"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">@($"{State.SpatialResult.ProcessingTime.TotalMilliseconds:F0}ms")</div>
+                <div class="card-label">Time</div>
+            </div>
+        </div>
+
+        <div class="summary-card">
+            <div class="card-icon">
+                <i class="bi bi-aspect-ratio"></i>
+            </div>
+            <div class="card-content">
+                <div class="card-value">@State.SpatialResult.Document.DocumentWidth × @State.SpatialResult.Document.DocumentHeight</div>
+                <div class="card-label">Size</div>
+            </div>
+        </div>
+
+        @* NEW: Pattern Results Card *@
+        @if (State.ActiveView == "patterns" && State.CurrentPatternResult?.Success == true)
+        {
+            <div class="summary-card pattern-results">
+                <div class="card-icon">
+                    <i class="bi bi-diagram-3"></i>
+                </div>
+                <div class="card-content">
+                    <div class="card-value">@State.CurrentPatternResult.GroupedWords.Count</div>
+                    <div class="card-label">Grouped</div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+}

@@ -1,0 +1,108 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Components/FileUploadPanel.razor *@
+@using Microsoft.AspNetCore.Components.Forms
+@using NewwaysAdmin.SharedModels.Models.Ocr.Core
+@inject ISpatialOcrService SpatialOcrService
+
+<div class="upload-section">
+    <div class="upload-zone @(State.IsProcessing ? "processing" : "")">
+        <InputFile OnChange="HandleFileSelect" class="file-input" disabled="@State.IsProcessing" />
+
+        @if (State.IsProcessing)
+        {
+            <div class="processing-indicator">
+                <div class="spinner"></div>
+                <span>Processing image...</span>
+            </div>
+        }
+        else
+        {
+            <div class="upload-content">
+                <i class="bi bi-cloud-upload"></i>
+                <p>Click here to browse for an image file</p>
+                <small>Supports: JPG, PNG, BMP, TIFF (max 50MB)</small>
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrEmpty(State.Status))
+    {
+        <div class="status-message @(State.SpatialResult?.Success == true ? "success" : "error")">
+            <i class="bi @(State.SpatialResult?.Success == true ? "bi-check-circle" : "bi-x-circle")"></i>
+            <span>@State.Status</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+
+    private async Task HandleFileSelect(InputFileChangeEventArgs e)
+    {
+        if (e.File != null)
+        {
+            await ProcessFile(e.File);
+        }
+    }
+
+    private async Task ProcessFile(IBrowserFile file)
+    {
+        if (State.IsProcessing || file == null) return;
+
+        try
+        {
+            State.SetProcessing(true);
+            State.SetStatus("Processing image...");
+            State.ClearResults();
+
+            // Validate file size
+            if (file.Size > 50 * 1024 * 1024)
+            {
+                State.SetStatus("ERROR: File too large (max 50MB)");
+                return;
+            }
+
+            // Validate file type
+            var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/bmp", "image/tiff" };
+            if (!allowedTypes.Contains(file.ContentType.ToLower()))
+            {
+                State.SetStatus("ERROR: Unsupported file type");
+                return;
+            }
+
+            // Create temporary file
+            var tempPath = Path.GetTempFileName();
+            var finalPath = Path.ChangeExtension(tempPath, Path.GetExtension(file.Name));
+
+            using (var stream = file.OpenReadStream(50 * 1024 * 1024))
+            using (var fileStream = File.Create(finalPath))
+            {
+                await stream.CopyToAsync(fileStream);
+            }
+
+            // Process with OCR service
+            var result = await SpatialOcrService.ExtractSpatialTextBasicAsync(finalPath);
+            State.SetSpatialResult(result);
+
+            // Update status
+            if (result?.Success == true)
+            {
+                State.SetStatus($"SUCCESS: Extracted {result.WordCount} words in {result.ProcessingTime.TotalMilliseconds:F0}ms");
+            }
+            else
+            {
+                State.SetStatus($"FAILED: {result?.ErrorMessage ?? "Unknown error"}");
+            }
+
+            // Clean up temp file
+            try { File.Delete(finalPath); } catch { }
+        }
+        catch (Exception ex)
+        {
+            State.SetStatus($"EXCEPTION: {ex.Message}");
+        }
+        finally
+        {
+            State.SetProcessing(false);
+        }
+    }
+}

@@ -1,520 +1,73 @@
-﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer.razor *@
+﻿@* COMPLETE REPLACEMENT FOR SpatialOcrAnalyzer.razor *@
+@* Replace your entire 977-line file with this clean version *@
 @using Microsoft.AspNetCore.Components.Forms
-@using NewwaysAdmin.WebAdmin.Services.Testing
 @using NewwaysAdmin.SharedModels.Models.Ocr.Core
-@inject IOcrTestingService OcrTestingService
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.SpatialOcrAnalyzer
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.SpatialOcrAnalyzer.Components
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.SpatialOcrAnalyzer.Views
 @inject ISpatialOcrService SpatialOcrService
+@implements IDisposable
 
 <div class="spatial-ocr-container">
+    <!-- Header Section -->
     <div class="header-section">
         <h2><i class="bi bi-eye"></i> Spatial OCR Analyzer</h2>
-        <p class="subtitle">Test spatial OCR extraction with word positioning and heat map visualization</p>
+        <p class="subtitle">Test spatial OCR extraction with word positioning and pattern testing</p>
     </div>
 
-    <!-- File Upload Section -->
-    <div class="upload-section">
-        <div class="upload-zone @(isProcessing ? "processing" : "")">
-            <InputFile OnChange="HandleFileSelect" class="file-input" disabled="@isProcessing" />
+    <!-- File Upload Panel -->
+    <FileUploadPanel State="@state" />
 
-            @if (isProcessing)
-            {
-                <div class="processing-indicator">
-                    <div class="spinner"></div>
-                    <span>Processing image...</span>
-                </div>
-            }
-            else
-            {
-                <div class="upload-content">
-                    <i class="bi bi-cloud-upload"></i>
-                    <p>Click here to browse for an image file</p>
-                    <small>Supports: JPG, PNG, BMP, TIFF (max 50MB)</small>
-                </div>
-            }
-        </div>
-
-        @if (!string.IsNullOrEmpty(status))
-        {
-            <div class="status-message @(spatialResult?.Success == true ? "success" : "error")">
-                <i class="bi @(spatialResult?.Success == true ? "bi-check-circle" : "bi-x-circle")"></i>
-                <span>@status</span>
-            </div>
-        }
-    </div>
-
-    @if (spatialResult?.Success == true && spatialResult.Document != null)
+    <!-- Results Section (only show when we have results) -->
+    @if (state.SpatialResult?.Success == true && state.SpatialResult.Document != null)
     {
-        <!-- Results Section -->
         <div class="results-section">
-            <div class="results-header">
-                <div class="view-controls">
-                    <button class="view-btn @(activeView == "heatmap" ? "active" : "")" @onclick="@(() => SetActiveView("heatmap"))">
-                        <i class="bi bi-map"></i> Heat Map
-                    </button>
-                    <button class="view-btn @(activeView == "text" ? "active" : "")" @onclick="@(() => SetActiveView("text"))">
-                        <i class="bi bi-file-text"></i> Text
-                    </button>
-                    <button class="view-btn @(activeView == "spatial" ? "active" : "")" @onclick="@(() => SetActiveView("spatial"))">
-                        <i class="bi bi-grid-3x3-gap"></i> Data
-                    </button>
-                    <button class="view-btn @(activeView == "debug" ? "active" : "")" @onclick="@(() => SetActiveView("debug"))">
-                        <i class="bi bi-bug"></i> Debug
-                    </button>
-                </div>
+            <!-- View Navigation Tabs -->
+            <ViewTabsContainer State="@state" />
 
-                <div class="search-controls">
-                    <input @bind="searchFilter" @bind:event="oninput" placeholder="Search words..." class="search-input" />
-                    @if (!string.IsNullOrEmpty(searchFilter))
-                    {
-                        <span class="search-results">@filteredWords.Count() results</span>
-                    }
-                </div>
-            </div>
-
-            <!-- Content Display -->
+            <!-- Content Display Based on Active View -->
             <div class="content-display">
-                @if (activeView == "heatmap")
+                @switch (state.ActiveView)
                 {
-                    <div class="heatmap-section">
-                        <div class="heatmap-controls">
-                            <div class="control-group">
-                                <label>Size:</label>
-                                <select @bind="visualizationSize" class="form-select">
-                                    <option value="small">Small</option>
-                                    <option value="medium">Medium</option>
-                                    <option value="large">Large</option>
-                                </select>
-                            </div>
-                            <div class="control-group">
-                                <label>
-                                    <input type="checkbox" @bind="showOutOfBounds" />
-                                    Show Out-of-Bounds
-                                </label>
-                            </div>
-                            <div class="control-group">
-                                <label>
-                                    <input type="checkbox" @bind="showDebugInfo" />
-                                    Show Debug Info
-                                </label>
-                            </div>
-                            <div class="control-group">
-                                <label>
-                                    <input type="checkbox" @bind="showLabels" />
-                                    Show Labels
-                                </label>
-                            </div>
-                        </div>
-
-                        <div class="heatmap-info">
-                            <span>Words: <strong>@spatialResult.Document.Words.Count</strong></span>
-                            <span>Size: <strong>@spatialResult.Document.DocumentWidth x @spatialResult.Document.DocumentHeight</strong></span>
-                            <span>Visible: <strong>@GetVisibleWordsCount()</strong></span>
-                            <span>Hidden: <strong>@GetHiddenWordsCount()</strong></span>
-                        </div>
-
-                        <div class="heatmap-visualization" style="@GetVisualizationStyle()">
-                            @foreach (var word in GetWordsForHeatMap())
-                            {
-                                <div class="word-dot @(word == selectedWord ? "selected" : "") @GetWordDebugClass(word)"
-                                     style="@GetWordStyle(word)"
-                                     title="@GetWordTooltip(word)"
-                                     @onclick="@(() => SelectWord(word))">
-                                    @if (showLabels && ShouldShowLabel(word))
-                                    {
-                                        <span class="word-label">@word.Text</span>
-                                    }
-                                </div>
-                            }
-
-                            @if (showDebugInfo)
-                            {
-                                <div class="debug-overlay">
-                                    <div class="debug-stats">
-                                        <div>Total Words: @spatialResult.Document.Words.Count</div>
-                                        <div>In Bounds: @GetInBoundsWords().Count()</div>
-                                        <div>Out of Bounds: @GetOutOfBoundsWords().Count()</div>
-                                        <div>Too Small: @GetTooSmallWords().Count()</div>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-
-                        @if (showDebugInfo)
-                        {
-                            <div class="debug-section">
-                                <h6>Missing Words Debug</h6>
-                                <div class="missing-words">
-                                    @foreach (var word in GetOutOfBoundsWords().Take(10))
-                                    {
-                                        <div class="missing-word-item">
-                                            <strong>@word.Text</strong>:
-                                            Norm(@word.NormX1:F3, @word.NormY1:F3) - (@word.NormX2:F3, @word.NormY2:F3)
-                                            Raw(@word.RawX1, @word.RawY1) - (@word.RawX2, @word.RawY2)
-                                        </div>
-                                    }
-                                </div>
-                            </div>
-                        }
-
-                        @if (selectedWord != null)
-                        {
-                            <div class="word-details">
-                                <h5>Selected: @selectedWord.Text</h5>
-                                <div class="detail-grid">
-                                    <div>Raw: (@selectedWord.RawX1, @selectedWord.RawY1) - (@selectedWord.RawX2, @selectedWord.RawY2)</div>
-                                    <div>Norm: (@selectedWord.NormX1:F3, @selectedWord.NormY1:F3) - (@selectedWord.NormX2:F3, @selectedWord.NormY2:F3)</div>
-                                    <div>Size: @selectedWord.RawWidth x @selectedWord.RawHeight px</div>
-                                </div>
-                                <button class="btn btn-sm btn-secondary mt-2" @onclick="ClearSelection">Clear</button>
-                            </div>
-                        }
-                    </div>
-                }
-                else if (activeView == "text")
-                {
-                    <div class="text-content">
-                        <pre class="extracted-text">@spatialResult.ExtractedText</pre>
-                    </div>
-                }
-                else if (activeView == "spatial")
-                {
-                    <div class="spatial-content">
-                        <div class="spatial-table-container">
-                            <table class="spatial-table">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Text</th>
-                                        <th>Raw Position</th>
-                                        <th>Normalized</th>
-                                        <th>Size</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @{
-                                        var words = GetFilteredWords().Take(100).ToList();
-                                        for (int i = 0; i < words.Count; i++)
-                                        {
-                                            var word = words[i];
-                                            <tr class="@(IsWordHighlighted(word) ? "highlighted" : "") @(word == selectedWord ? "selected" : "")"
-                                                @onclick="@(() => SelectWord(word))">
-                                                <td>@(i + 1)</td>
-                                                <td class="word-text">@word.Text</td>
-                                                <td class="coordinate-text">(@word.RawX1, @word.RawY1) - (@word.RawX2, @word.RawY2)</td>
-                                                <td class="coordinate-text">(@word.NormX1:F3, @word.NormY1:F3) - (@word.NormX2:F3, @word.NormY2:F3)</td>
-                                                <td class="coordinate-text">@word.RawWidth × @word.RawHeight</td>
-                                            </tr>
-                                        }
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                }
-                else if (activeView == "debug")
-                {
-                    <div class="debug-content">
-                        <h4><i class="bi bi-info-circle"></i> Processing Metadata</h4>
-                        <pre class="debug-info">@GetMetadataInfo()</pre>
-                    </div>
+                    case "heatmap":
+                        <HeatMapView State="@state" />
+                        break;
+                    case "text":
+                        <TextView State="@state" />
+                        break;
+                    case "spatial":
+                        <DataView State="@state" />
+                        break;
+                    case "debug":
+                        <DebugView State="@state" />
+                        break;
+                    case "patterns":
+                        <PatternView State="@state" />
+                        break;
+                    default:
+                        <HeatMapView State="@state" />
+                        break;
                 }
             </div>
         </div>
 
         <!-- Summary Cards -->
-        <div class="summary-section">
-            <div class="summary-cards">
-                <div class="summary-card">
-                    <div class="card-icon">
-                        <i class="bi bi-fonts"></i>
-                    </div>
-                    <div class="card-content">
-                        <div class="card-value">@spatialResult.WordCount</div>
-                        <div class="card-label">Words</div>
-                    </div>
-                </div>
-
-                <div class="summary-card">
-                    <div class="card-icon">
-                        <i class="bi bi-stopwatch"></i>
-                    </div>
-                    <div class="card-content">
-                        <div class="card-value">@($"{spatialResult.ProcessingTime.TotalMilliseconds:F0}ms")</div>
-                        <div class="card-label">Time</div>
-                    </div>
-                </div>
-
-                <div class="summary-card">
-                    <div class="card-icon">
-                        <i class="bi bi-aspect-ratio"></i>
-                    </div>
-                    <div class="card-content">
-                        <div class="card-value">@spatialResult.Document.DocumentWidth × @spatialResult.Document.DocumentHeight</div>
-                        <div class="card-label">Size</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <SummaryCards State="@state" />
     }
 </div>
 
 @code {
-    private bool isProcessing = false;
-    private string status = string.Empty;
-    private string activeView = "heatmap";
-    private string searchFilter = string.Empty;
-    private OcrExtractionResult? spatialResult;
-    private WordBoundingBox? selectedWord;
-    private string visualizationSize = "medium";
-    private bool showLabels = false;
-    private bool showOutOfBounds = false;
-    private bool showDebugInfo = false;
+    private SpatialOcrAnalyzerState state = new();
 
-    private readonly string[] colors = new[]
+    protected override void OnInitialized()
     {
-        "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-        "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9"
-    };
-
-    private IEnumerable<WordBoundingBox> GetFilteredWords()
-    {
-        if (spatialResult?.Document?.Words == null) return Enumerable.Empty<WordBoundingBox>();
-
-        return spatialResult.Document.Words.Where(w =>
-            string.IsNullOrEmpty(searchFilter) ||
-            w.Text.Contains(searchFilter, StringComparison.OrdinalIgnoreCase));
+        // Subscribe to state changes
+        state.StateChanged += StateHasChanged;
     }
 
-    private IEnumerable<WordBoundingBox> filteredWords => GetFilteredWords();
-
-    private async Task HandleFileSelect(InputFileChangeEventArgs e)
+    public void Dispose()
     {
-        if (e.File != null)
-        {
-            await ProcessFile(e.File);
-        }
-    }
-
-    private async Task ProcessFile(IBrowserFile file)
-    {
-        if (isProcessing || file == null) return;
-
-        try
-        {
-            isProcessing = true;
-            status = "Processing image...";
-            spatialResult = null;
-            selectedWord = null;
-            StateHasChanged();
-
-            if (file.Size > 50 * 1024 * 1024)
-            {
-                status = "ERROR: File too large (max 50MB)";
-                return;
-            }
-
-            var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/bmp", "image/tiff" };
-            if (!allowedTypes.Contains(file.ContentType.ToLower()))
-            {
-                status = "ERROR: Unsupported file type";
-                return;
-            }
-
-            var tempPath = Path.GetTempFileName();
-            var finalPath = Path.ChangeExtension(tempPath, Path.GetExtension(file.Name));
-
-            using (var stream = file.OpenReadStream(50 * 1024 * 1024))
-            using (var fileStream = File.Create(finalPath))
-            {
-                await stream.CopyToAsync(fileStream);
-            }
-
-            spatialResult = await SpatialOcrService.ExtractSpatialTextBasicAsync(finalPath);
-
-            if (spatialResult?.Success == true)
-            {
-                status = $"SUCCESS: Extracted {spatialResult.WordCount} words in {spatialResult.ProcessingTime.TotalMilliseconds:F0}ms";
-            }
-            else
-            {
-                status = $"FAILED: {spatialResult?.ErrorMessage ?? "Unknown error"}";
-            }
-
-            try { File.Delete(finalPath); } catch { }
-        }
-        catch (Exception ex)
-        {
-            status = $"EXCEPTION: {ex.Message}";
-        }
-        finally
-        {
-            isProcessing = false;
-            StateHasChanged();
-        }
-    }
-
-    private void SetActiveView(string view)
-    {
-        activeView = view;
-        StateHasChanged();
-    }
-
-    private void SelectWord(WordBoundingBox word)
-    {
-        selectedWord = word == selectedWord ? null : word;
-        StateHasChanged();
-    }
-
-    private void ClearSelection()
-    {
-        selectedWord = null;
-        StateHasChanged();
-    }
-
-    private bool IsWordHighlighted(WordBoundingBox word)
-    {
-        return !string.IsNullOrEmpty(searchFilter) &&
-               word.Text.Contains(searchFilter, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private string GetVisualizationStyle()
-    {
-        var size = visualizationSize switch
-        {
-            "small" => "400px",
-            "medium" => "600px",
-            "large" => "800px",
-            _ => "600px"
-        };
-        return $"width: {size}; height: {size}; position: relative; border: 2px solid #dee2e6; background: #fafafa; border-radius: 8px; overflow: hidden;";
-    }
-
-    // Debug helper methods
-    private IEnumerable<WordBoundingBox> GetWordsForHeatMap()
-    {
-        var filteredWords = GetFilteredWords();
-
-        // Always show all words - bounds checking is just for debugging
-        return filteredWords.Take(200);
-    }
-
-    private IEnumerable<WordBoundingBox> GetInBoundsWords()
-    {
-        // For debugging only - strict bounds checking
-        return GetFilteredWords().Where(w =>
-            w.NormX1 >= 0 && w.NormX1 <= 1 &&
-            w.NormY1 >= 0 && w.NormY1 <= 1 &&
-            w.NormX2 >= 0 && w.NormX2 <= 1 &&
-            w.NormY2 >= 0 && w.NormY2 <= 1);
-    }
-
-    private IEnumerable<WordBoundingBox> GetOutOfBoundsWords()
-    {
-        // For debugging only - strict bounds checking
-        return GetFilteredWords().Where(w =>
-            w.NormX1 < 0 || w.NormX1 > 1 ||
-            w.NormY1 < 0 || w.NormY1 > 1 ||
-            w.NormX2 < 0 || w.NormX2 > 1 ||
-            w.NormY2 < 0 || w.NormY2 > 1);
-    }
-
-    private IEnumerable<WordBoundingBox> GetTooSmallWords()
-    {
-        return GetFilteredWords().Where(w =>
-            (w.NormX2 - w.NormX1) < 0.001 ||
-            (w.NormY2 - w.NormY1) < 0.001);
-    }
-
-    private int GetVisibleWordsCount()
-    {
-        return GetFilteredWords().Count(); // All words are visible now
-    }
-
-    private int GetHiddenWordsCount()
-    {
-        return 0; // No words are hidden by default
-    }
-
-    private string GetWordDebugClass(WordBoundingBox word)
-    {
-        if (!showDebugInfo) return "";
-
-        // Only flag truly problematic coordinates
-        if (word.NormX1 < 0 || word.NormX1 > 1 || word.NormY1 < 0 || word.NormY1 > 1 ||
-            word.NormX2 < 0 || word.NormX2 > 1 || word.NormY2 < 0 || word.NormY2 > 1)
-        {
-            return "out-of-bounds";
-        }
-
-        if ((word.NormX2 - word.NormX1) < 0.001 || (word.NormY2 - word.NormY1) < 0.001)
-        {
-            return "too-small";
-        }
-
-        return "normal";
-    }
-
-    private string GetWordStyle(WordBoundingBox word)
-    {
-        // Allow any coordinate - clamp only for visual positioning
-        var left = Math.Max(-10, Math.Min(110, word.NormX1 * 100));
-        var top = Math.Max(-10, Math.Min(110, word.NormY1 * 100));
-        var width = Math.Max(0.5, Math.Min(120, (word.NormX2 - word.NormX1) * 100));
-        var height = Math.Max(0.5, Math.Min(120, (word.NormY2 - word.NormY1) * 100));
-
-        var colorIndex = spatialResult!.Document!.Words.ToList().IndexOf(word);
-        var color = colors[colorIndex % colors.Length];
-
-        // Debug coloring only when debug mode is on
-        if (showDebugInfo)
-        {
-            if (word.NormX1 < 0 || word.NormX1 > 1 || word.NormY1 < 0 || word.NormY1 > 1 ||
-                word.NormX2 < 0 || word.NormX2 > 1 || word.NormY2 < 0 || word.NormY2 > 1)
-            {
-                color = "#FF0000"; // Red for truly out of bounds
-            }
-            else if ((word.NormX2 - word.NormX1) < 0.001 || (word.NormY2 - word.NormY1) < 0.001)
-            {
-                color = "#FFA500"; // Orange for too small
-            }
-        }
-
-        return $"position: absolute; " +
-               $"left: {left:F2}%; " +
-               $"top: {top:F2}%; " +
-               $"width: {width:F2}%; " +
-               $"height: {height:F2}%; " +
-               $"background-color: {color}; " +
-               $"opacity: 0.7; " +
-               $"cursor: pointer; " +
-               $"border-radius: 2px; " +
-               $"transition: all 0.2s ease; " +
-               $"display: flex; " +
-               $"align-items: center; " +
-               $"justify-content: center;";
-    }
-
-    private bool ShouldShowLabel(WordBoundingBox word)
-    {
-        if (!showLabels) return false;
-        var area = (word.NormX2 - word.NormX1) * (word.NormY2 - word.NormY1);
-        return area > 0.001;
-    }
-
-    private string GetWordTooltip(WordBoundingBox word)
-    {
-        return $"Text: {word.Text}\nPosition: ({word.RawX1}, {word.RawY1}) - ({word.RawX2}, {word.RawY2})\nSize: {word.RawWidth} x {word.RawHeight}";
-    }
-
-    private string GetMetadataInfo()
-    {
-        if (spatialResult?.Metadata == null) return "No metadata available";
-
-        var metadata = spatialResult.Metadata;
-        return $"Google Vision API: {metadata.GoogleVisionApiVersion}\n" +
-               $"Processing Engine: {metadata.ProcessingEngine}\n" +
-               $"Original Size: {metadata.OriginalImageWidth}x{metadata.OriginalImageHeight}\n" +
-               $"Raw Annotations: {metadata.RawAnnotationsCount}\n" +
-               $"Filtered Words: {metadata.FilteredWordsCount}";
+        // Clean up event subscription
+        state.StateChanged -= StateHasChanged;
     }
 }

@@ -1,0 +1,18 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Views/TextView.razor *@
+
+<div class="text-content">
+    @if (State.SpatialResult?.Document != null)
+    {
+        <pre class="extracted-text">@State.SpatialResult.Document.AllText</pre>
+    }
+    else
+    {
+        <div class="no-content">
+            <p>No text extracted yet. Upload an image to see the extracted text.</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+}

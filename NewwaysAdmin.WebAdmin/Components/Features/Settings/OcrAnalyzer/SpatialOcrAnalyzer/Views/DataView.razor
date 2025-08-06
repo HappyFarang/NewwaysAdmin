@@ -1,0 +1,67 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Views/DataView.razor *@
+
+<div class="spatial-content">
+    @if (State.SpatialResult?.Document?.Words != null && State.SpatialResult.Document.Words.Any())
+    {
+        <div class="spatial-table-container">
+            <table class="spatial-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Text</th>
+                        <th>Raw Position</th>
+                        <th>Normalized Position</th>
+                        <th>Size</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @{
+                        var displayWords = State.FilteredWords.Take(500);
+                        var i = 0;
+                    }
+                    @foreach (var word in displayWords)
+                    {
+                        <tr class="@(State.IsWordHighlighted(word) ? "highlighted" : "") @(State.IsWordSelected(word) ? "selected" : "")"
+                            @onclick="@(() => State.SelectWord(word))">
+                            <td>@(++i)</td>
+                            <td class="word-text">@word.Text</td>
+                            <td class="coordinate-text">(@word.RawX1, @word.RawY1) - (@word.RawX2, @word.RawY2)</td>
+                            <td class="coordinate-text">(@word.NormX1.ToString("F3"), @word.NormY1.ToString("F3")) - (@word.NormX2.ToString("F3"), @word.NormY2.ToString("F3"))</td>
+                            <td class="coordinate-text">@word.RawWidth × @word.RawHeight</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (State.FilteredWords.Count() > 500)
+        {
+            <div class="table-footer">
+                <p class="text-muted">
+                    Showing first 500 of @State.FilteredWords.Count() words.
+                    Use search filter to narrow results.
+                </p>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="no-content">
+            <p>No spatial data available. Upload an image to see word positioning data.</p>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        State.StateChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        State.StateChanged -= StateHasChanged;
+    }
+}
