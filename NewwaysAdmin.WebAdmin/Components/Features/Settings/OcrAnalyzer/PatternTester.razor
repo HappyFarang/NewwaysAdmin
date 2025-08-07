@@ -1,5 +1,6 @@
 ﻿// NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/PatternTester.razor
 @using NewwaysAdmin.SharedModels.Models.Ocr.Core
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core
 @inject ISpatialOcrService SpatialOcrService
 @inject ILogger<PatternTester> Logger
 
@@ -340,24 +341,28 @@
                 .ToList();
 
             if (!nextWords.Any())
-                break; // No more words found
+                break;
 
-            // Check for stop words
+            // Check for stop words (hard stop)
             if (stopWords.Any() && nextWords.Any(w => stopWords.Any(stop =>
                 w.Text.Contains(stop, StringComparison.OrdinalIgnoreCase))))
             {
-                break; // Stop word found
+                break; // Hard stop as requested
             }
 
-            // Add the found words
             result.GroupedWords.AddRange(nextWords);
-
-            // Update search position for next iteration
             currentY = nextWords.Max(w => w.RawY2);
         }
 
-        result.Success = result.GroupedWords.Count > 1; // At least anchor + 1 more word
+        result.Success = result.GroupedWords.Count > 1;
         result.CombinedText = string.Join("\n", result.GroupedWords.Select(w => w.Text));
+
+        // Add metadata using the new method
+        result.AddMetadata("SearchTerm", searchTerm);
+        result.AddMetadata("PatternType", selectedPatternType);
+        result.AddMetadata("YTolerance", yTolerance);
+        result.AddMetadata("XTolerance", xTolerance);
+        result.AddMetadata("AnchorPosition", $"{anchorWord.RawX1},{anchorWord.RawY1}");
 
         return result;
     }
@@ -411,7 +416,7 @@
                $"background-color: rgba(0, 255, 0, 0.4); border: 2px solid rgba(0, 255, 0, 0.8);";
     }
 
-    // Simple data class for now
+    /* Simple data class for now
     public class PatternTestResult
     {
         public bool Success { get; set; } = false;
@@ -419,4 +424,5 @@
         public List<WordBoundingBox> GroupedWords { get; set; } = new();
         public string CombinedText { get; set; } = "";
     }
+    */
 }
