@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 
-namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.SpatialOcrAnalyzer
+namespace NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core
 {
     /// <summary>
     /// Shared state service for SpatialOcrAnalyzer components
