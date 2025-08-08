@@ -1,0 +1,251 @@
+﻿/* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Views/PatternView.razor.css */
+
+.patterns-section {
+    padding: 1rem;
+}
+
+/* Pattern Config Panel Styles */
+.pattern-config-panel {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.config-group {
+    margin-bottom: 1rem;
+}
+
+.config-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+    margin-bottom: 0.25rem;
+    display: block;
+}
+
+.algorithm-info {
+    background: #e7f3ff;
+    border: 1px solid #b8daff;
+    border-radius: 4px;
+    padding: 0.75rem;
+}
+
+.interactive-help {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 4px;
+    padding: 0.75rem;
+}
+
+/* Results Panel Styles */
+.extracted-text-output {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 0.75rem;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.text-line {
+    margin-bottom: 0.25rem;
+    padding: 0.125rem;
+    background: white;
+    border-radius: 2px;
+    border-left: 3px solid #007bff;
+    padding-left: 0.5rem;
+}
+
+.words-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.word-item {
+    background: #e9ecef;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    border: 1px solid #ced4da;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+    .word-item:hover {
+        background: #dee2e6;
+    }
+
+    .word-item.anchor {
+        background: #f8d7da;
+        border-color: #f5c6cb;
+        font-weight: bold;
+    }
+
+.pattern-metadata {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 0.5rem;
+}
+
+/* Visualization Styles */
+.visualization-container {
+    position: relative;
+    overflow: hidden;
+}
+
+.heat-word {
+    position: absolute;
+    background-color: rgba(0, 123, 255, 0.1);
+    border: 1px solid rgba(0, 123, 255, 0.2);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+    .heat-word:hover {
+        background-color: rgba(0, 123, 255, 0.2);
+        border-color: rgba(0, 123, 255, 0.4);
+        transform: scale(1.05);
+    }
+
+.pattern-anchor {
+    position: absolute;
+    background-color: rgba(220, 53, 69, 0.3);
+    border: 2px solid #dc3545;
+    border-radius: 3px;
+    cursor: pointer;
+    z-index: 10;
+    transition: all 0.2s ease;
+}
+
+    .pattern-anchor:hover {
+        background-color: rgba(220, 53, 69, 0.5);
+        transform: scale(1.05);
+    }
+
+.pattern-grouped {
+    position: absolute;
+    background-color: rgba(40, 167, 69, 0.3);
+    border: 2px solid #28a745;
+    border-radius: 3px;
+    cursor: pointer;
+    z-index: 9;
+    transition: all 0.2s ease;
+}
+
+    .pattern-grouped:hover {
+        background-color: rgba(40, 167, 69, 0.5);
+        transform: scale(1.05);
+    }
+
+/* Tooltip Styles */
+.word-tooltip {
+    position: absolute;
+    background: #2d3748;
+    color: white;
+    border-radius: 6px;
+    padding: 0;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    font-size: 0.8rem;
+    max-width: 200px;
+}
+
+.tooltip-content {
+    padding: 0.5rem 0.75rem;
+}
+
+.tooltip-word {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+    word-break: break-word;
+}
+
+.tooltip-type {
+    font-size: 0.7rem;
+    opacity: 0.8;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+    .tooltip-type.anchor {
+        color: #fbb6ce;
+    }
+
+    .tooltip-type.grouped {
+        color: #9ae6b4;
+    }
+
+    .tooltip-type.word {
+        color: #90cdf4;
+    }
+
+.tooltip-action {
+    font-size: 0.7rem;
+    opacity: 0.7;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.tooltip-arrow {
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #2d3748;
+}
+
+/* Legend Styles */
+.pattern-legend {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 2px;
+    border: 1px solid #ccc;
+}
+
+.anchor-color {
+    background-color: rgba(220, 53, 69, 0.3);
+    border-color: #dc3545;
+}
+
+.grouped-color {
+    background-color: rgba(40, 167, 69, 0.3);
+    border-color: #28a745;
+}
+
+.heat-color {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-color: rgba(0, 123, 255, 0.2);
+}
+
+/* Alert Styles */
+.alert {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+}

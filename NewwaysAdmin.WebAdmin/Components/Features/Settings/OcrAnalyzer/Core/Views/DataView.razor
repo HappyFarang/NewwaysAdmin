@@ -16,7 +16,7 @@
                 </thead>
                 <tbody>
                     @{
-                        var displayWords = State.FilteredWords.Take(500);
+                        var displayWords = State.FilteredWords;
                         var i = 0;
                     }
                     @foreach (var word in displayWords)

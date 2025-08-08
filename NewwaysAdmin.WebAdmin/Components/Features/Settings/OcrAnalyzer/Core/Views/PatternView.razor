@@ -1,17 +1,21 @@
-﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/SpatialOcrAnalyzer/Views/PatternView.razor *@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Views/PatternView.razor *@
 @using WordBoundingBox = NewwaysAdmin.SharedModels.Models.Ocr.Core.WordBoundingBox;
+@implements IDisposable
+@inject IJSRuntime JSRuntime
+
 <div class="patterns-section">
     <div class="row">
         <!-- Left: Pattern Configuration -->
         <div class="col-md-4">
             <div class="pattern-config-panel">
                 <h5><i class="bi bi-gear"></i> Pattern Configuration</h5>
-                
+
                 <!-- Pattern Type -->
                 <div class="config-group">
                     <label class="config-label">Pattern Type</label>
                     <select @bind="State.SelectedPatternType" class="form-select form-select-sm">
                         <option value="VerticalColumn">Vertical Column</option>
+                        <option value="Horizontal">Horizontal</option>
                         <option value="Sequential" disabled>Sequential (Coming Soon)</option>
                     </select>
                 </div>
@@ -19,21 +23,21 @@
                 <!-- Search Term -->
                 <div class="config-group">
                     <label class="config-label">Search Term</label>
-                    <input @bind="State.PatternSearchTerm" class="form-control form-control-sm" 
+                    <input @bind="State.PatternSearchTerm" class="form-control form-control-sm"
                            placeholder="e.g., To, ไปยัง, Total" />
                 </div>
 
                 <!-- Tolerances -->
                 <div class="config-group">
                     <label class="config-label">Y Tolerance (pixels)</label>
-                    <input @bind="State.PatternYTolerance" type="number" class="form-control form-control-sm" 
+                    <input @bind="State.PatternYTolerance" type="number" class="form-control form-control-sm"
                            min="5" max="100" />
                     <small class="form-text">Max gap between lines before stopping</small>
                 </div>
 
                 <div class="config-group">
                     <label class="config-label">X Tolerance (pixels)</label>
-                    <input @bind="State.PatternXTolerance" type="number" class="form-control form-control-sm" 
+                    <input @bind="State.PatternXTolerance" type="number" class="form-control form-control-sm"
                            min="1" max="50" />
                     <small class="form-text">Tolerance for same-line alignment</small>
                 </div>
@@ -41,13 +45,13 @@
                 <!-- Stop Words -->
                 <div class="config-group">
                     <label class="config-label">Stop Words (optional)</label>
-                    <input @bind="State.PatternStopWords" class="form-control form-control-sm" 
+                    <input @bind="State.PatternStopWords" class="form-control form-control-sm"
                            placeholder="e.g., Total, End (comma separated)" />
                     <small class="form-text">Hard stop when these words are found</small>
                 </div>
 
                 <!-- Test Button -->
-                <button @onclick="TestCurrentPattern" class="btn btn-primary btn-sm w-100" 
+                <button @onclick="TestCurrentPattern" class="btn btn-primary btn-sm w-100"
                         disabled="@(string.IsNullOrEmpty(State.PatternSearchTerm))">
                     <i class="bi bi-play"></i> Test Pattern
                 </button>
@@ -71,21 +75,21 @@
                             @(State.CurrentPatternResult.Success ? $"{State.CurrentPatternResult.GroupedWords.Count} words" : "No match")
                         </span>
                     </h6>
-                    
+
                     @if (State.CurrentPatternResult.Success)
                     {
                         <div class="result-text">
                             <strong>Extracted Text:</strong>
                             <div class="extracted-preview">@State.CurrentPatternResult.CombinedText</div>
                         </div>
-                        
+
                         <div class="result-words mt-2">
                             <strong>Words Found:</strong>
                             <div class="word-badges">
                                 @foreach (var word in State.CurrentPatternResult.GroupedWords)
                                 {
-                                    <span class="badge bg-light text-dark me-1 mb-1" 
-                                          @onclick="@(() => State.SelectWord(word))"
+                                    <span class="badge bg-light text-dark me-1 mb-1"
+                                          @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"
                                           style="cursor: pointer;">
                                         @word.Text
                                     </span>
@@ -148,10 +152,11 @@
                     <!-- All Words Heat Map (when enabled) -->
                     @if (State.ShowAllWordsInPattern && State.SpatialResult?.Document?.Words != null)
                     {
-                        @foreach (var word in State.SpatialResult.Document.Words.Take(100))
+                        @foreach (var word in State.GetFilteredWords())
                         {
-                            <div class="heat-word-dot" style="@GetHeatWordStyle(word)" 
-                                 title="@word.Text" @onclick="@(() => State.SelectWord(word))"></div>
+                            <div class="heat-word-dot" style="@GetHeatWordStyle(word)"
+                                 title="@word.Text"
+                                 @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"></div>
                         }
                     }
 
@@ -161,17 +166,17 @@
                         <!-- Anchor Word (Red) -->
                         @if (State.CurrentPatternResult.AnchorWord != null)
                         {
-                            <div class="pattern-anchor" style="@GetPatternAnchorStyle(State.CurrentPatternResult.AnchorWord)" 
+                            <div class="pattern-anchor" style="@GetPatternAnchorStyle(State.CurrentPatternResult.AnchorWord)"
                                  title="Anchor: @State.CurrentPatternResult.AnchorWord.Text"
-                                 @onclick="@(() => State.SelectWord(State.CurrentPatternResult.AnchorWord))"></div>
+                                 @onclick="@((MouseEventArgs e) => CopyWordToClipboard(State.CurrentPatternResult.AnchorWord.Text))"></div>
                         }
 
                         <!-- Grouped Words (Green) -->
                         @foreach (var word in State.CurrentPatternResult.GroupedWords.Where(w => w != State.CurrentPatternResult.AnchorWord))
                         {
-                            <div class="pattern-grouped" style="@GetPatternGroupStyle(word)" 
+                            <div class="pattern-grouped" style="@GetPatternGroupStyle(word)"
                                  title="Grouped: @word.Text"
-                                 @onclick="@(() => State.SelectWord(word))"></div>
+                                 @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"></div>
                         }
                     }
                 </div>
@@ -219,28 +224,103 @@
     {
         if (State.SpatialResult?.Document == null || string.IsNullOrEmpty(State.PatternSearchTerm))
         {
-            State.SetPatternResult(new PatternTestResult { Success = false });
+            State.CurrentPatternResult = new PatternTestResult { Success = false };
             return;
         }
 
         try
         {
-            var result = TestVerticalColumnPattern();
-            State.SetPatternResult(result);
+            if (State.SelectedPatternType == "VerticalColumn")
+            {
+                State.CurrentPatternResult = TestVerticalColumnPattern();
+            }
+            else if (State.SelectedPatternType == "Horizontal")
+            {
+                State.CurrentPatternResult = TestHorizontalPattern();
+            }
+            else
+            {
+                State.CurrentPatternResult = new PatternTestResult { Success = false };
+            }
         }
         catch (Exception ex)
         {
-            State.SetStatus($"Error testing pattern: {ex.Message}");
-            State.SetPatternResult(new PatternTestResult { Success = false });
+            State.CurrentPatternResult = new PatternTestResult { Success = false };
         }
+    }
+
+    private PatternTestResult TestHorizontalPattern()
+    {
+        var result = new PatternTestResult();
+        var document = State.SpatialResult!.Document!;
+
+        // Find anchor word
+        var anchorWord = document.FindWordsByText(State.PatternSearchTerm, exactMatch: false).FirstOrDefault();
+        if (anchorWord == null)
+        {
+            return result; // Success = false by default
+        }
+
+        result.AnchorWord = anchorWord;
+        result.GroupedWords.Add(anchorWord);
+
+        // Parse stop words (required for horizontal search)
+        var stopWords = GetStopWordsList();
+        if (!stopWords.Any())
+        {
+            return result; // Horizontal search requires stop words
+        }
+
+        // Search horizontally right-only from anchor using bounding box gaps
+        var currentWord = anchorWord;
+
+        while (true)
+        {
+            // Find next word to the right within Y tolerance
+            // For horizontal search: unlimited X range, just find next word in line
+            var nextWord = document.Words
+                .Where(w => !result.GroupedWords.Contains(w))
+                .Where(w => w.RawX1 > currentWord.RawX2) // Must start after current word ends
+                .Where(w => Math.Abs(w.RawCenterY - currentWord.RawCenterY) <= State.PatternYTolerance) // Y tolerance for horizontal alignment
+                .OrderBy(w => w.RawX1) // Closest word to the right
+                .FirstOrDefault();
+
+            if (nextWord == null)
+                break; // No more words found
+
+            // Check if this is a stop word
+            if (stopWords.Any(stop => nextWord.Text.Contains(stop, StringComparison.OrdinalIgnoreCase)))
+            {
+                break; // Stop here, don't include the stop word
+            }
+
+            // Add word to result
+            result.GroupedWords.Add(nextWord);
+
+            // Update current word for next iteration
+            currentWord = nextWord;
+        }
+
+        result.Success = result.GroupedWords.Count > 1; // Need at least anchor + 1 word
+        result.CombinedText = string.Join(" ", result.GroupedWords.Select(w => w.Text));
+
+        return result;
+    }
+
+    private List<string> GetStopWordsList()
+    {
+        return State.PatternStopWords.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                    .Select(w => w.Trim())
+                                    .Where(w => !string.IsNullOrEmpty(w))
+                                    .ToList();
     }
 
     private PatternTestResult TestVerticalColumnPattern()
     {
         var result = new PatternTestResult();
         var document = State.SpatialResult!.Document!;
-        
-        // Find anchor word
+
+        // Step 1: Find anchor word
         var anchorWord = document.FindWordsByText(State.PatternSearchTerm, exactMatch: false).FirstOrDefault();
         if (anchorWord == null)
         {
@@ -251,50 +331,138 @@
         result.GroupedWords.Add(anchorWord);
 
         // Parse stop words
-        var stopWords = State.PatternStopWords.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                       .Select(w => w.Trim())
-                                       .Where(w => !string.IsNullOrEmpty(w))
-                                       .ToList();
+        var stopWords = GetStopWordsList();
 
-        // Vertical search from anchor
-        var currentY = anchorWord.RawY2;
-        var searchX = anchorWord.RawX1; // Use RawX1 as requested
+        // Step 2: Establish marching coordinate (left bottom corner of anchor)
+        int marchingX = anchorWord.RawX1;
+        int marchingY = anchorWord.RawY2;
 
         while (true)
         {
-            // Find words at next Y level
-            var nextWords = document.Words
-                .Where(w => w != anchorWord && !result.GroupedWords.Contains(w))
-                .Where(w => w.RawY1 >= currentY && w.RawY1 <= currentY + State.PatternYTolerance)
-                .Where(w => Math.Abs(w.RawX1 - searchX) <= State.PatternXTolerance)
-                .OrderBy(w => w.RawY1)
-                .ThenBy(w => w.RawX1)
-                .ToList();
+            // Step 3: March downward on Y with ±5px X tolerance
+            var foundWord = document.Words
+                .Where(w => !result.GroupedWords.Contains(w))
+                .Where(w => w.RawY1 > marchingY && w.RawY1 <= marchingY + State.PatternYTolerance) // Below marching Y within tolerance
+                .Where(w => Math.Abs(w.RawX1 - marchingX) <= 5) // ±5px X tolerance from marching coordinate
+                .OrderBy(w => w.RawY1) // Closest Y first
+                .FirstOrDefault();
 
-            if (!nextWords.Any())
-                break;
-
-            // Check for stop words (hard stop)
-            if (stopWords.Any() && nextWords.Any(w => stopWords.Any(stop => 
-                w.Text.Contains(stop, StringComparison.OrdinalIgnoreCase))))
+            if (foundWord == null)
             {
-                break; // Hard stop as requested
+                // No word found directly below, try to find ANY word in Y range within X tolerance
+                var anyWordInRange = document.Words
+                    .Where(w => !result.GroupedWords.Contains(w))
+                    .Where(w => w.RawY1 > marchingY && w.RawY1 <= marchingY + State.PatternYTolerance)
+                    .Where(w => Math.Abs(w.RawX1 - marchingX) <= State.PatternXTolerance) // Within X tolerance of marching coordinate
+                    .OrderBy(w => w.RawY1)
+                    .FirstOrDefault();
+
+                if (anyWordInRange == null)
+                    break; // No more lines found
+
+                foundWord = anyWordInRange;
             }
 
-            result.GroupedWords.AddRange(nextWords);
-            currentY = nextWords.Max(w => w.RawY2);
+            // Step 4: March LEFT from found word to establish line left boundary
+            var lineWords = new List<WordBoundingBox> { foundWord };
+            var currentWord = foundWord;
+
+            // March left using collision detection
+            while (true)
+            {
+                var leftWord = document.Words
+                    .Where(w => !result.GroupedWords.Contains(w) && !lineWords.Contains(w))
+                    .Where(w => w.RawX2 <= currentWord.RawX1) // To the left of current word
+                    .Where(w => currentWord.RawX1 - w.RawX2 <= State.PatternXTolerance) // Within X gap tolerance
+                    .Where(w => !(w.RawY2 < currentWord.RawY1 || w.RawY1 > currentWord.RawY2)) // Y ranges would overlap if slid horizontally (collision detection)
+                    .OrderByDescending(w => w.RawX2) // Closest to current word
+                    .FirstOrDefault();
+
+                if (leftWord == null)
+                    break; // No more words to the left
+
+                lineWords.Insert(0, leftWord); // Add to beginning
+                currentWord = leftWord;
+            }
+
+            // Update marching coordinate to leftmost word's left bottom corner
+            var leftmostWord = lineWords.First();
+            marchingX = leftmostWord.RawX1;
+
+            // Step 5: March RIGHT from marching coordinate (leftmost word)
+            currentWord = leftmostWord;
+            while (true)
+            {
+                var rightWord = document.Words
+                    .Where(w => !result.GroupedWords.Contains(w) && !lineWords.Contains(w))
+                    .Where(w => w.RawX1 >= currentWord.RawX2) // To the right of current word
+                    .Where(w => w.RawX1 - currentWord.RawX2 <= State.PatternXTolerance) // Within X gap tolerance
+                    .Where(w => !(w.RawY2 < currentWord.RawY1 || w.RawY1 > currentWord.RawY2)) // Y ranges would overlap if slid horizontally (collision detection)
+                    .OrderBy(w => w.RawX1) // Closest to current word
+                    .FirstOrDefault();
+
+                if (rightWord == null)
+                    break; // No more words to the right
+
+                lineWords.Add(rightWord); // Add to end
+                currentWord = rightWord;
+            }
+
+            // Check for stop words
+            if (stopWords.Any() && lineWords.Any(w => stopWords.Any(stop =>
+                w.Text.Contains(stop, StringComparison.OrdinalIgnoreCase))))
+            {
+                break; // Stop here
+            }
+
+            // Safety check: Look for missed symbols within the line boundaries
+            var lineYTop = lineWords.Min(w => w.RawY1);
+            var lineYBottom = lineWords.Max(w => w.RawY2);
+            var lineXLeft = lineWords.Min(w => w.RawX1);
+            var lineXRight = lineWords.Max(w => w.RawX2);
+
+            // Look for any small symbols in the same Y area that might have been missed
+            var missedSymbols = document.Words
+                .Where(w => !result.GroupedWords.Contains(w) && !lineWords.Contains(w))
+                .Where(w => w.RawY1 >= lineYTop && w.RawY2 <= lineYBottom) // Within line height
+                .Where(w => w.RawX1 >= lineXLeft && w.RawX2 <= lineXRight) // Within line width
+                .Where(w => w.Text.Length <= 2) // Only small symbols/characters
+                .ToList();
+
+            // Insert missed symbols in the correct X position within lineWords
+            foreach (var symbol in missedSymbols)
+            {
+                // Find correct insertion point based on X position
+                var insertIndex = lineWords.Count;
+                for (int i = 0; i < lineWords.Count; i++)
+                {
+                    if (symbol.RawX1 < lineWords[i].RawX1)
+                    {
+                        insertIndex = i;
+                        break;
+                    }
+                }
+                lineWords.Insert(insertIndex, symbol);
+            }
+
+            // Add all words from this line to results (including any missed symbols)
+            result.GroupedWords.AddRange(lineWords);
+
+            // Step 6: Update marching Y to continue searching down from this line
+            marchingY = lineWords.Max(w => w.RawY2);
         }
 
         result.Success = result.GroupedWords.Count > 1;
         result.CombinedText = string.Join("\n", result.GroupedWords.Select(w => w.Text));
-        
+
         // Add metadata
         result.AddMetadata("SearchTerm", State.PatternSearchTerm);
         result.AddMetadata("PatternType", State.SelectedPatternType);
         result.AddMetadata("YTolerance", State.PatternYTolerance);
         result.AddMetadata("XTolerance", State.PatternXTolerance);
         result.AddMetadata("AnchorPosition", $"{anchorWord.RawX1},{anchorWord.RawY1}");
-        
+        result.AddMetadata("MarchingCoordinate", $"{marchingX},{marchingY}");
+
         return result;
     }
 
@@ -312,7 +480,7 @@
                $"pointer-events: auto; cursor: pointer; z-index: 10; transition: all 0.2s ease;";
     }
 
-    private string GetPatternAnchorStyle(NewwaysAdmin.SharedModels.Models.Ocr.Core.WordBoundingBox word)
+    private string GetPatternAnchorStyle(WordBoundingBox word)
     {
         var left = (word.NormX1 * 100);
         var top = (word.NormY1 * 100);
@@ -338,5 +506,19 @@
                $"background-color: rgba(0, 255, 0, 0.6); border: 2px solid rgba(0, 255, 0, 0.9); " +
                $"pointer-events: auto; cursor: pointer; z-index: 20; transition: all 0.2s ease; " +
                $"border-radius: 2px;";
+    }
+
+    private async Task CopyWordToClipboard(string word)
+    {
+        if (string.IsNullOrEmpty(word)) return;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", word);
+        }
+        catch (Exception)
+        {
+            // Fallback for older browsers - could show a message
+        }
     }
 }
