@@ -1,0 +1,198 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/PatternResultsPanel.razor *@
+@using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+
+<!-- Results Panel -->
+@if (PatternResult != null)
+{
+    <div class="pattern-results-panel mt-3">
+        <h6>
+            <i class="bi bi-list-check"></i> Pattern Results
+            <span class="badge @(PatternResult.Success ? "bg-success" : "bg-danger") ms-2">
+                @(PatternResult.Success ? $"{PatternResult.GroupedWords.Count} words" : "No match")
+            </span>
+        </h6>
+
+        @if (PatternResult.Success)
+        {
+            <div class="result-text">
+                <strong>Extracted Text:</strong>
+                <div class="extracted-preview">@PatternResult.CombinedText</div>
+            </div>
+
+            <div class="result-words mt-2">
+                <strong>Words Found:</strong>
+                <div class="word-badges">
+                    @foreach (var word in PatternResult.GroupedWords)
+                    {
+                        <span class="badge bg-light text-dark me-1 mb-1"
+                              @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"
+                              style="cursor: pointer;">
+                            @word.Text
+                        </span>
+                    }
+                </div>
+            </div>
+
+            @if (PatternResult.Metadata.Any())
+            {
+                <div class="result-metadata mt-2">
+                    <strong>Pattern Info:</strong>
+                    <div class="small text-muted">
+                        @foreach (var (key, value) in PatternResult.Metadata)
+                        {
+                            <div>@key: @value</div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <!-- NEW: Simple Regex Testing Section -->
+            <div class="regex-testing-section mt-3 pt-3" style="border-top: 1px solid #e9ecef;">
+                <strong style="font-size: 0.8125rem; color: #495057;">
+                    <i class="bi bi-regex"></i> Regex Test (Local):
+                </strong>
+
+                <div class="input-group input-group-sm mt-2">
+                    <input @bind="localRegexPattern"
+                           @bind:event="oninput"
+                           @onkeyup="TestRegexOnCombinedText"
+                           class="form-control form-control-sm"
+                           placeholder="Enter regex pattern (e.g., \d+)"
+                           style="font-family: 'Courier New', monospace; font-size: 0.8rem;" />
+                    <button @onclick="TestRegexOnCombinedText"
+                            class="btn btn-outline-secondary btn-sm"
+                            disabled="@(string.IsNullOrEmpty(localRegexPattern))">
+                        <i class="bi bi-play"></i>
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrEmpty(localRegexPattern) && !string.IsNullOrEmpty(highlightedText))
+                {
+                    <div class="regex-result mt-2">
+                        <div style="font-size: 0.75rem; color: #6c757d; margin-bottom: 0.25rem;">
+                            Found @regexMatchCount matches:
+                        </div>
+                        <div class="highlighted-text" style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 3px; padding: 0.5rem; font-family: 'Courier New', monospace; font-size: 0.8125rem; white-space: pre-line; max-height: 120px; overflow-y: auto;">
+                            @((MarkupString)highlightedText)
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(regexError))
+                {
+                    <div class="alert alert-danger alert-sm mt-2" style="padding: 0.375rem; font-size: 0.75rem;">
+                        <i class="bi bi-exclamation-triangle"></i> @regexError
+                    </div>
+                }
+            </div>
+
+            <button class="btn btn-success btn-sm w-100 mt-3" disabled>
+                <i class="bi bi-download"></i> Save Pattern (Coming Soon)
+            </button>
+        }
+        else
+        {
+            <div class="no-results">
+                @if (string.IsNullOrEmpty(SearchTerm))
+                {
+                    <span>Enter a search term to test</span>
+                }
+                else
+                {
+                    <span>No words found for "@SearchTerm"</span>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public PatternTestResult? PatternResult { get; set; }
+    [Parameter] public string SearchTerm { get; set; } = "";
+
+    // Local regex testing state (pure local, no global state changes)
+    private string localRegexPattern = "";
+    private string highlightedText = "";
+    private string regexError = "";
+    private int regexMatchCount = 0;
+
+    private void TestRegexOnCombinedText()
+    {
+        // Clear previous results
+        highlightedText = "";
+        regexError = "";
+        regexMatchCount = 0;
+
+        // Validate input
+        if (string.IsNullOrEmpty(localRegexPattern) ||
+            PatternResult?.Success != true ||
+            string.IsNullOrEmpty(PatternResult.CombinedText))
+        {
+            return;
+        }
+
+        try
+        {
+            // Test regex on the combined text
+            var combinedText = PatternResult.CombinedText;
+            var regex = new System.Text.RegularExpressions.Regex(localRegexPattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            var matches = regex.Matches(combinedText);
+            regexMatchCount = matches.Count;
+
+            if (matches.Count > 0)
+            {
+                // Highlight matches with simple yellow background
+                var result = combinedText;
+                var offset = 0;
+
+                foreach (System.Text.RegularExpressions.Match match in matches)
+                {
+                    var startTag = "<mark style='background-color: yellow; padding: 1px 2px; border-radius: 2px;'>";
+                    var endTag = "</mark>";
+                    var insertPosition = match.Index + offset;
+
+                    result = result.Insert(insertPosition, startTag);
+                    offset += startTag.Length;
+
+                    insertPosition = match.Index + match.Length + offset;
+                    result = result.Insert(insertPosition, endTag);
+                    offset += endTag.Length;
+                }
+
+                highlightedText = result;
+            }
+            else
+            {
+                highlightedText = combinedText; // No matches, show original text
+            }
+        }
+        catch (System.ArgumentException ex)
+        {
+            regexError = $"Invalid regex pattern: {ex.Message}";
+            highlightedText = "";
+        }
+        catch (Exception ex)
+        {
+            regexError = $"Error testing regex: {ex.Message}";
+            highlightedText = "";
+        }
+    }
+
+    private async Task CopyWordToClipboard(string word)
+    {
+        if (string.IsNullOrEmpty(word)) return;
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", word);
+        }
+        catch (Exception)
+        {
+            // Fallback for older browsers - could show a message
+        }
+    }
+}

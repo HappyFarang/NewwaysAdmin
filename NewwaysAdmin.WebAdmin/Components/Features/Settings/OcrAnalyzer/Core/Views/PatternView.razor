@@ -1,5 +1,6 @@
 ﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Views/PatternView.razor *@
 @using WordBoundingBox = NewwaysAdmin.SharedModels.Models.Ocr.Core.WordBoundingBox;
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core.Components
 @implements IDisposable
 @inject IJSRuntime JSRuntime
 
@@ -65,70 +66,9 @@
                 }
             </div>
 
-            <!-- Results Panel -->
-            @if (State.CurrentPatternResult != null)
-            {
-                <div class="pattern-results-panel mt-3">
-                    <h6>
-                        <i class="bi bi-list-check"></i> Pattern Results
-                        <span class="badge @(State.CurrentPatternResult.Success ? "bg-success" : "bg-danger") ms-2">
-                            @(State.CurrentPatternResult.Success ? $"{State.CurrentPatternResult.GroupedWords.Count} words" : "No match")
-                        </span>
-                    </h6>
-
-                    @if (State.CurrentPatternResult.Success)
-                    {
-                        <div class="result-text">
-                            <strong>Extracted Text:</strong>
-                            <div class="extracted-preview">@State.CurrentPatternResult.CombinedText</div>
-                        </div>
-
-                        <div class="result-words mt-2">
-                            <strong>Words Found:</strong>
-                            <div class="word-badges">
-                                @foreach (var word in State.CurrentPatternResult.GroupedWords)
-                                {
-                                    <span class="badge bg-light text-dark me-1 mb-1"
-                                          @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"
-                                          style="cursor: pointer;">
-                                        @word.Text
-                                    </span>
-                                }
-                            </div>
-                        </div>
-
-                        @if (State.CurrentPatternResult.Metadata.Any())
-                        {
-                            <div class="result-metadata mt-2">
-                                <strong>Pattern Info:</strong>
-                                <div class="small text-muted">
-                                    @foreach (var (key, value) in State.CurrentPatternResult.Metadata)
-                                    {
-                                        <div>@key: @value</div>
-                                    }
-                                </div>
-                            </div>
-                        }
-
-                        <button class="btn btn-success btn-sm w-100 mt-3" disabled>
-                            <i class="bi bi-download"></i> Save Pattern (Coming Soon)
-                        </button>
-                    }
-                    else
-                    {
-                        <div class="no-results">
-                            @if (string.IsNullOrEmpty(State.PatternSearchTerm))
-                            {
-                                <span>Enter a search term to test</span>
-                            }
-                            else
-                            {
-                                <span>No words found for "@State.PatternSearchTerm"</span>
-                            }
-                        </div>
-                    }
-                </div>
-            }
+            <!-- SAFE REPLACEMENT: Use new component instead of inline results panel -->
+            <PatternResultsPanel PatternResult="@State.CurrentPatternResult"
+                                 SearchTerm="@State.PatternSearchTerm" />
         </div>
 
         <!-- Right: Visual Results -->
