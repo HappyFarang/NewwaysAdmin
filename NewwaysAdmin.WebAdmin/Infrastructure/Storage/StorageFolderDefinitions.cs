@@ -167,9 +167,21 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     IsShared = false, // Admin-only storage
                     CreateBackups = true,
                     MaxBackupCount = 10
+                },
+
+                // Ocr Patterns
+                new StorageFolder
+                {
+                    Name = "OcrPatterns",
+                    Description = "OCR pattern collections and search patterns",
+                    Type = StorageType.Json,
+                    IsShared = true,  // Other modules might use these patterns
+                    Path = "Ocr",
+                    CreateBackups = true,
+                    MaxBackupCount = 10  // More backups since patterns are valuable
                 }
 
-                // Add new folders here as needed...
+            // Add new folders here as needed...
             );
         }
 

@@ -28,6 +28,8 @@ using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
+using NewwaysAdmin.SharedModels.Models.Ocr.Patterns;
+using NewwaysAdmin.SharedModels.Services.Ocr;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -271,6 +273,13 @@ public class Program
             var logger = sp.GetRequiredService<ILogger<SheetConfigurationService>>();
             var config = sp.GetRequiredService<GoogleSheetsConfig>();
             return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
+        });
+        // OCR Pattern Management Service
+        services.AddScoped<PatternManagementService>(sp =>
+        {
+            var storageManager = sp.GetRequiredService<StorageManager>();
+            var storage = storageManager.GetStorageSync<PatternLibrary>("OcrPatterns");
+            return new PatternManagementService(storage);
         });
 
         // Register email storage service (only once!)
