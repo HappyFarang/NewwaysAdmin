@@ -278,8 +278,9 @@ public class Program
         services.AddScoped<PatternManagementService>(sp =>
         {
             var storageManager = sp.GetRequiredService<StorageManager>();
+            var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
             var storage = storageManager.GetStorageSync<PatternLibrary>("OcrPatterns");
-            return new PatternManagementService(storage);
+            return new PatternManagementService(storage, logger);
         });
 
         // Register email storage service (only once!)

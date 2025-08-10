@@ -1,0 +1,228 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/PatternSaveComponent.razor *@
+@using NewwaysAdmin.SharedModels.Models.Ocr
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@inject PatternManagementService PatternService
+@inject IJSRuntime JSRuntime
+
+<div class="pattern-save-panel">
+    <h6><i class="bi bi-floppy"></i> Save Pattern</h6>
+
+    <!-- Collection Name Input -->
+    <div class="mb-3">
+        <label class="form-label">Collection Name</label>
+        <div class="input-group">
+            <input @bind="collectionName"
+                   class="form-control"
+                   placeholder="e.g., KBIZ, KBank, SCB"
+                   maxlength="50" />
+            <button @onclick="LoadExistingCollections"
+                    class="btn btn-outline-secondary"
+                    type="button"
+                    title="Load existing collections">
+                <i class="bi bi-list"></i>
+            </button>
+        </div>
+
+        <!-- Existing Collections Dropdown (optional helper) -->
+        @if (showExistingCollections && existingCollections.Any())
+        {
+            <div class="mt-2">
+                <small class="text-muted">Existing collections:</small>
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                    @foreach (var existing in existingCollections)
+                    {
+                        <button @onclick="() => SelectExistingCollection(existing)"
+                                class="btn btn-outline-primary btn-sm">
+                            @existing
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Pattern Name Input -->
+    <div class="mb-3">
+        <label class="form-label">Pattern Name</label>
+        <input @bind="patternName"
+               class="form-control"
+               placeholder="e.g., Date, Total, Account"
+               maxlength="50" />
+    </div>
+
+    <!-- Current Pattern Summary (read-only info) -->
+    @if (CurrentPattern != null)
+    {
+        <div class="mb-3">
+            <label class="form-label">Current Pattern Summary</label>
+            <div class="pattern-summary">
+                <div class="small">
+                    <strong>Type:</strong> @CurrentPattern.PatternType<br />
+                    <strong>Keyword:</strong> @CurrentPattern.KeyWord<br />
+                    <strong>Tolerances:</strong> X=@CurrentPattern.ToleranceX, Y=@CurrentPattern.ToleranceY
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Save Options -->
+    <div class="mb-3">
+        <div class="form-check">
+            <input @bind="overwriteIfExists" class="form-check-input" type="checkbox" id="overwriteCheck">
+            <label class="form-check-label" for="overwriteCheck">
+                Overwrite if pattern already exists
+            </label>
+        </div>
+    </div>
+
+    <!-- Save Button -->
+    <div class="d-grid">
+        <button @onclick="SaveCurrentPattern"
+                class="btn btn-primary"
+                disabled="@(string.IsNullOrEmpty(collectionName) || string.IsNullOrEmpty(patternName) || CurrentPattern == null || isSaving)">
+            @if (isSaving)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+            }
+            <i class="bi bi-floppy"></i> Save Pattern
+        </button>
+    </div>
+
+    <!-- Status Messages -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isError ? "alert-danger" : "alert-success") mt-3 mb-0">
+            <i class="bi @(isError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+            @statusMessage
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public SearchPattern? CurrentPattern { get; set; }
+    [Parameter] public EventCallback OnPatternSaved { get; set; }
+
+    private string collectionName = "";
+    private string patternName = "";
+    private bool overwriteIfExists = false;
+    private bool isSaving = false;
+    private string statusMessage = "";
+    private bool isError = false;
+
+    private List<string> existingCollections = new();
+    private bool showExistingCollections = false;
+
+    protected override void OnParametersSet()
+    {
+        // Auto-populate pattern name if CurrentPattern has SearchName
+        if (CurrentPattern != null && !string.IsNullOrEmpty(CurrentPattern.SearchName) && string.IsNullOrEmpty(patternName))
+        {
+            patternName = CurrentPattern.SearchName;
+        }
+    }
+
+    private async Task LoadExistingCollections()
+    {
+        try
+        {
+            existingCollections = await PatternService.GetCollectionNamesAsync();
+            showExistingCollections = true;
+            ClearStatus();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error loading collections: {ex.Message}");
+        }
+
+        StateHasChanged();
+    }
+
+    private void SelectExistingCollection(string collection)
+    {
+        collectionName = collection;
+        showExistingCollections = false;
+        ClearStatus();
+    }
+
+    private async Task SaveCurrentPattern()
+    {
+        if (CurrentPattern == null || string.IsNullOrEmpty(collectionName) || string.IsNullOrEmpty(patternName))
+            return;
+
+        try
+        {
+            isSaving = true;
+            ClearStatus();
+            StateHasChanged();
+
+            // Check if pattern already exists (if not overwriting)
+            if (!overwriteIfExists)
+            {
+                var exists = await PatternService.SearchPatternExistsAsync(collectionName, patternName);
+                if (exists)
+                {
+                    ShowError($"Pattern '{patternName}' already exists in collection '{collectionName}'. Check 'Overwrite' to replace it.");
+                    return;
+                }
+            }
+
+            // Create a copy of the current pattern with the correct name
+            var patternToSave = new SearchPattern
+                {
+                    SearchName = patternName,
+                    KeyWord = CurrentPattern.KeyWord ?? "",
+                    ToleranceX = CurrentPattern.ToleranceX,
+                    ToleranceY = CurrentPattern.ToleranceY,
+                    StopWords = CurrentPattern.StopWords ?? "",
+                    PatternType = CurrentPattern.PatternType ?? "",
+                    RegexPatterns = CurrentPattern.RegexPatterns ?? new List<string>()
+                };
+
+            // Save the pattern
+            var success = await PatternService.SaveSearchPatternAsync(collectionName, patternName, patternToSave);
+
+            if (success)
+            {
+                ShowSuccess($"Pattern '{patternName}' saved successfully to collection '{collectionName}'!");
+
+                // Notify parent component
+                await OnPatternSaved.InvokeAsync();
+
+                // Clear form (optional)
+                // patternName = "";
+                // collectionName = "";
+            }
+            else
+            {
+                ShowError("Failed to save pattern. Please check logs for details.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error saving pattern: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ShowSuccess(string message)
+    {
+        statusMessage = message;
+        isError = false;
+    }
+
+    private void ShowError(string message)
+    {
+        statusMessage = message;
+        isError = true;
+    }
+
+    private void ClearStatus()
+    {
+        statusMessage = "";
+        isError = false;
+    }
+}

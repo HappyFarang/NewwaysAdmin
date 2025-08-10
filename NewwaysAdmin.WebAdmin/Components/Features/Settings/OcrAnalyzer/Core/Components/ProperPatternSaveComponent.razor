@@ -1,0 +1,272 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/ProperPatternSaveComponent.razor *@
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@using NewwaysAdmin.SharedModels.Models.Ocr
+@using System.Text.Json
+@inject PatternManagementService PatternService
+
+<div style="background: #e8f5e8; padding: 15px; margin: 10px; border: 2px solid #28a745; border-radius: 8px;">
+    <h6><i class="bi bi-floppy"></i> Save Pattern - Three-Level Structure</h6>
+
+    <!-- Step 1: Collection Selection -->
+    <div class="mb-3">
+        <label class="form-label"><strong>Step 1: Select Collection</strong></label>
+        <div class="input-group">
+            <select @onchange="OnCollectionChanged" class="form-select form-select-sm" value="@selectedCollection">
+                <option value="">-- Select Collection --</option>
+                @foreach (var collection in availableCollections)
+                {
+                    <option value="@collection">@collection</option>
+                }
+            </select>
+            <button @onclick="LoadCollections" class="btn btn-outline-secondary btn-sm" type="button" title="Refresh">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+
+        <!-- Create New Collection -->
+        <div class="mt-2">
+            <div class="input-group">
+                <input @bind="newCollectionName" class="form-control form-control-sm"
+                       placeholder="Or create new collection (e.g., BankSlips, Invoices, Bills)" />
+                <button @onclick="CreateNewCollection" class="btn btn-success btn-sm"
+                        disabled="@(string.IsNullOrEmpty(newCollectionName))">
+                    <i class="bi bi-plus"></i> Create
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Currently Working In -->
+    @if (!string.IsNullOrEmpty(activeCollection))
+    {
+        <div class="alert alert-info py-2 mb-3">
+            <i class="bi bi-folder"></i> <strong>Currently working in:</strong> @activeCollection
+        </div>
+    }
+
+    <!-- Step 2: Pattern Details (only show when collection is selected) -->
+    @if (!string.IsNullOrEmpty(activeCollection))
+    {
+        <div class="mb-3">
+            <label class="form-label"><strong>Step 2: Pattern Details</strong></label>
+            <div class="row">
+                <div class="col-md-6">
+                    <input @bind="patternName" class="form-control form-control-sm"
+                           placeholder="Pattern name (e.g., Date, To, Total, Memo)" />
+                </div>
+                <div class="col-md-6">
+                    @if (CurrentPattern != null)
+                    {
+                        <div style="background: #f8f9fa; padding: 5px; border-radius: 4px; font-size: 0.75em;">
+                            @CurrentPattern.PatternType | "@CurrentPattern.KeyWord" | X:@CurrentPattern.ToleranceX Y:@CurrentPattern.ToleranceY
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="mb-3">
+            <button @onclick="SavePattern"
+                    class="btn btn-success btn-sm"
+                    disabled="@(string.IsNullOrEmpty(patternName) || CurrentPattern == null || isSaving)">
+                @if (isSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                }
+                <i class="bi bi-floppy"></i> Save "@patternName" to @activeCollection
+            </button>
+
+            @if (!string.IsNullOrEmpty(lastSavedJson))
+            {
+                <button @onclick="ToggleJsonView" class="btn btn-outline-info btn-sm ms-2">
+                    <i class="bi bi-code"></i> @(showJson ? "Hide" : "Show") JSON
+                </button>
+            }
+        </div>
+    }
+
+    <!-- Status Messages -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isError ? "alert-danger" : "alert-success") py-2 mb-3">
+            <i class="bi @(isError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+            @statusMessage
+        </div>
+    }
+
+    <!-- JSON Output (for debugging) -->
+    @if (showJson && !string.IsNullOrEmpty(lastSavedJson))
+    {
+        <div>
+            <strong>Full Library Structure:</strong>
+            <pre style="background: #2d3748; color: #e2e8f0; padding: 10px; border-radius: 4px; font-size: 0.7em; max-height: 300px; overflow-y: auto;">@lastSavedJson</pre>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public SearchPattern? CurrentPattern { get; set; }
+    [Parameter] public EventCallback OnPatternSaved { get; set; }
+
+    private List<string> availableCollections = new();
+    private string selectedCollection = "";
+    private string activeCollection = "";
+    private string newCollectionName = "";
+    private string patternName = "";
+    private bool isSaving = false;
+    private string statusMessage = "";
+    private bool isError = false;
+    private string lastSavedJson = "";
+    private bool showJson = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCollections();
+    }
+
+    private async Task LoadCollections()
+    {
+        try
+        {
+            availableCollections = await PatternService.GetCollectionNamesAsync();
+            ClearStatus();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error loading collections: {ex.Message}");
+        }
+    }
+
+    private async Task OnCollectionChanged(ChangeEventArgs e)
+    {
+        selectedCollection = e.Value?.ToString() ?? "";
+        activeCollection = selectedCollection;
+        patternName = ""; // Reset pattern name when switching collections
+        ClearStatus();
+    }
+
+    private async Task CreateNewCollection()
+    {
+        if (string.IsNullOrEmpty(newCollectionName))
+            return;
+
+        try
+        {
+            // Create an empty collection by saving a dummy pattern and then deleting it
+            var dummyPattern = new SearchPattern
+                {
+                    SearchName = "_temp",
+                    KeyWord = "temp",
+                    PatternType = "VerticalColumn",
+                    ToleranceX = 0,
+                    ToleranceY = 0,
+                    StopWords = "",
+                    RegexPatterns = new List<string>()
+                };
+
+            // This will create the collection
+            await PatternService.SaveSearchPatternAsync(newCollectionName, "_temp", dummyPattern);
+            // Then delete the dummy pattern
+            await PatternService.DeleteSearchPatternAsync(newCollectionName, "_temp");
+
+            // Update UI
+            await LoadCollections();
+            activeCollection = newCollectionName;
+            selectedCollection = newCollectionName;
+            newCollectionName = "";
+
+            ShowSuccess($"✅ Created collection '{activeCollection}'");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error creating collection: {ex.Message}");
+        }
+    }
+
+    private async Task SavePattern()
+    {
+        if (CurrentPattern == null || string.IsNullOrEmpty(activeCollection) || string.IsNullOrEmpty(patternName))
+            return;
+
+        try
+        {
+            isSaving = true;
+            ClearStatus();
+            StateHasChanged();
+
+            // Create the pattern to save
+            var patternToSave = new SearchPattern
+                {
+                    SearchName = patternName,
+                    KeyWord = CurrentPattern.KeyWord ?? "",
+                    PatternType = CurrentPattern.PatternType ?? "VerticalColumn",
+                    ToleranceX = CurrentPattern.ToleranceX,
+                    ToleranceY = CurrentPattern.ToleranceY,
+                    StopWords = CurrentPattern.StopWords ?? "",
+                    RegexPatterns = CurrentPattern.RegexPatterns ?? new List<string>()
+                };
+
+            // Save using the proper three-level structure
+            var success = await PatternService.SaveSearchPatternAsync(activeCollection, patternName, patternToSave);
+
+            if (success)
+            {
+                ShowSuccess($"✅ Pattern '{patternName}' saved to collection '{activeCollection}'!");
+
+                // Get the full library for JSON display
+                var library = await PatternService.LoadLibraryAsync();
+                lastSavedJson = JsonSerializer.Serialize(library, new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+
+                Console.WriteLine("=== FULL PATTERN LIBRARY ===");
+                Console.WriteLine(lastSavedJson);
+
+                // Clear pattern name for next save
+                patternName = "";
+
+                // Notify parent
+                await OnPatternSaved.InvokeAsync();
+            }
+            else
+            {
+                ShowError("❌ Failed to save pattern. Check console for errors.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError($"❌ Error saving pattern: {ex.Message}");
+            Console.WriteLine($"Save error: {ex}");
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleJsonView()
+    {
+        showJson = !showJson;
+    }
+
+    private void ShowSuccess(string message)
+    {
+        statusMessage = message;
+        isError = false;
+    }
+
+    private void ShowError(string message)
+    {
+        statusMessage = message;
+        isError = true;
+    }
+
+    private void ClearStatus()
+    {
+        statusMessage = "";
+        isError = false;
+    }
+}

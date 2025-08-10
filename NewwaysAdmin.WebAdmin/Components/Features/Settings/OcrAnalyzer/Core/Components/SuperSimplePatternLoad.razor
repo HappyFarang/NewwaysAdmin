@@ -1,0 +1,61 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/SuperSimplePatternLoad.razor *@
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@using NewwaysAdmin.SharedModels.Models.Ocr
+@inject PatternManagementService PatternService
+
+<div style="background: lightblue; padding: 10px; margin: 10px; border: 2px solid blue;">
+    <h6>🔧 LOAD COMPONENT TEST - STEP 3</h6>
+    <p>Testing parameter passing...</p>
+    <p><strong>Service Status:</strong> @serviceStatus</p>
+    <p><strong>Test Message:</strong> @testMessage</p>
+    <button @onclick="TestService" class="btn btn-sm btn-primary">Test Service</button>
+    <button @onclick="TestCallback" class="btn btn-sm btn-success">Test Callback</button>
+</div>
+
+@code {
+    [Parameter] public EventCallback<SearchPattern> OnPatternLoaded { get; set; }
+
+    private string serviceStatus = "Not tested yet";
+    private string testMessage = "Callback not tested";
+
+    private async Task TestService()
+    {
+        try
+        {
+            var collections = await PatternService.GetCollectionNamesAsync();
+            serviceStatus = $"✅ Works! Found {collections.Count} collections";
+        }
+        catch (Exception ex)
+        {
+            serviceStatus = $"❌ Error: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task TestCallback()
+    {
+        try
+        {
+            var testPattern = new SearchPattern
+                {
+                    SearchName = "TestPattern",
+                    KeyWord = "Test",
+                    PatternType = "VerticalColumn",
+                    ToleranceX = 10,
+                    ToleranceY = 20,
+                    StopWords = "",
+                    RegexPatterns = new List<string>()
+                };
+
+            await OnPatternLoaded.InvokeAsync(testPattern);
+            testMessage = "✅ Callback works!";
+        }
+        catch (Exception ex)
+        {
+            testMessage = $"❌ Callback error: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+}

@@ -1,10 +1,16 @@
 ﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Views/PatternView.razor *@
 @using WordBoundingBox = NewwaysAdmin.SharedModels.Models.Ocr.Core.WordBoundingBox;
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core.Components
+@using NewwaysAdmin.SharedModels.Models.Ocr
 @implements IDisposable
 @inject IJSRuntime JSRuntime
 
 <div class="patterns-section">
+
+    <!-- TEST: Super simple component -->
+    <ProperPatternSaveComponent CurrentPattern="@GetCurrentSearchPattern()"
+                                OnPatternSaved="@OnPatternSaved" />
+
     <div class="row">
         <!-- Left: Pattern Configuration -->
         <div class="col-md-4">
@@ -66,7 +72,7 @@
                 }
             </div>
 
-            <!-- SAFE REPLACEMENT: Use new component instead of inline results panel -->
+            <!-- Results Panel -->
             <PatternResultsPanel PatternResult="@State.CurrentPatternResult"
                                  SearchTerm="@State.PatternSearchTerm" />
         </div>
@@ -460,5 +466,33 @@
         {
             // Fallback for older browsers - could show a message
         }
+    }
+
+    // NEW: Test callback for the component
+    private void TestPatternCallback(SearchPattern pattern)
+    {
+        Console.WriteLine($"Received pattern: {pattern.SearchName}");
+    }
+    private SearchPattern? GetCurrentSearchPattern()
+    {
+        if (string.IsNullOrEmpty(State.PatternSearchTerm))
+            return null;
+
+        return new SearchPattern
+            {
+                SearchName = State.PatternSearchTerm,
+                KeyWord = State.PatternSearchTerm,
+                PatternType = State.SelectedPatternType ?? "VerticalColumn",
+                ToleranceX = State.PatternXTolerance,
+                ToleranceY = State.PatternYTolerance,
+                StopWords = State.PatternStopWords ?? "",
+                RegexPatterns = new List<string>()
+            };
+    }
+
+    private void OnPatternSaved()
+    {
+        // Just refresh the UI
+        StateHasChanged();
     }
 }

@@ -67,5 +67,16 @@ public static class StorageFolderConfiguration
             CreateBackups = true,
             MaxBackupCount = 10
         };
+        // OCR Patterns folder for storing pattern collections
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "OcrPatterns",
+            Description = "OCR pattern collections and search patterns",
+            Type = StorageType.Json,
+            Path = "Ocr",
+            IsShared = true,  // Other modules might use these patterns
+            CreateBackups = true,
+            MaxBackupCount = 10  // More backups since patterns are valuable
+        });
     }
 }
