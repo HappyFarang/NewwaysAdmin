@@ -28,8 +28,8 @@ using NewwaysAdmin.GoogleSheets.Layouts;
 using NewwaysAdmin.GoogleSheets.Interfaces;
 using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
-using NewwaysAdmin.SharedModels.Models.Ocr.Patterns;
 using NewwaysAdmin.SharedModels.Services.Ocr;
+using NewwaysAdmin.SharedModels.Models.Ocr;
 
 namespace NewwaysAdmin.WebAdmin;
 

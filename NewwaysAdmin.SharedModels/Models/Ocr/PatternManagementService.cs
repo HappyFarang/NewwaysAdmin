@@ -1,6 +1,6 @@
 ﻿// NewwaysAdmin.SharedModels/Services/Ocr/PatternManagementService.cs
-using NewwaysAdmin.SharedModels.Models.Ocr.Patterns;
 using NewwaysAdmin.Shared.IO;
+using NewwaysAdmin.SharedModels.Models.Ocr;
 
 namespace NewwaysAdmin.SharedModels.Services.Ocr
 {
@@ -95,7 +95,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 {
                     library = new PatternLibrary
                     {
-                        Collections = new Dictionary<string, Models.Ocr.Patterns.PatternCollection>
+                        Collections = new Dictionary<string, Models.Ocr.PatternCollection>
                 }
 
                 // Ensure Collections dictionary is not null

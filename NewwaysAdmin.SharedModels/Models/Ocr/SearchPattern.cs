@@ -1,7 +1,7 @@
 ﻿// NewwaysAdmin.SharedModels/Models/Ocr/SearchPattern.cs
-using NewwaysAdmin.SharedModels.Models.Ocr.Patterns;
+using NewwaysAdmin.SharedModels.Models.Ocr;
 
-namespace NewwaysAdmin.SharedModels.Models.Ocr.Patterns
+namespace NewwaysAdmin.SharedModels.Models.Ocr
 {
 
     public class SearchPattern
@@ -30,11 +30,4 @@ namespace NewwaysAdmin.SharedModels.Models.Ocr.Patterns
         // Value = the PatternCollection
     }
 }
-public class PatternCollection
-{
-    public string Name { get; set; }  // e.g., "Bank slips", "KBIZ", etc.
 
-    // THIS IS THE KEY CHANGE - PatternCollection can contain EITHER:
-    public Dictionary<string, PatternCollection>? SubCollections { get; set; }  // For level 2 (KBIZ, KBank)
-    public Dictionary<string, SearchPattern>? SearchPatterns { get; set; }      // For level 3 (Date, Total)
-}
