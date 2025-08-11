@@ -138,11 +138,39 @@
             <pre style="background: #2d3748; color: #e2e8f0; padding: 10px; border-radius: 4px; font-size: 0.7em; max-height: 300px; overflow-y: auto;">@lastSavedJson</pre>
         </div>
     }
-</div>
+
+    <!-- CLEANUP SECTION -->
+    <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;">
+        <h6><i class="bi bi-tools"></i> Library Maintenance</h6>
+        <p><small>Clean up empty sub-collections and document types from the pattern library.</small></p>
+
+        <button @onclick="CleanupLibrary"
+                class="btn btn-warning btn-sm"
+                disabled="@isCleaningUp">
+            @if (isCleaningUp)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+            }
+            <i class="bi bi-broom"></i> Clean Up Empty Containers
+        </button>
+
+        @if (!string.IsNullOrEmpty(cleanupMessage))
+        {
+            <div class="alert @(cleanupError ? "alert-danger" : "alert-success") mt-2 mb-0 py-2">
+                <i class="bi @(cleanupError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                @cleanupMessage
+            </div>
+        }
+    </div>
+</div> @* FIXED: Added missing closing div tag *@
 
 @code {
     [Parameter] public SearchPattern? CurrentPattern { get; set; }
     [Parameter] public EventCallback OnPatternSaved { get; set; }
+
+    private bool isCleaningUp = false;
+    private string cleanupMessage = "";
+    private bool cleanupError = false;
 
     // Level 1: Document Types
     private List<string> availableDocumentTypes = new();
@@ -367,5 +395,41 @@
     {
         statusMessage = "";
         isError = false;
+    }
+
+    private async Task CleanupLibrary()
+    {
+        try
+        {
+            isCleaningUp = true;
+            cleanupMessage = "";
+            StateHasChanged();
+
+            var success = await PatternService.CleanupEmptyContainersAsync();
+
+            if (success)
+            {
+                cleanupMessage = "✅ Library cleanup completed successfully!";
+                cleanupError = false;
+
+                // Refresh the dropdowns to reflect the cleanup
+                await LoadDocumentTypes();
+            }
+            else
+            {
+                cleanupMessage = "❌ Cleanup failed. Check logs for details.";
+                cleanupError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            cleanupMessage = $"❌ Error during cleanup: {ex.Message}";
+            cleanupError = true;
+        }
+        finally
+        {
+            isCleaningUp = false;
+            StateHasChanged();
+        }
     }
 }
