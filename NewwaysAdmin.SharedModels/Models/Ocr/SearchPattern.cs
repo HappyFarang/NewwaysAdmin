@@ -1,9 +1,10 @@
 ﻿// NewwaysAdmin.SharedModels/Models/Ocr/SearchPattern.cs
+// UPDATED with proper 3-level structure
+
 using NewwaysAdmin.SharedModels.Models.Ocr;
 
 namespace NewwaysAdmin.SharedModels.Models.Ocr
 {
-
     public class SearchPattern
     {
         public string SearchName { get; set; }      // e.g., "Date", "Total", "Note"
@@ -14,20 +15,42 @@ namespace NewwaysAdmin.SharedModels.Models.Ocr
         public string PatternType { get; set; }     // "VerticalColumn" or "Horizontal"
         public List<string> RegexPatterns { get; set; }  // Multiple regex patterns to test
     }
-    public class PatternCollection
+
+    public class PatternSubCollection
     {
-        public string Name { get; set; }  // e.g., "KBIZ", "KBank", "SCB"
+        public string Name { get; set; }  // e.g., "KBIZ", "KBank", "SCB", "HomePro"
         public Dictionary<string, SearchPattern> SearchPatterns { get; set; }
-        // Key = "Date", "Total", "Note" etc. (user-created names)
+        // Key = "Date", "Total", "Note" etc. (field names)
         // Value = the SearchPattern for that field
+
+        public PatternSubCollection()
+        {
+            SearchPatterns = new Dictionary<string, SearchPattern>();
+        }
     }
 
-    // NewwaysAdmin.SharedModels/Models/Ocr/PatternLibrary.cs
+    public class PatternCollection
+    {
+        public string Name { get; set; }  // e.g., "BankSlips", "Invoices", "Bills"
+        public Dictionary<string, PatternSubCollection> SubCollections { get; set; }
+        // Key = Sub groups (KBIZ, KBank, HomePro, etc)
+        // Value = the PatternSubCollection containing specific patterns
+
+        public PatternCollection()
+        {
+            SubCollections = new Dictionary<string, PatternSubCollection>();
+        }
+    }
+
     public class PatternLibrary
     {
         public Dictionary<string, PatternCollection> Collections { get; set; }
-        // Key = collection name ("KBIZ", "KBank" etc.)
-        // Value = the PatternCollection
+        // Key = Document type ("BankSlips", "Invoices", "Bills", etc)
+        // Value = the PatternCollection containing sub-collections
+
+        public PatternLibrary()
+        {
+            Collections = new Dictionary<string, PatternCollection>();
+        }
     }
 }
-

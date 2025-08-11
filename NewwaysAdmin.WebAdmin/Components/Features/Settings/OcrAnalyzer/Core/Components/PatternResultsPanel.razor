@@ -1,6 +1,8 @@
 ﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/PatternResultsPanel.razor *@
 @using Microsoft.AspNetCore.Components
 @using Microsoft.JSInterop
+@using System.Text.RegularExpressions
+@using Microsoft.AspNetCore.Components
 @inject IJSRuntime JSRuntime
 
 <!-- Results Panel -->
@@ -111,75 +113,81 @@
 @code {
     [Parameter] public PatternTestResult? PatternResult { get; set; }
     [Parameter] public string SearchTerm { get; set; } = "";
+    [Parameter] public EventCallback<string> OnRegexPatternChanged { get; set; }
 
     // Local regex testing state (pure local, no global state changes)
     private string localRegexPattern = "";
     private string highlightedText = "";
     private string regexError = "";
     private int regexMatchCount = 0;
+    private string currentValidRegex = "";
 
-    private void TestRegexOnCombinedText()
+    private async Task TestRegexOnCombinedText()
     {
-        // Clear previous results
-        highlightedText = "";
-        regexError = "";
-        regexMatchCount = 0;
-
-        // Validate input
-        if (string.IsNullOrEmpty(localRegexPattern) ||
-            PatternResult?.Success != true ||
-            string.IsNullOrEmpty(PatternResult.CombinedText))
+        if (string.IsNullOrEmpty(localRegexPattern) || PatternResult?.Success != true)
         {
+            highlightedText = "";
+            regexMatchCount = 0;
+            regexError = "";
+            currentValidRegex = "";
+
+            // Notify parent that regex was cleared
+            await OnRegexPatternChanged.InvokeAsync("");
             return;
         }
 
         try
         {
-            // Test regex on the combined text
-            var combinedText = PatternResult.CombinedText;
-            var regex = new System.Text.RegularExpressions.Regex(localRegexPattern,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            regexError = "";
+            var combinedText = PatternResult.CombinedText ?? "";
 
+            var regex = new Regex(localRegexPattern, RegexOptions.IgnoreCase);
             var matches = regex.Matches(combinedText);
-            regexMatchCount = matches.Count;
+            regexMatchCount = matches.Count; // Fixed: added .Count
 
-            if (matches.Count > 0)
+            if (matches.Count > 0) // Fixed: added .Count
             {
-                // Highlight matches with simple yellow background
-                var result = combinedText;
+                // Store the valid regex
+                currentValidRegex = localRegexPattern;
+
+                // Notify parent of the valid regex pattern
+                await OnRegexPatternChanged.InvokeAsync(localRegexPattern);
+
+                // Create highlighted text
+                var highlightedCombinedText = combinedText;
                 var offset = 0;
 
-                foreach (System.Text.RegularExpressions.Match match in matches)
+                foreach (Match match in matches.Cast<Match>().OrderBy(m => m.Index))
                 {
-                    var startTag = "<mark style='background-color: yellow; padding: 1px 2px; border-radius: 2px;'>";
-                    var endTag = "</mark>";
-                    var insertPosition = match.Index + offset;
+                    var beforeMatch = highlightedCombinedText.Substring(0, match.Index + offset);
+                    var matchText = highlightedCombinedText.Substring(match.Index + offset, match.Length);
+                    var afterMatch = highlightedCombinedText.Substring(match.Index + offset + match.Length);
 
-                    result = result.Insert(insertPosition, startTag);
-                    offset += startTag.Length;
+                    var highlightedMatch = $"<mark style='background: yellow; font-weight: bold;'>{matchText}</mark>";
+                    highlightedCombinedText = beforeMatch + highlightedMatch + afterMatch;
 
-                    insertPosition = match.Index + match.Length + offset;
-                    result = result.Insert(insertPosition, endTag);
-                    offset += endTag.Length;
+                    offset += highlightedMatch.Length - match.Length;
                 }
 
-                highlightedText = result;
+                highlightedText = highlightedCombinedText;
             }
             else
             {
-                highlightedText = combinedText; // No matches, show original text
+                highlightedText = combinedText;
+                currentValidRegex = "";
+                await OnRegexPatternChanged.InvokeAsync("");
             }
-        }
-        catch (System.ArgumentException ex)
-        {
-            regexError = $"Invalid regex pattern: {ex.Message}";
-            highlightedText = "";
         }
         catch (Exception ex)
         {
-            regexError = $"Error testing regex: {ex.Message}";
+            regexError = $"Invalid regex: {ex.Message}";
             highlightedText = "";
+            regexMatchCount = 0;
+            currentValidRegex = "";
+            await OnRegexPatternChanged.InvokeAsync("");
         }
+
+        StateHasChanged();
     }
 
     private async Task CopyWordToClipboard(string word)

@@ -8,7 +8,7 @@
 <div class="patterns-section">
 
     <!-- TEST: Super simple component -->
-    <ProperPatternSaveComponent CurrentPattern="@GetCurrentSearchPattern()"
+    <ThreeLevelPatternSaveComponent CurrentPattern="@GetCurrentSearchPattern()"
                                 OnPatternSaved="@OnPatternSaved" />
 
     <div class="row">
@@ -74,7 +74,8 @@
 
             <!-- Results Panel -->
             <PatternResultsPanel PatternResult="@State.CurrentPatternResult"
-                                 SearchTerm="@State.PatternSearchTerm" />
+                                 SearchTerm="@State.PatternSearchTerm"
+                                 OnRegexPatternChanged="@OnRegexPatternChanged" />
         </div>
 
         <!-- Right: Visual Results -->
@@ -155,6 +156,14 @@
 
 @code {
     [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
+
+    private string currentRegexPattern = "";
+
+    private void OnRegexPatternChanged(string regexPattern)
+    {
+        currentRegexPattern = regexPattern;
+        Console.WriteLine($"Regex pattern changed to: '{regexPattern}'");
+    }
 
     protected override void OnInitialized()
     {
@@ -478,6 +487,12 @@
         if (string.IsNullOrEmpty(State.PatternSearchTerm))
             return null;
 
+        var regexPatterns = new List<string>();
+        if (!string.IsNullOrEmpty(currentRegexPattern))
+        {
+            regexPatterns.Add(currentRegexPattern);
+        }
+
         return new SearchPattern
             {
                 SearchName = State.PatternSearchTerm,
@@ -486,7 +501,7 @@
                 ToleranceX = State.PatternXTolerance,
                 ToleranceY = State.PatternYTolerance,
                 StopWords = State.PatternStopWords ?? "",
-                RegexPatterns = new List<string>()
+                RegexPatterns = regexPatterns  // NOW INCLUDES THE TESTED REGEX!
             };
     }
 

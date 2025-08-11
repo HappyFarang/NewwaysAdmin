@@ -1,0 +1,371 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/ThreeLevelPatternSaveComponent.razor *@
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@using NewwaysAdmin.SharedModels.Models.Ocr
+@using System.Text.Json
+@inject PatternManagementService PatternService
+
+<div style="background: #e8f5e8; padding: 15px; margin: 10px; border: 2px solid #28a745; border-radius: 8px;">
+    <h6><i class="bi bi-floppy"></i> Save Pattern - Proper 3-Level Structure</h6>
+
+    <!-- Step 1: Document Type Selection -->
+    <div class="mb-3">
+        <label class="form-label"><strong>Step 1: Select Document Type</strong></label>
+        <div class="input-group">
+            <select @onchange="OnDocumentTypeChanged" class="form-select form-select-sm" value="@selectedDocumentType">
+                <option value="">-- Select Document Type --</option>
+                @foreach (var docType in availableDocumentTypes)
+                {
+                    <option value="@docType">@docType</option>
+                }
+            </select>
+            <button @onclick="LoadDocumentTypes" class="btn btn-outline-secondary btn-sm" type="button" title="Refresh">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
+        </div>
+
+        <!-- Create New Document Type -->
+        <div class="mt-2">
+            <div class="input-group">
+                <input @bind="newDocumentType" class="form-control form-control-sm"
+                       placeholder="Or create new document type (e.g., BankSlips, Invoices, Bills)" />
+                <button @onclick="CreateNewDocumentType" class="btn btn-success btn-sm"
+                        disabled="@(string.IsNullOrEmpty(newDocumentType))">
+                    <i class="bi bi-plus"></i> Create
+                </button>
+            </div>
+            <small class="form-text text-muted">Document types group related formats together</small>
+        </div>
+    </div>
+
+    <!-- Step 2: Sub-Collection Selection (only show when document type is selected) -->
+    @if (!string.IsNullOrEmpty(selectedDocumentType))
+    {
+        <div class="mb-3">
+            <label class="form-label"><strong>Step 2: Select Format Collection</strong></label>
+            <div class="input-group">
+                <select @onchange="OnSubCollectionChanged" class="form-select form-select-sm" value="@selectedSubCollection">
+                    <option value="">-- Select Format --</option>
+                    @foreach (var subCol in availableSubCollections)
+                    {
+                        <option value="@subCol">@subCol</option>
+                    }
+                </select>
+                <button @onclick="LoadSubCollections" class="btn btn-outline-secondary btn-sm" type="button" title="Refresh">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+
+            <!-- Create New Sub-Collection -->
+            <div class="mt-2">
+                <div class="input-group">
+                    <input @bind="newSubCollection" class="form-control form-control-sm"
+                           placeholder="Or create new format (e.g., KBIZ, KBank, SCB, HomePro)" />
+                    <button @onclick="CreateNewSubCollection" class="btn btn-success btn-sm"
+                            disabled="@(string.IsNullOrEmpty(newSubCollection))">
+                        <i class="bi bi-plus"></i> Create
+                    </button>
+                </div>
+                <small class="form-text text-muted">Each format represents a specific document layout/bank</small>
+            </div>
+        </div>
+    }
+
+    <!-- Currently Working In -->
+    @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
+    {
+        <div class="alert alert-info py-2 mb-3">
+            <i class="bi bi-folder"></i> <strong>Currently working in:</strong> @selectedDocumentType → @selectedSubCollection
+            <small class="d-block text-muted">All patterns will be saved to this specific format collection</small>
+        </div>
+    }
+
+    <!-- Step 3: Pattern Details (only show when both levels are selected) -->
+    @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
+    {
+        <div class="mb-3">
+            <label class="form-label"><strong>Step 3: Pattern Details</strong></label>
+            <div class="row">
+                <div class="col-md-6">
+                    <input @bind="patternName" class="form-control form-control-sm"
+                           placeholder="Pattern name (e.g., Date, To, Total, Memo)" />
+                </div>
+                <div class="col-md-6">
+                    @if (CurrentPattern != null)
+                    {
+                        <div style="background: #f8f9fa; padding: 5px; border-radius: 4px; font-size: 0.75em;">
+                            @CurrentPattern.PatternType | "@CurrentPattern.KeyWord" | X:@CurrentPattern.ToleranceX Y:@CurrentPattern.ToleranceY
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="mb-3">
+            <button @onclick="SavePattern"
+                    class="btn btn-success btn-sm"
+                    disabled="@(string.IsNullOrEmpty(patternName) || CurrentPattern == null || isSaving)">
+                @if (isSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                }
+                <i class="bi bi-floppy"></i> Save "@patternName" to @selectedDocumentType → @selectedSubCollection
+            </button>
+
+            @if (!string.IsNullOrEmpty(lastSavedJson))
+            {
+                <button @onclick="ToggleJsonView" class="btn btn-outline-info btn-sm ms-2">
+                    <i class="bi bi-code"></i> @(showJson ? "Hide" : "Show") JSON
+                </button>
+            }
+        </div>
+    }
+
+    <!-- Status Messages -->
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(isError ? "alert-danger" : "alert-success") py-2 mb-3">
+            <i class="bi @(isError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+            @statusMessage
+        </div>
+    }
+
+    <!-- JSON Output (for debugging) -->
+    @if (showJson && !string.IsNullOrEmpty(lastSavedJson))
+    {
+        <div>
+            <strong>Full Library Structure:</strong>
+            <pre style="background: #2d3748; color: #e2e8f0; padding: 10px; border-radius: 4px; font-size: 0.7em; max-height: 300px; overflow-y: auto;">@lastSavedJson</pre>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public SearchPattern? CurrentPattern { get; set; }
+    [Parameter] public EventCallback OnPatternSaved { get; set; }
+
+    // Level 1: Document Types
+    private List<string> availableDocumentTypes = new();
+    private string selectedDocumentType = "";
+    private string newDocumentType = "";
+
+    // Level 2: Sub-Collections
+    private List<string> availableSubCollections = new();
+    private string selectedSubCollection = "";
+    private string newSubCollection = "";
+
+    // Level 3: Pattern
+    private string patternName = "";
+
+    // UI State
+    private bool isSaving = false;
+    private string statusMessage = "";
+    private bool isError = false;
+    private string lastSavedJson = "";
+    private bool showJson = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocumentTypes();
+    }
+
+    private async Task LoadDocumentTypes()
+    {
+        try
+        {
+            availableDocumentTypes = await PatternService.GetCollectionNamesAsync();
+            ClearStatus();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error loading document types: {ex.Message}");
+        }
+    }
+
+    private async Task LoadSubCollections()
+    {
+        if (string.IsNullOrEmpty(selectedDocumentType))
+            return;
+
+        try
+        {
+            availableSubCollections = await PatternService.GetSubCollectionNamesAsync(selectedDocumentType);
+            ClearStatus();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error loading sub-collections: {ex.Message}");
+        }
+    }
+
+    private async Task OnDocumentTypeChanged(ChangeEventArgs e)
+    {
+        selectedDocumentType = e.Value?.ToString() ?? "";
+        selectedSubCollection = "";
+        patternName = "";
+        availableSubCollections.Clear();
+
+        if (!string.IsNullOrEmpty(selectedDocumentType))
+        {
+            await LoadSubCollections();
+        }
+
+        ClearStatus();
+    }
+
+    private async Task OnSubCollectionChanged(ChangeEventArgs e)
+    {
+        selectedSubCollection = e.Value?.ToString() ?? "";
+        patternName = "";
+        ClearStatus();
+    }
+
+    private async Task CreateNewDocumentType()
+    {
+        if (string.IsNullOrEmpty(newDocumentType))
+            return;
+
+        try
+        {
+            // Create document type by creating a temporary sub-collection
+            var dummyPattern = new SearchPattern
+                {
+                    SearchName = "_temp",
+                    KeyWord = "temp",
+                    PatternType = "VerticalColumn",
+                    ToleranceX = 0,
+                    ToleranceY = 0,
+                    StopWords = "",
+                    RegexPatterns = new List<string>()
+                };
+
+            await PatternService.SaveSearchPatternAsync(newDocumentType, "_temp", "_temp", dummyPattern);
+            await PatternService.DeleteSearchPatternAsync(newDocumentType, "_temp", "_temp");
+
+            await LoadDocumentTypes();
+            selectedDocumentType = newDocumentType;
+            newDocumentType = "";
+
+            ShowSuccess($"✅ Created document type '{selectedDocumentType}'");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error creating document type: {ex.Message}");
+        }
+    }
+
+    private async Task CreateNewSubCollection()
+    {
+        if (string.IsNullOrEmpty(selectedDocumentType) || string.IsNullOrEmpty(newSubCollection))
+            return;
+
+        try
+        {
+            // Create sub-collection by creating a temporary pattern
+            var dummyPattern = new SearchPattern
+                {
+                    SearchName = "_temp",
+                    KeyWord = "temp",
+                    PatternType = "VerticalColumn",
+                    ToleranceX = 0,
+                    ToleranceY = 0,
+                    StopWords = "",
+                    RegexPatterns = new List<string>()
+                };
+
+            await PatternService.SaveSearchPatternAsync(selectedDocumentType, newSubCollection, "_temp", dummyPattern);
+            await PatternService.DeleteSearchPatternAsync(selectedDocumentType, newSubCollection, "_temp");
+
+            await LoadSubCollections();
+            selectedSubCollection = newSubCollection;
+            newSubCollection = "";
+
+            ShowSuccess($"✅ Created format collection '{selectedSubCollection}' in '{selectedDocumentType}'");
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error creating sub-collection: {ex.Message}");
+        }
+    }
+
+    private async Task SavePattern()
+    {
+        if (CurrentPattern == null || string.IsNullOrEmpty(selectedDocumentType) ||
+            string.IsNullOrEmpty(selectedSubCollection) || string.IsNullOrEmpty(patternName))
+            return;
+
+        try
+        {
+            isSaving = true;
+            ClearStatus();
+            StateHasChanged();
+
+            var patternToSave = new SearchPattern
+                {
+                    SearchName = patternName,
+                    KeyWord = CurrentPattern.KeyWord ?? "",
+                    PatternType = CurrentPattern.PatternType ?? "VerticalColumn",
+                    ToleranceX = CurrentPattern.ToleranceX,
+                    ToleranceY = CurrentPattern.ToleranceY,
+                    StopWords = CurrentPattern.StopWords ?? "",
+                    RegexPatterns = CurrentPattern.RegexPatterns ?? new List<string>()
+                };
+
+            var success = await PatternService.SaveSearchPatternAsync(selectedDocumentType, selectedSubCollection, patternName, patternToSave);
+
+            if (success)
+            {
+                ShowSuccess($"✅ Pattern '{patternName}' saved to {selectedDocumentType} → {selectedSubCollection}!");
+
+                var library = await PatternService.LoadLibraryAsync();
+                lastSavedJson = JsonSerializer.Serialize(library, new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+
+                Console.WriteLine("=== FULL 3-LEVEL PATTERN LIBRARY ===");
+                Console.WriteLine(lastSavedJson);
+
+                patternName = "";
+                await OnPatternSaved.InvokeAsync();
+            }
+            else
+            {
+                ShowError("❌ Failed to save pattern. Check console for errors.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError($"❌ Error saving pattern: {ex.Message}");
+            Console.WriteLine($"Save error: {ex}");
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleJsonView()
+    {
+        showJson = !showJson;
+    }
+
+    private void ShowSuccess(string message)
+    {
+        statusMessage = message;
+        isError = false;
+    }
+
+    private void ShowError(string message)
+    {
+        statusMessage = message;
+        isError = true;
+    }
+
+    private void ClearStatus()
+    {
+        statusMessage = "";
+        isError = false;
+    }
+}

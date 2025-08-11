@@ -27,12 +27,13 @@
         <div class="mt-2">
             <div class="input-group">
                 <input @bind="newCollectionName" class="form-control form-control-sm"
-                       placeholder="Or create new collection (e.g., BankSlips, Invoices, Bills)" />
+                       placeholder="Or create new collection (e.g., KBIZ, KBank, SCB, Invoice-TypeA)" />
                 <button @onclick="CreateNewCollection" class="btn btn-success btn-sm"
                         disabled="@(string.IsNullOrEmpty(newCollectionName))">
                     <i class="bi bi-plus"></i> Create
                 </button>
             </div>
+            <small class="form-text text-muted">Each collection represents a specific document format/bank</small>
         </div>
     </div>
 
@@ -41,6 +42,7 @@
     {
         <div class="alert alert-info py-2 mb-3">
             <i class="bi bi-folder"></i> <strong>Currently working in:</strong> @activeCollection
+            <small class="d-block text-muted">All patterns will be saved to this specific document format collection</small>
         </div>
     }
 
