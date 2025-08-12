@@ -8,7 +8,8 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
         // Define which modules are admin-only
         private static readonly HashSet<string> AdminOnlyModules = new()
         {
-            "settings"
+            "settings",
+            "security"
         };
 
         // Define default access levels for modules
@@ -21,7 +22,8 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
             { "accounting", AccessLevel.ReadWrite },           // Main accounting module
             { "accounting.bankslips", AccessLevel.ReadWrite }, // Bank slips sub-module
             { "accounting.reports", AccessLevel.Read },        // Future reports sub-module
-            { "accounting.reconcile", AccessLevel.ReadWrite }  // Future reconciliation sub-module
+            { "accounting.reconcile", AccessLevel.ReadWrite }, // Future reconciliation sub-module
+            { "security", AccessLevel.ReadWrite }
         };
 
         // Define which modules require specific user configurations
@@ -57,6 +59,15 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Path = "/accounting",
                     Icon = "bi bi-calculator",
                     Description = "Accounting tools and reports"
+                },
+                new NavigationItem  // Add this block - matching your existing pattern
+                {
+                    Id = "security",
+                    Name = "Security",
+                    Path = "/admin/security",
+                    Icon = "fas fa-shield-alt",
+                    IsActive = true,
+                    Description = "DoS protection and security monitoring"
                 },
                 new NavigationItem
                 {

@@ -255,7 +255,17 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                 _initLock.Release();
             }
         }
-
+        public static StorageFolder Security { get; } = new StorageFolder
+        {
+            Name = "Security",
+            Path = "Security",
+            Description = "DoS protection and security monitoring data",
+            Type = StorageType.Json,
+            IsShared = false,
+            CreatedBy = "NewwaysAdmin.WebAdmin",
+            CreateBackups = true,
+            MaxBackupCount = 10
+        };
         public async Task<IDataStorage<T>> GetStorage<T>(string folderName) where T : class, new()
         {
             // Ensure storage is initialized

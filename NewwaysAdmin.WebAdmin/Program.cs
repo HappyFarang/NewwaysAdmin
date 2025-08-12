@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Components;
+﻿using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.Circuits;
@@ -30,6 +30,8 @@ using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
 using NewwaysAdmin.SharedModels.Services.Ocr;
 using NewwaysAdmin.SharedModels.Models.Ocr;
+using NewwaysAdmin.WebAdmin.Services.Security;
+using NewwaysAdmin.WebAdmin.Middleware;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -168,6 +170,10 @@ public class Program
         services.AddSingleton<StorageManager>();
         services.AddStorageServices();
 
+        // ===== ADD SECURITY SERVICES HERE =====
+        // Simple DoS protection service (uses your existing StorageManager)
+        services.AddSingleton<ISimpleDoSProtectionService, SimpleDoSProtectionService>();
+
         // Register UserInitializationService
         services.AddScoped<UserInitializationService>();
 
@@ -243,7 +249,6 @@ public class Program
         services.AddSingleton<ModuleColumnRegistry>();
 
         // Register the Bank Slip layout
-        // Register the Bank Slip layout
         services.AddSheetLayout(new BankSlipSheetLayout());
 
         // Register bank slip services (core only)
@@ -256,6 +261,7 @@ public class Program
             options.EnableAutoFormatDetection = true;
         });
         services.AddTestingServices();
+
         // ADD THESE BACK (no longer in extension method):
         services.AddScoped<UserSheetConfigService>(sp =>
         {
@@ -274,6 +280,7 @@ public class Program
             var config = sp.GetRequiredService<GoogleSheetsConfig>();
             return new SheetConfigurationService(columnRegistry, ioManager, logger, config);
         });
+
         // OCR Pattern Management Service
         services.AddScoped<PatternManagementService>(sp =>
         {
@@ -281,6 +288,14 @@ public class Program
             var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
             var storage = storageManager.GetStorageSync<PatternLibrary>("OcrPatterns");
             return new PatternManagementService(storage, logger);
+        });
+
+        // ✅ NEW: OCR Pattern Loader Service (business logic layer)
+        services.AddScoped<PatternLoaderService>(sp =>
+        {
+            var patternManagement = sp.GetRequiredService<PatternManagementService>();
+            var logger = sp.GetRequiredService<ILogger<PatternLoaderService>>();
+            return new PatternLoaderService(patternManagement, logger);
         });
 
         // Register email storage service (only once!)
@@ -331,7 +346,15 @@ public class Program
             throw;
         }
 
-        // Configure CSP
+        // ===== SECURITY MIDDLEWARE PIPELINE =====
+
+        // 1. FIRST: URI Validation (catches UriFormatException from bots)
+        app.UseUriValidation();
+
+        // 2. SECOND: Simple DoS Protection (rate limiting and bot detection)
+        app.UseSimpleDoSProtection();
+
+        // 3. Configure CSP (existing)
         app.Use(async (context, next) =>
         {
             var cspValue = new StringValues(new[]
@@ -349,17 +372,26 @@ public class Program
             await next();
         });
 
-        // Configure environment-specific settings
+        // 4. Configure environment-specific settings (existing)
         if (!app.Environment.IsDevelopment())
         {
             app.UseExceptionHandler("/Error");
         }
 
-        // Configure middleware pipeline
+        // 5. Configure middleware pipeline (existing)
         app.UseStaticFiles();
         app.UseRouting();
 
         app.MapBlazorHub();
         app.MapFallbackToPage("/_Host");
+
+        // ===== SECURITY STATUS LOGGING =====
+        app.Logger.LogInformation("🛡️ NewwaysAdmin started with SECURITY PROTECTION:");
+        app.Logger.LogInformation("✅ URI Validation: Active (blocks malformed requests causing UriFormatException)");
+        app.Logger.LogInformation("🔒 Public pages: 20/min, 100/hour (REASONABLE bot protection)");
+        app.Logger.LogInformation("👤 Authenticated users: 120/min, 3600/hour (GENEROUS limits)");
+        app.Logger.LogInformation("🎯 Bot detection: Suspicious user agents, path scanning, error rates");
+        app.Logger.LogInformation("🚫 Auto-blocking: Escalating timeouts for repeat offenders");
+        app.Logger.LogInformation("💾 Persistence: In-memory with cleanup (survives most scenarios)");
     }
 }
