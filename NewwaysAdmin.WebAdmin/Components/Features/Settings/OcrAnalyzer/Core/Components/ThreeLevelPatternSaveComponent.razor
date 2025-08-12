@@ -70,12 +70,49 @@
         </div>
     }
 
-    <!-- Currently Working In -->
+    <!-- Currently Working In + JSON/Delete Actions (show when both levels are selected) -->
     @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
     {
         <div class="alert alert-info py-2 mb-3">
-            <i class="bi bi-folder"></i> <strong>Currently working in:</strong> @selectedDocumentType → @selectedSubCollection
-            <small class="d-block text-muted">All patterns will be saved to this specific format collection</small>
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-folder"></i> <strong>Currently working in:</strong> @selectedDocumentType → @selectedSubCollection
+                    <small class="d-block text-muted">All patterns will be saved to this specific format collection</small>
+                </div>
+                <div>
+                    <button @onclick="ShowCurrentJson" class="btn btn-outline-info btn-sm me-2">
+                        <i class="bi bi-code"></i> Show JSON
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- DELETE SECTION - Show existing patterns for deletion -->
+        <div class="mb-3" style="background: #ffe6e6; border: 1px solid #ffcccc; padding: 10px; border-radius: 5px;">
+            <h6><i class="bi bi-trash"></i> Delete Existing Pattern</h6>
+            <div class="row align-items-end">
+                <div class="col-md-8">
+                    <label class="form-label"><small>Select pattern to delete:</small></label>
+                    <select @bind="selectedPatternToDelete" class="form-select form-select-sm">
+                        <option value="">-- Select Pattern to Delete --</option>
+                        @foreach (var pattern in existingPatterns)
+                        {
+                            <option value="@pattern">@pattern</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <button @onclick="DeleteSelectedPattern"
+                            class="btn btn-danger btn-sm"
+                            disabled="@(string.IsNullOrEmpty(selectedPatternToDelete) || isDeleting)">
+                        @if (isDeleting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
         </div>
     }
 
@@ -138,11 +175,39 @@
             <pre style="background: #2d3748; color: #e2e8f0; padding: 10px; border-radius: 4px; font-size: 0.7em; max-height: 300px; overflow-y: auto;">@lastSavedJson</pre>
         </div>
     }
+
+    <!-- CLEANUP SECTION -->
+    <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;">
+        <h6><i class="bi bi-tools"></i> Library Maintenance</h6>
+        <p><small>Clean up empty sub-collections and document types from the pattern library.</small></p>
+
+        <button @onclick="CleanupLibrary"
+                class="btn btn-warning btn-sm"
+                disabled="@isCleaningUp">
+            @if (isCleaningUp)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+            }
+            <i class="bi bi-broom"></i> Clean Up Empty Containers
+        </button>
+
+        @if (!string.IsNullOrEmpty(cleanupMessage))
+        {
+            <div class="alert @(cleanupError ? "alert-danger" : "alert-success") mt-2 mb-0 py-2">
+                <i class="bi @(cleanupError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                @cleanupMessage
+            </div>
+        }
+    </div>
 </div>
 
 @code {
     [Parameter] public SearchPattern? CurrentPattern { get; set; }
     [Parameter] public EventCallback OnPatternSaved { get; set; }
+
+    private bool isCleaningUp = false;
+    private string cleanupMessage = "";
+    private bool cleanupError = false;
 
     // Level 1: Document Types
     private List<string> availableDocumentTypes = new();
@@ -156,6 +221,11 @@
 
     // Level 3: Pattern
     private string patternName = "";
+
+    // Delete functionality
+    private List<string> existingPatterns = new();
+    private string selectedPatternToDelete = "";
+    private bool isDeleting = false;
 
     // UI State
     private bool isSaving = false;
@@ -198,12 +268,33 @@
         }
     }
 
+    private async Task LoadExistingPatterns()
+    {
+        if (string.IsNullOrEmpty(selectedDocumentType) || string.IsNullOrEmpty(selectedSubCollection))
+        {
+            existingPatterns.Clear();
+            return;
+        }
+
+        try
+        {
+            existingPatterns = await PatternService.GetSearchPatternNamesAsync(selectedDocumentType, selectedSubCollection);
+            selectedPatternToDelete = ""; // Reset selection
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error loading existing patterns: {ex.Message}");
+            existingPatterns.Clear();
+        }
+    }
+
     private async Task OnDocumentTypeChanged(ChangeEventArgs e)
     {
         selectedDocumentType = e.Value?.ToString() ?? "";
         selectedSubCollection = "";
         patternName = "";
         availableSubCollections.Clear();
+        existingPatterns.Clear();
 
         if (!string.IsNullOrEmpty(selectedDocumentType))
         {
@@ -217,7 +308,73 @@
     {
         selectedSubCollection = e.Value?.ToString() ?? "";
         patternName = "";
+        selectedPatternToDelete = "";
+
+        // Load existing patterns for the delete dropdown
+        await LoadExistingPatterns();
+
         ClearStatus();
+    }
+
+    private async Task ShowCurrentJson()
+    {
+        try
+        {
+            var library = await PatternService.LoadLibraryAsync();
+            lastSavedJson = JsonSerializer.Serialize(library, new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+            showJson = true;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            ShowError($"Error loading JSON: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteSelectedPattern()
+    {
+        if (string.IsNullOrEmpty(selectedDocumentType) ||
+            string.IsNullOrEmpty(selectedSubCollection) ||
+            string.IsNullOrEmpty(selectedPatternToDelete))
+            return;
+
+        try
+        {
+            isDeleting = true;
+            ClearStatus();
+            StateHasChanged();
+
+            var success = await PatternService.DeleteSearchPatternAsync(selectedDocumentType, selectedSubCollection, selectedPatternToDelete);
+
+            if (success)
+            {
+                ShowSuccess($"✅ Pattern '{selectedPatternToDelete}' deleted from {selectedDocumentType} → {selectedSubCollection}!");
+
+                // Refresh the patterns list
+                await LoadExistingPatterns();
+
+                // Refresh document types in case we deleted everything
+                await LoadDocumentTypes();
+
+                selectedPatternToDelete = "";
+            }
+            else
+            {
+                ShowError("❌ Failed to delete pattern. Check console for errors.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError($"❌ Error deleting pattern: {ex.Message}");
+        }
+        finally
+        {
+            isDeleting = false;
+            StateHasChanged();
+        }
     }
 
     private async Task CreateNewDocumentType()
@@ -281,6 +438,9 @@
             newSubCollection = "";
 
             ShowSuccess($"✅ Created format collection '{selectedSubCollection}' in '{selectedDocumentType}'");
+
+            // Load patterns for the new sub-collection
+            await LoadExistingPatterns();
         }
         catch (Exception ex)
         {
@@ -327,6 +487,10 @@
                 Console.WriteLine(lastSavedJson);
 
                 patternName = "";
+
+                // Refresh existing patterns list
+                await LoadExistingPatterns();
+
                 await OnPatternSaved.InvokeAsync();
             }
             else
@@ -367,5 +531,41 @@
     {
         statusMessage = "";
         isError = false;
+    }
+
+    private async Task CleanupLibrary()
+    {
+        try
+        {
+            isCleaningUp = true;
+            cleanupMessage = "";
+            StateHasChanged();
+
+            var success = await PatternService.CleanupEmptyContainersAsync();
+
+            if (success)
+            {
+                cleanupMessage = "✅ Library cleanup completed successfully!";
+                cleanupError = false;
+
+                // Refresh the dropdowns to reflect the cleanup
+                await LoadDocumentTypes();
+            }
+            else
+            {
+                cleanupMessage = "❌ Cleanup failed. Check logs for details.";
+                cleanupError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            cleanupMessage = $"❌ Error during cleanup: {ex.Message}";
+            cleanupError = true;
+        }
+        finally
+        {
+            isCleaningUp = false;
+            StateHasChanged();
+        }
     }
 }

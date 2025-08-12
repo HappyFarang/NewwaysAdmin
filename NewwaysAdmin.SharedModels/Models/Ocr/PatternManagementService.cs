@@ -266,6 +266,9 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         /// <summary>
         /// Delete a specific search pattern
         /// </summary>
+        /// <summary>
+        /// Delete a specific search pattern and clean up empty containers
+        /// </summary>
         public async Task<bool> DeleteSearchPatternAsync(string collectionName, string subCollectionName, string patternName)
         {
             if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) || string.IsNullOrWhiteSpace(patternName))
@@ -279,11 +282,26 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     collection.SubCollections.TryGetValue(subCollectionName, out var subCollection) &&
                     subCollection.SearchPatterns.Remove(patternName))
                 {
+                    // AUTO-CLEANUP: Remove empty sub-collection if it has no patterns
+                    if (subCollection.SearchPatterns.Count == 0)
+                    {
+                        collection.SubCollections.Remove(subCollectionName);
+                        _logger.LogInformation("Removed empty sub-collection '{SubCollectionName}' from '{CollectionName}'",
+                            subCollectionName, collectionName);
+                    }
+
+                    // AUTO-CLEANUP: Remove empty collection if it has no sub-collections
+                    if (collection.SubCollections.Count == 0)
+                    {
+                        library.Collections.Remove(collectionName);
+                        _logger.LogInformation("Removed empty collection '{CollectionName}'", collectionName);
+                    }
+
                     var success = await SaveLibraryAsync(library);
 
                     if (success)
                     {
-                        _logger.LogInformation("Deleted pattern '{PatternName}' from '{CollectionName}.{SubCollectionName}'",
+                        _logger.LogInformation("Deleted pattern '{PatternName}' from '{CollectionName}.{SubCollectionName}' with auto-cleanup",
                             patternName, collectionName, subCollectionName);
                     }
 
@@ -298,6 +316,79 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             {
                 _logger.LogError(ex, "Error deleting pattern '{PatternName}' from '{CollectionName}.{SubCollectionName}'",
                     patternName, collectionName, subCollectionName);
+                return false;
+            }
+        }
+
+        // ADD this new method to clean up existing mess
+        /// <summary>
+        /// Clean up empty sub-collections and collections in the entire library
+        /// Call this once to fix existing data, then auto-cleanup will prevent future issues
+        /// </summary>
+        public async Task<bool> CleanupEmptyContainersAsync()
+        {
+            try
+            {
+                var library = await LoadLibraryAsync();
+                var cleanupCount = 0;
+
+                // Clean up empty sub-collections
+                var collectionsToRemove = new List<string>();
+
+                foreach (var (collectionName, collection) in library.Collections.ToList())
+                {
+                    var subCollectionsToRemove = new List<string>();
+
+                    foreach (var (subCollectionName, subCollection) in collection.SubCollections.ToList())
+                    {
+                        if (subCollection.SearchPatterns.Count == 0)
+                        {
+                            subCollectionsToRemove.Add(subCollectionName);
+                            cleanupCount++;
+                        }
+                    }
+
+                    // Remove empty sub-collections
+                    foreach (var subCollectionName in subCollectionsToRemove)
+                    {
+                        collection.SubCollections.Remove(subCollectionName);
+                        _logger.LogInformation("Cleaned up empty sub-collection '{SubCollectionName}' from '{CollectionName}'",
+                            subCollectionName, collectionName);
+                    }
+
+                    // Mark empty collections for removal
+                    if (collection.SubCollections.Count == 0)
+                    {
+                        collectionsToRemove.Add(collectionName);
+                        cleanupCount++;
+                    }
+                }
+
+                // Remove empty collections
+                foreach (var collectionName in collectionsToRemove)
+                {
+                    library.Collections.Remove(collectionName);
+                    _logger.LogInformation("Cleaned up empty collection '{CollectionName}'", collectionName);
+                }
+
+                if (cleanupCount > 0)
+                {
+                    var success = await SaveLibraryAsync(library);
+                    if (success)
+                    {
+                        _logger.LogInformation("Successfully cleaned up {Count} empty containers", cleanupCount);
+                    }
+                    return success;
+                }
+                else
+                {
+                    _logger.LogInformation("No empty containers found - library is already clean");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during cleanup of empty containers");
                 return false;
             }
         }
