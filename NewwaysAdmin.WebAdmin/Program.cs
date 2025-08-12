@@ -30,7 +30,6 @@ using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers;
 using NewwaysAdmin.SharedModels.Services.Ocr;
 using NewwaysAdmin.SharedModels.Models.Ocr;
-using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -282,22 +281,6 @@ public class Program
             var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
             var storage = storageManager.GetStorageSync<PatternLibrary>("OcrPatterns");
             return new PatternManagementService(storage, logger);
-        });
-        // OCR Pattern Management Service
-        services.AddScoped<PatternManagementService>(sp =>
-        {
-            var storageManager = sp.GetRequiredService<StorageManager>();
-            var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
-            var storage = storageManager.GetStorageSync<PatternLibrary>("OcrPatterns");
-            return new PatternManagementService(storage, logger);
-        });
-
-        // OCR Pattern Loader Service (NEW - depends on PatternManagementService)
-        services.AddScoped<PatternLoaderService>(sp =>
-        {
-            var patternService = sp.GetRequiredService<PatternManagementService>();
-            var logger = sp.GetRequiredService<ILogger<PatternLoaderService>>();
-            return new PatternLoaderService(patternService, logger);
         });
 
         // Register email storage service (only once!)

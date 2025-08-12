@@ -1,50 +1,34 @@
 ﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/PatternLoadComponent.razor *@
-@* REFACTORED: Now uses PatternLoaderService for all business logic *@
 @using NewwaysAdmin.SharedModels.Models.Ocr
-@using NewwaysAdmin.SharedModels.Models.Ocr.Core
-@inject PatternLoaderService PatternLoader
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@inject PatternManagementService PatternService
 @inject IJSRuntime JSRuntime
 
 <div class="pattern-load-panel">
-    <h6><i class="bi bi-folder-open"></i> Load Pattern - 3-Level Structure</h6>
-
-    <!-- Step 1: Document Type Selection -->
+    <h6><i class="bi bi-folder-open"></i> Load Pattern</h6>
+    
+    <!-- Collection Selection -->
     <div class="mb-3">
-        <label class="form-label"><strong>Step 1: Document Type</strong></label>
+        <label class="form-label">Collection</label>
         <div class="input-group">
-            <select @onchange="OnDocumentTypeChanged" class="form-select" value="@selectedDocumentType">
-                <option value="">-- Select Document Type --</option>
-                @foreach (var docType in availableDocumentTypes)
+            <select @onchange="OnCollectionChanged" class="form-select" value="@selectedCollection">
+                <option value="">-- Select Collection --</option>
+                @foreach (var collection in availableCollections)
                 {
-                    <option value="@docType">@docType</option>
+                    <option value="@collection">@collection</option>
                 }
             </select>
-            <button @onclick="LoadDocumentTypes" class="btn btn-outline-secondary" type="button" title="Refresh">
+            <button @onclick="LoadCollections" class="btn btn-outline-secondary" type="button" title="Refresh">
                 <i class="bi bi-arrow-clockwise"></i>
             </button>
         </div>
     </div>
 
-    <!-- Step 2: Sub Collection Selection (only show when document type is selected) -->
-    @if (!string.IsNullOrEmpty(selectedDocumentType))
+    <!-- Pattern Selection (only show when collection is selected) -->
+    @if (!string.IsNullOrEmpty(selectedCollection))
     {
         <div class="mb-3">
-            <label class="form-label"><strong>Step 2: Sub Collection</strong></label>
-            <select @onchange="OnSubCollectionChanged" class="form-select" value="@selectedSubCollection">
-                <option value="">-- Select Sub Collection --</option>
-                @foreach (var subCollection in availableSubCollections)
-                {
-                    <option value="@subCollection">@subCollection</option>
-                }
-            </select>
-        </div>
-    }
-
-    <!-- Step 3: Pattern Selection (only show when both levels are selected) -->
-    @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
-    {
-        <div class="mb-3">
-            <label class="form-label"><strong>Step 3: Pattern</strong></label>
+            <label class="form-label">Pattern</label>
             <select @bind="selectedPattern" class="form-select">
                 <option value="">-- Select Pattern --</option>
                 @foreach (var pattern in availablePatterns)
@@ -57,14 +41,14 @@
 
     <!-- Load Button -->
     <div class="d-grid">
-        <button @onclick="LoadSelectedPattern"
-                class="btn btn-success"
-                disabled="@(string.IsNullOrEmpty(selectedDocumentType) || string.IsNullOrEmpty(selectedSubCollection) || string.IsNullOrEmpty(selectedPattern) || isLoading)">
+        <button @onclick="LoadSelectedPattern" 
+                class="btn btn-success" 
+                disabled="@(string.IsNullOrEmpty(selectedCollection) || string.IsNullOrEmpty(selectedPattern) || isLoading)">
             @if (isLoading)
             {
                 <span class="spinner-border spinner-border-sm me-2"></span>
             }
-            <i class="bi bi-download"></i> Load "@selectedPattern" from @selectedDocumentType → @selectedSubCollection
+            <i class="bi bi-download"></i> Load Pattern
         </button>
     </div>
 
@@ -80,47 +64,39 @@
 
 @code {
     [Parameter] public EventCallback<SearchPattern> OnPatternLoaded { get; set; }
-
-    // UI State - much simpler now!
-    private List<string> availableDocumentTypes = new();
-    private List<string> availableSubCollections = new();
+    
+    private List<string> availableCollections = new();
     private List<string> availablePatterns = new();
-
-    private string selectedDocumentType = "";
-    private string selectedSubCollection = "";
+    private string selectedCollection = "";
     private string selectedPattern = "";
-
     private bool isLoading = false;
     private string statusMessage = "";
     private bool isError = false;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDocumentTypes();
+        await LoadCollections();
     }
 
-    private async Task LoadDocumentTypes()
+    private async Task LoadCollections()
     {
         try
         {
             isLoading = true;
             StateHasChanged();
-
-            // ALL business logic is now in the service!
-            availableDocumentTypes = await PatternLoader.GetDocumentTypesAsync();
-
-            // Clear all selections if document type list changed
-            selectedDocumentType = "";
-            selectedSubCollection = "";
+            
+            availableCollections = await PatternService.GetCollectionNamesAsync();
+            
+            // Clear pattern selection if collection list changed
+            selectedCollection = "";
             selectedPattern = "";
-            availableSubCollections.Clear();
             availablePatterns.Clear();
-
+            
             ClearStatus();
         }
         catch (Exception ex)
         {
-            ShowError($"Error loading document types: {ex.Message}");
+            ShowError($"Error loading collections: {ex.Message}");
         }
         finally
         {
@@ -129,43 +105,17 @@
         }
     }
 
-    private async Task OnDocumentTypeChanged(ChangeEventArgs e)
+    private async Task OnCollectionChanged(ChangeEventArgs e)
     {
-        selectedDocumentType = e.Value?.ToString() ?? "";
-        selectedSubCollection = "";
+        selectedCollection = e.Value?.ToString() ?? "";
         selectedPattern = "";
-        availableSubCollections.Clear();
         availablePatterns.Clear();
-
-        if (!string.IsNullOrEmpty(selectedDocumentType))
+        
+        if (!string.IsNullOrEmpty(selectedCollection))
         {
             try
             {
-                // Service handles all the logic
-                availableSubCollections = await PatternLoader.GetSubCollectionsAsync(selectedDocumentType);
-                ClearStatus();
-            }
-            catch (Exception ex)
-            {
-                ShowError($"Error loading sub collections: {ex.Message}");
-            }
-        }
-
-        StateHasChanged();
-    }
-
-    private async Task OnSubCollectionChanged(ChangeEventArgs e)
-    {
-        selectedSubCollection = e.Value?.ToString() ?? "";
-        selectedPattern = "";
-        availablePatterns.Clear();
-
-        if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
-        {
-            try
-            {
-                // Service handles all the logic
-                availablePatterns = await PatternLoader.GetPatternNamesAsync(selectedDocumentType, selectedSubCollection);
+                availablePatterns = await PatternService.GetSearchPatternNamesAsync(selectedCollection);
                 ClearStatus();
             }
             catch (Exception ex)
@@ -173,15 +123,13 @@
                 ShowError($"Error loading patterns: {ex.Message}");
             }
         }
-
+        
         StateHasChanged();
     }
 
     private async Task LoadSelectedPattern()
     {
-        if (string.IsNullOrEmpty(selectedDocumentType) ||
-            string.IsNullOrEmpty(selectedSubCollection) ||
-            string.IsNullOrEmpty(selectedPattern))
+        if (string.IsNullOrEmpty(selectedCollection) || string.IsNullOrEmpty(selectedPattern))
             return;
 
         try
@@ -190,19 +138,18 @@
             ClearStatus();
             StateHasChanged();
 
-            // Service handles all the business logic - clean and simple!
-            var pattern = await PatternLoader.LoadPatternAsync(selectedDocumentType, selectedSubCollection, selectedPattern);
-
+            var pattern = await PatternService.LoadSearchPatternAsync(selectedCollection, selectedPattern);
+            
             if (pattern != null)
             {
                 // Notify parent component that pattern was loaded
                 await OnPatternLoaded.InvokeAsync(pattern);
-
-                ShowSuccess($"Pattern '{selectedPattern}' loaded successfully from {selectedDocumentType} → {selectedSubCollection}!");
+                
+                ShowSuccess($"Pattern '{selectedPattern}' loaded successfully!");
             }
             else
             {
-                ShowError($"Pattern '{selectedPattern}' not found in {selectedDocumentType} → {selectedSubCollection}");
+                ShowError($"Pattern '{selectedPattern}' not found in collection '{selectedCollection}'");
             }
         }
         catch (Exception ex)
@@ -216,7 +163,6 @@
         }
     }
 
-    // Simple UI state management methods
     private void ShowSuccess(string message)
     {
         statusMessage = message;
