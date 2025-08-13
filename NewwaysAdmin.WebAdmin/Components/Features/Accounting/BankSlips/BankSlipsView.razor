@@ -390,13 +390,13 @@
 <!-- Use the proper CollectionModal component instead of inline modal -->
 @if (_showCollectionModal && _editingCollection != null)
 {
-    <CollectionModal EditingCollection="_editingCollection"
-                     IsVisible="_showCollectionModal"
-                     IsEditMode="@(_editingCollection.Id != null)"
-                     IsSaving="_isSaving"
-                     ErrorMessage="_saveErrorMessage"
-                     OnSave="SaveCollection"
-                     OnCancel="CloseCollectionModal" />
+    <ModernCollectionModal EditingCollection="_editingCollection"
+                           IsVisible="_showCollectionModal"
+                           IsEditMode="@(!string.IsNullOrEmpty(_editingCollection.Id))"
+                           IsSaving="_isSaving"
+                           ErrorMessage="_saveErrorMessage"
+                           OnSave="SaveCollection"
+                           OnCancel="CloseCollectionModal" />
 }
 
 <!-- Template Configuration Modal -->
@@ -762,6 +762,13 @@
         {
             _isLoadingCollections = true;
             _availableCollections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
+
+            // 🚀 NEW: Auto-migrate existing collections
+            foreach (var collection in _availableCollections)
+            {
+                collection.MigrateToPatternBased();
+            }
+
             Logger.LogInformation("Loaded {Count} collections for user {Username}", _availableCollections.Count, _currentUsername);
         }
         catch (Exception ex)
@@ -787,30 +794,37 @@
         _editingCollection = new SlipCollection
             {
                 Name = "",
+                Description = "",
                 SourceDirectory = "",
                 OutputDirectory = "",
-                CredentialsPath = "",
+                CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json",
                 IsActive = true,
-                IsKBizFormat = false,  // Add this - default to Original format
-                ProcessingSettings = new ProcessingParameters()  // Add this - initialize with defaults
+                DocumentType = "BankSlips", // 🆕 NEW: Always BankSlips for this view
+                FormatName = "", // 🆕 NEW: Will be selected from dropdown
+                ProcessingSettings = new ProcessingParameters()
             };
         _saveErrorMessage = string.Empty;
         _showCollectionModal = true;
     }
 
-    private void EditCollection(SlipCollection collection)
+    void EditCollection(SlipCollection collection)
     {
+        // 🚀 MIGRATE BEFORE EDITING
+        collection.MigrateToPatternBased();
+
         _editingCollection = new SlipCollection
             {
                 Id = collection.Id,
                 Name = collection.Name,
+                Description = collection.Description,
                 SourceDirectory = collection.SourceDirectory,
                 OutputDirectory = collection.OutputDirectory,
                 CredentialsPath = collection.CredentialsPath,
                 IsActive = collection.IsActive,
-                IsKBizFormat = collection.IsKBizFormat,  // Add this
-                ProcessingSettings = collection.ProcessingSettings ?? new ProcessingParameters(),  // Add this with null check
-                Description = collection.Description  // Add this if it exists
+                DocumentType = collection.DocumentType, // Should now be populated
+                FormatName = collection.FormatName,     // Should now be populated
+                IsKBizFormat = collection.IsKBizFormat,
+                ProcessingSettings = collection.ProcessingSettings ?? new ProcessingParameters()
             };
         _saveErrorMessage = string.Empty;
         _showCollectionModal = true;
@@ -821,6 +835,7 @@
         _showCollectionModal = false;
         _editingCollection = null;
         _saveErrorMessage = string.Empty;
+        StateHasChanged();
     }
 
     private async Task SaveCollection()
@@ -830,52 +845,49 @@
         try
         {
             _isSaving = true;
-            _saveErrorMessage = string.Empty; // Clear immediately
-            StateHasChanged(); // Force UI update
+            _saveErrorMessage = string.Empty;
 
-            // Basic validation
-            if (string.IsNullOrWhiteSpace(_editingCollection.Name))
+            // 🚀 NEW: Migrate legacy collections to pattern-based system
+            _editingCollection.MigrateToPatternBased();
+
+            // Set creation metadata for new collections
+            if (string.IsNullOrEmpty(_editingCollection.Id))
             {
-                _saveErrorMessage = "Collection name is required.";
-                return;
+                _editingCollection.Id = Guid.NewGuid().ToString();
+                _editingCollection.CreatedBy = _currentUsername;
+                _editingCollection.CreatedAt = DateTime.UtcNow;
             }
 
-            if (string.IsNullOrWhiteSpace(_editingCollection.SourceDirectory))
-            {
-                _saveErrorMessage = "Source directory is required.";
-                return;
-            }
+            await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
 
-            // Store the collection name BEFORE clearing it
-            string collectionName = _editingCollection.Name;
+            // Refresh the collections list
+            await LoadAvailableCollections();
 
-            bool success = true;
-            try
-            {
-                await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error saving collection");
-                success = false;
-                _saveErrorMessage = $"Error: {ex.Message}";
-            }
+            // Close modal
+            CloseCollectionModal();
 
-            if (success)
-            {
-                CloseCollectionModal(); // This sets _editingCollection to null
-                await LoadAvailableCollections();
-                SetStatusMessage($"Collection '{collectionName}' saved successfully.", "info"); // Use stored name
-            }
+            SetStatusMessage($"✅ Collection '{_editingCollection.Name}' saved successfully!", "info");
+
+            Logger.LogInformation("Collection {CollectionName} saved by {Username}",
+                _editingCollection.Name, _currentUsername);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error in SaveCollection method");
-            _saveErrorMessage = $"Error: {ex.Message}";
+            _saveErrorMessage = $"Error saving collection: {ex.Message}";
+            Logger.LogError(ex, "Error saving collection {CollectionName}", _editingCollection?.Name);
         }
         finally
         {
             _isSaving = false;
+            StateHasChanged();
+        }
+        string GetCollectionDisplayInfo(SlipCollection collection)
+        {
+            var formatInfo = !string.IsNullOrEmpty(collection.FormatName)
+                ? collection.FormatName
+                : (collection.IsKBizFormat ? "K-BIZ" : "Standard");
+
+            return $"{collection.DocumentType}/{formatInfo}";
         }
     }
 

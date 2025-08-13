@@ -1,7 +1,9 @@
 ﻿// NewwaysAdmin.SharedModels/Services/Ocr/PatternLoaderService.cs
 using NewwaysAdmin.SharedModels.Models.Ocr;
+using NewwaysAdmin.SharedModels.Models.Documents;
 using Microsoft.Extensions.Logging;
 using System.Text.RegularExpressions;
+using System.Linq;
 
 namespace NewwaysAdmin.SharedModels.Services.Ocr
 {
@@ -29,19 +31,20 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         /// <param name="filePath">Path to original scanned file</param>
         /// <param name="documentType">Document type (e.g., "BankSlips")</param>
         /// <param name="format">Format/sub-collection (e.g., "KBIZ")</param>
-        /// <returns>Extracted data with dynamic fields based on pattern keys</returns>
-        public async Task<ExtractedOcrData> ExtractPatternsAsync(
-            string ocrText,
-            string filePath,
-            string documentType,
-            string format)
+        /// <returns>Generic document with dynamic fields based on pattern keys</returns>
+        public async Task<GenericDocumentData> ExtractPatternsAsync(
+    string ocrText,
+    string filePath,
+    string documentType,
+    string format)
         {
-            var result = new ExtractedOcrData
+            var result = new GenericDocumentData
             {
                 FilePath = filePath,
                 DocumentType = documentType,
-                Format = format,
-                ProcessedAt = DateTime.UtcNow
+                DocumentFormat = format,
+                ProcessedAt = DateTime.UtcNow,
+                Status = DocumentProcessingStatus.Processing
             };
 
             try
@@ -52,13 +55,15 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 // Validate inputs
                 if (string.IsNullOrWhiteSpace(ocrText))
                 {
-                    result.AddError("OCR text is empty");
+                    result.Status = DocumentProcessingStatus.Failed;
+                    result.ErrorReason = "OCR text is empty";
                     return result;
                 }
 
                 if (string.IsNullOrWhiteSpace(documentType) || string.IsNullOrWhiteSpace(format))
                 {
-                    result.AddError("Document type and format are required");
+                    result.Status = DocumentProcessingStatus.Failed;
+                    result.ErrorReason = "Document type and format are required";
                     return result;
                 }
 
@@ -66,7 +71,8 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 var patterns = await LoadPatternsAsync(documentType, format);
                 if (patterns.Count == 0)
                 {
-                    result.AddError($"No patterns found for {documentType}/{format}");
+                    result.Status = DocumentProcessingStatus.Failed;
+                    result.ErrorReason = $"No patterns found for {documentType}/{format}";
                     return result;
                 }
 
@@ -80,7 +86,9 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     try
                     {
                         var extractedValue = ExtractValueForPattern(ocrText, pattern);
-                        result.SetEntry(patternKey, extractedValue);
+
+                        // Always set the field (even if empty) so we know what patterns were attempted
+                        result.SetField(patternKey, extractedValue, ExtractedDataType.Text);
 
                         if (!string.IsNullOrWhiteSpace(extractedValue))
                         {
@@ -97,12 +105,22 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     {
                         _logger.LogWarning(ex, "Error processing pattern '{PatternKey}': {Error}",
                             patternKey, ex.Message);
-                        result.SetEntry(patternKey, string.Empty); // Ensure key exists even if extraction failed
+                        result.SetField(patternKey, string.Empty, ExtractedDataType.Text);
                     }
                 }
 
                 // Set success status
-                result.IsSuccess = successCount > 0;
+                if (successCount > 0)
+                {
+                    result.Status = DocumentProcessingStatus.Completed;
+                    result.AddNote("ExtractedFields", successCount.ToString());
+                    result.AddNote("TotalPatterns", patterns.Count.ToString());
+                }
+                else
+                {
+                    result.Status = DocumentProcessingStatus.Failed;
+                    result.ErrorReason = "No patterns could extract data from the document";
+                }
 
                 _logger.LogInformation("Pattern extraction completed for {DocumentType}/{Format}: {SuccessCount}/{TotalCount} patterns extracted",
                     documentType, format, successCount, patterns.Count);
@@ -113,7 +131,8 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             {
                 _logger.LogError(ex, "Error during pattern extraction for {DocumentType}/{Format}",
                     documentType, format);
-                result.AddError($"Pattern extraction failed: {ex.Message}");
+                result.Status = DocumentProcessingStatus.Failed;
+                result.ErrorReason = $"Pattern extraction failed: {ex.Message}";
                 return result;
             }
         }

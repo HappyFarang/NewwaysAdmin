@@ -1,5 +1,5 @@
 ﻿// NewwaysAdmin.SharedModels/Models/BankSlips/BankSlipModels.cs
-// Enhanced SlipCollection with K-BIZ format support
+// 🚀 UPDATED: Enhanced SlipCollection with pattern-based support
 
 using System;
 using System.Collections.Generic;
@@ -51,17 +51,65 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         [Key(9)]
         public ProcessingParameters ProcessingSettings { get; set; } = new();
 
-        // NEW: K-BIZ format support
+        // Legacy format support (for backward compatibility)
         [Key(10)]
         public bool IsKBizFormat { get; set; } = false;
 
-        // Helper method to get format display name
-        [IgnoreMember]
-        public string FormatDisplayName => IsKBizFormat ? "K-BIZ Format" : "Original Format";
+        // 🆕 NEW: Pattern-based system fields
+        [Key(11)]
+        [Required(ErrorMessage = "Document type is required")]
+        public string DocumentType { get; set; } = "BankSlips";
 
-        // Helper method to get format icon
+        [Key(12)]
+        [Required(ErrorMessage = "Format name is required")]
+        public string FormatName { get; set; } = string.Empty;
+
+        // Helper properties for display and compatibility
         [IgnoreMember]
-        public string FormatIcon => IsKBizFormat ? "bi-bank2" : "bi-bank";
+        public string FormatDisplayName =>
+            !string.IsNullOrEmpty(FormatName) ? FormatName :
+            (IsKBizFormat ? "K-BIZ Format" : "Original Format");
+
+        [IgnoreMember]
+        public string FormatIcon =>
+            FormatName?.Contains("KBIZ", StringComparison.OrdinalIgnoreCase) == true || IsKBizFormat ?
+            "bi-bank2" : "bi-bank";
+
+        [IgnoreMember]
+        public string FullPatternPath => $"{DocumentType}/{FormatName}";
+
+        /// <summary>
+        /// Migration helper to update legacy collections to pattern-based system
+        /// </summary>
+        public void MigrateToPatternBased()
+        {
+            // If DocumentType is empty, set default
+            if (string.IsNullOrEmpty(DocumentType))
+            {
+                DocumentType = "BankSlips";
+            }
+
+            // If FormatName is empty but we have legacy format info, migrate
+            if (string.IsNullOrEmpty(FormatName))
+            {
+                FormatName = IsKBizFormat ? "KBIZ" : "Original";
+            }
+
+            // Update processing settings for pattern compatibility
+            if (ProcessingSettings == null)
+            {
+                ProcessingSettings = new ProcessingParameters();
+            }
+
+            // Set enhanced settings for known formats
+            if (FormatName.Contains("KBIZ", StringComparison.OrdinalIgnoreCase))
+            {
+                ProcessingSettings.ExtractDualLanguageNames = true;
+                ProcessingSettings.UseEnhancedDateValidation = true;
+                IsKBizFormat = true; // Maintain backward compatibility
+            }
+        }
+
     }
 
     // Enum for slip format types (for future extensibility)
@@ -74,63 +122,8 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         // TTB = 3,
         // etc.
     }
-    /// <summary>
-    /// Enum for tracking bank slip processing status
-    /// </summary>
-    public enum BankSlipProcessingStatus
-    {
-        /// <summary>
-        /// Processing not started yet
-        /// </summary>
-        Pending = 0,
 
-        /// <summary>
-        /// Currently being processed
-        /// </summary>
-        Processing = 1,
-
-        /// <summary>
-        /// Successfully completed processing
-        /// </summary>
-        Completed = 2,
-
-        /// <summary>
-        /// Failed during processing
-        /// </summary>
-        Failed = 3,
-
-        /// <summary>
-        /// Completed but needs manual review
-        /// </summary>
-        RequiresReview = 4,
-
-        /// <summary>
-        /// Skipped during processing
-        /// </summary>
-        Skipped = 5
-    }
-
-    /// <summary>
-    /// Enum for different image processing passes
-    /// </summary>
-    public enum ProcessingPass
-    {
-        /// <summary>
-        /// Default processing settings
-        /// </summary>
-        Default = 0,
-
-        /// <summary>
-        /// Fallback processing with enhanced settings
-        /// </summary>
-        Fallback = 1,
-
-        /// <summary>
-        /// Optimized for tablet-captured images
-        /// </summary>
-        Tablet = 2
-    }
-    // Enhanced processing parameters with format-specific settings
+    // Enhanced processing parameters with pattern-specific settings
     [MessagePackObject]
     public class ProcessingParameters
     {
@@ -157,7 +150,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
             ProcessingPass.Tablet
         };
 
-        // NEW: Format-specific processing options
+        // Format-specific processing options
         [Key(6)]
         public bool UseEnhancedDateValidation { get; set; } = true;
 
@@ -166,9 +159,28 @@ namespace NewwaysAdmin.SharedModels.BankSlips
 
         [Key(8)]
         public bool ValidateAccountFormat { get; set; } = true;
+
+        // 🆕 NEW: Pattern-specific settings
+        [Key(9)]
+        public bool EnablePatternDebugging { get; set; } = false;
+
+        [Key(10)]
+        public int PatternMatchTolerance { get; set; } = 20;
+
+        [Key(11)]
+        public bool UseAdvancedPatternMatching { get; set; } = true;
     }
 
-    // Enhanced bank slip data with parsing metadata
+    // Processing pass enumeration
+    public enum ProcessingPass
+    {
+        Default = 0,
+        Fallback = 1,
+        Tablet = 2,
+        HighContrast = 3
+    }
+
+    // Enhanced bank slip data with pattern-based processing metadata
     [MessagePackObject]
     public class BankSlipData
     {
@@ -214,7 +226,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         [Key(13)]
         public string ErrorReason { get; set; } = string.Empty;
 
-        // NEW: Parsing metadata
+        // Parsing metadata
         [Key(14)]
         public string ParserUsed { get; set; } = string.Empty;
 
@@ -226,6 +238,22 @@ namespace NewwaysAdmin.SharedModels.BankSlips
 
         [Key(17)]
         public Dictionary<string, string> ParsingNotes { get; set; } = new();
+
+        // 🆕 NEW: Pattern-based processing metadata
+        [Key(18)]
+        public string DocumentType { get; set; } = string.Empty;
+
+        [Key(19)]
+        public string FormatName { get; set; } = string.Empty;
+
+        [Key(20)]
+        public int ExtractedFieldCount { get; set; } = 0;
+
+        [Key(21)]
+        public List<string> SuccessfulPatterns { get; set; } = new();
+
+        [Key(22)]
+        public List<string> FailedPatterns { get; set; } = new();
 
         // Helper method to get combined receiver name
         [IgnoreMember]
@@ -242,25 +270,27 @@ namespace NewwaysAdmin.SharedModels.BankSlips
                 return ReceiverName;
             }
         }
+
+        [IgnoreMember]
+        public string PatternPath => $"{DocumentType}/{FormatName}";
+
+        [IgnoreMember]
+        public double PatternSuccessRate =>
+            (SuccessfulPatterns.Count + FailedPatterns.Count) > 0 ?
+            (double)SuccessfulPatterns.Count / (SuccessfulPatterns.Count + FailedPatterns.Count) * 100 : 0;
     }
 
-    // Migration helper for existing collections
-    public static class SlipCollectionMigration
+    // Processing status enumeration
+    public enum BankSlipProcessingStatus
     {
-        public static void MigrateToV2(SlipCollection collection)
-        {
-            // Set default values for new properties
-            if (collection.ProcessingSettings != null)
-            {
-                collection.ProcessingSettings.UseEnhancedDateValidation = true;
-                collection.ProcessingSettings.ExtractDualLanguageNames = collection.IsKBizFormat;
-                collection.ProcessingSettings.ValidateAccountFormat = true;
-            }
-        }
+        Pending = 0,
+        Processing = 1,
+        Completed = 2,
+        Failed = 3,
+        RequiresReview = 4
     }
-    /// <summary>
-    /// Result of bank slip processing operation
-    /// </summary>
+
+    // Result of bank slip processing operation
     public class BankSlipProcessingResult
     {
         public DateTime ProcessingStarted { get; set; } = DateTime.UtcNow;
@@ -280,9 +310,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public bool IsSuccessful => Errors.Count == 0 || Errors.All(e => !e.IsCritical);
     }
 
-    /// <summary>
-    /// Summary statistics for processing operation
-    /// </summary>
+    // Summary statistics for processing operation
     public class ProcessingSummary
     {
         public int TotalFiles { get; set; }
@@ -301,9 +329,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public int RemainingFiles => TotalFiles - ProcessedFiles - FailedFiles;
     }
 
-    /// <summary>
-    /// Error that occurred during processing
-    /// </summary>
+    // Error that occurred during processing
     public class ProcessingError
     {
         public string FilePath { get; set; } = string.Empty;
@@ -316,5 +342,25 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         /// User-friendly error message
         /// </summary>
         public string FriendlyMessage => $"{Path.GetFileName(FilePath)}: {Reason}";
+    }
+
+    // Migration helper for existing collections
+    public static class SlipCollectionMigration
+    {
+        public static void MigrateToPatternBased(SlipCollection collection)
+        {
+            collection.MigrateToPatternBased();
+        }
+
+        /// <summary>
+        /// Batch migration for multiple collections
+        /// </summary>
+        public static void MigrateCollections(List<SlipCollection> collections)
+        {
+            foreach (var collection in collections)
+            {
+                MigrateToPatternBased(collection);
+            }
+        }
     }
 }

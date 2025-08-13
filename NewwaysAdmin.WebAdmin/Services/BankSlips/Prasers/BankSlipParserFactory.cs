@@ -1,5 +1,5 @@
 ﻿// NewwaysAdmin.WebAdmin/Services/BankSlips/Parsers/BankSlipParserFactory.cs
-// Simplified factory that works with existing code structure
+// 🔥 MODERN VERSION - Pattern-based, no more hardcoded nonsense!
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +7,10 @@ using NewwaysAdmin.SharedModels.BankSlips;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers
 {
+    /// <summary>
+    /// Modern bank slip parser factory - uses pattern-based parsing for all document types
+    /// No more hardcoded K-BIZ vs Original nonsense! 
+    /// </summary>
     public class BankSlipParserFactory
     {
         private readonly ILogger<BankSlipParserFactory> _logger;
@@ -16,122 +20,118 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers
             ILogger<BankSlipParserFactory> logger,
             IServiceProvider serviceProvider)
         {
-            _logger = logger;
-            _serviceProvider = serviceProvider;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         }
 
         /// <summary>
-        /// Gets the appropriate parser for the given collection format
+        /// Gets the parser for any collection - now just ONE smart parser for everything!
         /// </summary>
         public IBankSlipParser GetParser(SlipCollection collection)
         {
             try
             {
-                if (collection.IsKBizFormat)
-                {
-                    var kbizParser = _serviceProvider.GetService<KBizSlipParser>();
-                    if (kbizParser != null)
-                    {
-                        _logger.LogDebug("Selected K-BIZ parser for collection {CollectionName}", collection.Name);
-                        return kbizParser;
-                    }
-                }
+                // 🎯 NEW: Only ONE parser needed - it's pattern-based and handles everything!
+                var patternParser = _serviceProvider.GetRequiredService<PatternBasedBankSlipParser>();
 
-                // Default to original parser
-                var originalParser = _serviceProvider.GetService<OriginalSlipParser>();
-                if (originalParser != null)
-                {
-                    _logger.LogDebug("Selected original parser for collection {CollectionName}", collection.Name);
-                    return originalParser;
-                }
+                _logger.LogDebug("Using pattern-based parser for collection {CollectionName} (format: {Format})",
+                    collection.Name, collection.IsKBizFormat ? "K-BIZ" : "Standard");
 
-                // Fallback - create a default parser
-                _logger.LogWarning("No parser service found, creating fallback parser");
-                return new FallbackParser(_logger);
+                return patternParser;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting parser for collection {CollectionName}", collection.Name);
-                return new FallbackParser(_logger);
+                _logger.LogError(ex, "Error getting pattern-based parser for collection {CollectionName}", collection.Name);
+
+                // Fallback to emergency parser
+                _logger.LogWarning("Creating emergency fallback parser for collection {CollectionName}", collection.Name);
+                return new EmergencyFallbackParser(_logger);
             }
         }
 
         /// <summary>
-        /// Gets the best parser by analyzing the OCR text content
+        /// Gets the best parser by analyzing OCR text - but now we only have ONE awesome parser!
         /// </summary>
         public IBankSlipParser GetBestParser(string ocrText, SlipCollection collection)
         {
             try
             {
-                // Try K-BIZ parser first if it can handle the text
-                var kbizParser = _serviceProvider.GetService<KBizSlipParser>();
-                if (kbizParser != null && kbizParser.CanParse(ocrText, collection))
+                // 🚀 NEW: No more format detection needed - our pattern parser handles everything!
+                var patternParser = _serviceProvider.GetRequiredService<PatternBasedBankSlipParser>();
+
+                if (patternParser.CanParse(ocrText, collection))
                 {
-                    _logger.LogInformation("Auto-detected K-BIZ format for collection {CollectionName}", collection.Name);
-                    return kbizParser;
+                    _logger.LogDebug("Pattern-based parser can handle text for collection {CollectionName}", collection.Name);
+                    return patternParser;
                 }
 
-                // Try original parser
-                var originalParser = _serviceProvider.GetService<OriginalSlipParser>();
-                if (originalParser != null && originalParser.CanParse(ocrText, collection))
-                {
-                    _logger.LogDebug("Auto-detected original format for collection {CollectionName}", collection.Name);
-                    return originalParser;
-                }
-
-                // Fallback to collection's designated format
-                return GetParser(collection);
+                _logger.LogWarning("Pattern-based parser cannot handle text for collection {CollectionName} - this shouldn't happen!", collection.Name);
+                return patternParser; // Use it anyway, it's our only parser now!
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in auto-detection, falling back to designated parser");
-                return GetParser(collection);
+                _logger.LogError(ex, "Error in parser selection, falling back to emergency parser");
+                return new EmergencyFallbackParser(_logger);
             }
         }
     }
 
     /// <summary>
-    /// Fallback parser that uses existing logic when services aren't available
+    /// Emergency fallback parser - only used when the main system fails catastrophically
+    /// This should NEVER be used in normal operation
     /// </summary>
-    internal class FallbackParser : IBankSlipParser
+    internal class EmergencyFallbackParser : IBankSlipParser
     {
         private readonly ILogger _logger;
 
-        public FallbackParser(ILogger logger)
+        public EmergencyFallbackParser(ILogger logger)
         {
-            _logger = logger;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public bool CanParse(string text, SlipCollection collection)
         {
+            // Emergency parser accepts anything but will fail gracefully
             return !string.IsNullOrWhiteSpace(text);
         }
 
         public BankSlipData? Parse(string text, string imagePath, SlipCollection collection)
         {
-            _logger.LogWarning("Using fallback parser - consider implementing proper parser services");
+            _logger.LogError("🚨 EMERGENCY FALLBACK PARSER ACTIVATED! This indicates a serious system failure!");
+            _logger.LogError("Collection: {CollectionName}, File: {FilePath}", collection.Name, Path.GetFileName(imagePath));
 
-            // Return basic slip data with minimal parsing
+            // Return a failed bank slip with clear error indication
             return new BankSlipData
             {
+                Id = Guid.NewGuid().ToString(),
                 OriginalFilePath = imagePath,
                 ParserUsed = GetParserName(),
                 IsKBizFormat = collection.IsKBizFormat,
-                TransactionDate = File.GetLastWriteTime(imagePath).AddYears(543), // Use file timestamp
-                ReceiverName = "Could not resolve receiver",
+                TransactionDate = File.GetLastWriteTime(imagePath),
+                ReceiverName = "⚠️ EMERGENCY PARSER USED",
+                Amount = 0,
                 Status = BankSlipProcessingStatus.Failed,
-                ErrorReason = "Fallback parser used - parsing incomplete",
+                ErrorReason = "Emergency fallback parser activated - system failure detected",
+                ProcessedAt = DateTime.UtcNow,
                 ParsingNotes = new Dictionary<string, string>
                 {
-                    ["Warning"] = "Fallback parser used due to missing parser services"
+                    ["EmergencyMode"] = "true",
+                    ["OriginalCollection"] = collection.Name,
+                    ["FailureTime"] = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                    ["TextLength"] = text?.Length.ToString() ?? "0",
+                    ["SystemError"] = "PatternBasedBankSlipParser was not available"
                 }
             };
         }
 
-        public string GetParserName() => "Fallback Parser";
+        public string GetParserName() => "🚨 Emergency Fallback Parser";
 
         public SlipFormat GetSupportedFormat() => SlipFormat.Original;
 
-        public bool ValidateParsedData(BankSlipData data) => false; // Always fails validation
+        public bool ValidateParsedData(BankSlipData data)
+        {
+            // Emergency parser always fails validation to ensure manual review
+            return false;
+        }
     }
 }
