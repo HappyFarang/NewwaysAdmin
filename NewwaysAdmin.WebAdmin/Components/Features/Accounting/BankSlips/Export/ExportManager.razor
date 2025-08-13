@@ -1,0 +1,163 @@
+﻿@* ExportManager.razor - Simple export manager for Google Sheets *@
+
+@if (IsVisible)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                        Export to Google Sheets
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HandleCancel"></button>
+                </div>
+
+                <div class="modal-body">
+                    @if (ProcessingResult?.ProcessedSlips != null)
+                    {
+                        <div class="mb-3">
+                            <h6>Export Summary</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>@ProcessingResult.ProcessedSlips.Count</strong> total slips</li>
+                                <li><strong>@GetSuccessfulCount()</strong> successful</li>
+                                @if (GetFailedCount() > 0)
+                                {
+                                    <li><strong>@GetFailedCount()</strong> failed</li>
+                                }
+                            </ul>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Export Options</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="exportType" id="allSlips"
+                                       checked="@(_exportType == "all")"
+                                       @onchange="@(() => _exportType = "all")" />
+                                <label class="form-check-label" for="allSlips">
+                                    Export all slips (@ProcessingResult.ProcessedSlips.Count)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="exportType" id="successfulOnly"
+                                       checked="@(_exportType == "successful")"
+                                       @onchange="@(() => _exportType = "successful")" />
+                                <label class="form-check-label" for="successfulOnly">
+                                    Export successful only (@GetSuccessfulCount())
+                                </label>
+                            </div>
+                        </div>
+
+                        @if (_isExporting)
+                        {
+                            <div class="text-center">
+                                <div class="spinner-border text-primary mb-2"></div>
+                                <p>Exporting to Google Sheets...</p>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(_exportMessage))
+                        {
+                            <div class="alert @(_exportSuccess ? "alert-success" : "alert-danger")">
+                                <i class="bi @(_exportSuccess ? "bi-check-circle" : "bi-x-circle") me-2"></i>
+                                @_exportMessage
+                            </div>
+                        }
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel">
+                        @(_exportSuccess ? "Close" : "Cancel")
+                    </button>
+
+                    @if (!_exportSuccess)
+                    {
+                        <button type="button"
+                                class="btn btn-primary"
+                                disabled="@_isExporting"
+                                @onclick="HandleExport">
+                            @if (_isExporting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            <i class="bi bi-cloud-upload me-1"></i>
+                            Export to Sheets
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Modal Backdrop *@
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public BankSlipProcessingResult? ProcessingResult { get; set; }
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public string CurrentUsername { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> OnExportCompleted { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string _exportType = "all";
+    private bool _isExporting = false;
+    private bool _exportSuccess = false;
+    private string _exportMessage = string.Empty;
+
+    private int GetSuccessfulCount()
+    {
+        return ProcessingResult?.ProcessedSlips?
+            .Count(s => s.Status == BankSlipProcessingStatus.Completed) ?? 0;
+    }
+
+    private int GetFailedCount()
+    {
+        return ProcessingResult?.ProcessedSlips?
+            .Count(s => s.Status == BankSlipProcessingStatus.Failed) ?? 0;
+    }
+
+    private async Task HandleExport()
+    {
+        try
+        {
+            _isExporting = true;
+            _exportMessage = string.Empty;
+            StateHasChanged();
+
+            // Simulate export process - replace with actual export service call
+            await Task.Delay(2000);
+
+            var slipsToExport = _exportType == "successful"
+                ? ProcessingResult?.ProcessedSlips?.Where(s => s.Status == BankSlipProcessingStatus.Completed).ToList()
+                : ProcessingResult?.ProcessedSlips;
+
+            // Here you would call the actual export service
+            // var result = await ExportService.ExportBankSlipsAsync(slipsToExport, CurrentUsername);
+
+            _exportSuccess = true;
+            _exportMessage = $"✅ Successfully exported {slipsToExport?.Count ?? 0} bank slips to Google Sheets!";
+
+            await OnExportCompleted.InvokeAsync(_exportMessage);
+        }
+        catch (Exception ex)
+        {
+            _exportSuccess = false;
+            _exportMessage = $"❌ Export failed: {ex.Message}";
+        }
+        finally
+        {
+            _isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleCancel()
+    {
+        _exportMessage = string.Empty;
+        _exportSuccess = false;
+        _isExporting = false;
+        await OnCancel.InvokeAsync();
+    }
+}

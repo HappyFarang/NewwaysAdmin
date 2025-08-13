@@ -1,4 +1,5 @@
 ﻿@using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
+@using ColumnDefinition = NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition;
 
 <div class="column-editor">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -142,8 +143,8 @@
 </style>
 
 @code {
-    [Parameter] public List<ColumnDefinition> Columns { get; set; } = new();
-    [Parameter] public EventCallback<List<ColumnDefinition>> ColumnsChanged { get; set; }
+    [Parameter] public List<NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition> Columns { get; set; } = new();
+    [Parameter] public EventCallback<List<NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition>> ColumnsChanged { get; set; }
     [Parameter] public EventCallback OnColumnChanged { get; set; }
     [Parameter] public bool ShowAdvancedOptions { get; set; } = false;
 

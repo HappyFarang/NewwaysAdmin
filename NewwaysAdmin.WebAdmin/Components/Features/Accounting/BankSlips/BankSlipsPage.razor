@@ -1,0 +1,449 @@
+﻿@page "/accounting/bankslips"
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
+@using NewwaysAdmin.WebAdmin.Models.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@using NewwaysAdmin.GoogleSheets.Services
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Collections
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Processing
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Results
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Export
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Shared
+
+@inject IBankSlipOcrService BankSlipService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<BankSlipsPage> Logger
+@inject BankSlipExportService ExportService
+
+<PageTitle>Bank Slip OCR - Pattern Based</PageTitle>
+
+<div class="container-fluid p-4">
+
+    @* Header Section *@
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2>
+                    <i class="bi bi-bank2 me-2"></i>
+                    Bank Slip Processing
+                    <small class="text-muted fs-6">Pattern-Based OCR System</small>
+                </h2>
+
+                @if (!string.IsNullOrEmpty(_currentUsername))
+                {
+                    <div class="text-muted">
+                        <i class="bi bi-person-circle me-1"></i>
+                        @_currentUsername
+                        @if (_isAdmin)
+                        {
+                            <span class="badge bg-primary ms-2">Admin</span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Status Messages *@
+    <StatusMessage Message="@_statusMessage"
+                   MessageType="@_statusMessageType"
+                   OnClear="ClearStatusMessage" />
+
+    @* Main Content Grid *@
+    <div class="row">
+
+        @* Left Panel - Collection Management *@
+        <div class="col-md-4">
+            <CollectionSelector AvailableCollections="@_availableCollections"
+                                SelectedCollection="@_selectedCollection"
+                                IsLoading="@_isLoadingCollections"
+                                IsAdmin="@_isAdmin"
+                                OnCollectionSelected="HandleCollectionSelected"
+                                OnCreateCollection="HandleCreateCollection"
+                                OnEditCollection="HandleEditCollection"
+                                OnDeleteCollection="HandleDeleteCollection" />
+        </div>
+
+        @* Center Panel - Processing Controls *@
+        <div class="col-md-4">
+            <ProcessingPanel SelectedCollection="@_selectedCollection"
+                             StartDate="@_startDate"
+                             EndDate="@_endDate"
+                             IsProcessing="@_isProcessing"
+                             OnStartProcessing="HandleStartProcessing"
+                             OnStartDateChanged="HandleStartDateChanged"
+                             OnEndDateChanged="HandleEndDateChanged" />
+        </div>
+
+        @* Right Panel - Results & Export *@
+        <div class="col-md-4">
+            @if (_lastResult != null)
+            {
+                <ResultsViewer ProcessingResult="@_lastResult"
+                               OnExportRequested="HandleExportRequested" />
+            }
+            else
+            {
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5><i class="bi bi-list-check me-2"></i>Results</h5>
+                    </div>
+                    <div class="card-body text-center text-muted">
+                        <i class="bi bi-hourglass-split fs-1 mb-3"></i>
+                        <p>Process a collection to see results here</p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Export Manager Modal *@
+    @if (_showExportModal && _lastResult != null)
+    {
+        <ExportManager ProcessingResult="@_lastResult"
+                       IsVisible="@_showExportModal"
+                       CurrentUsername="@_currentUsername"
+                       OnExportCompleted="HandleExportCompleted"
+                       OnCancel="HandleExportCanceled" />
+    }
+
+    @* Collection Editor Modal *@
+    @if (_showCollectionModal)
+    {
+        <PatternCollectionEditor Collection="@_editingCollection"
+                                 IsVisible="@_showCollectionModal"
+                                 IsEditMode="@_isEditMode"
+                                 OnSave="HandleCollectionSaved"
+                                 OnCancel="HandleCollectionEditorCanceled" />
+    }
+</div>
+
+@code {
+    // User context
+    private string _currentUsername = string.Empty;
+    private bool _isAdmin = false;
+
+    // Collections
+    private List<SlipCollection> _availableCollections = new();
+    private SlipCollection? _selectedCollection;
+    private bool _isLoadingCollections = true;
+
+    // Collection editing
+    private bool _showCollectionModal = false;
+    private SlipCollection? _editingCollection;
+    private bool _isEditMode = false;
+
+    // Processing
+    private DateTime _startDate = DateTime.Today.AddMonths(-1);
+    private DateTime _endDate = DateTime.Today;
+    private bool _isProcessing = false;
+    private BankSlipProcessingResult? _lastResult;
+    private ProcessingProgress _processingProgress = new();
+
+    // Export
+    private bool _showExportModal = false;
+
+    // Status management
+    private string _statusMessage = string.Empty;
+    private string _statusMessageType = "info";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Logger.LogInformation("BankSlipsPage: Initializing pattern-based bank slip processing");
+
+        try
+        {
+            await LoadCurrentUser();
+            await LoadAvailableCollections();
+
+            Logger.LogInformation("BankSlipsPage: Initialization complete - User: {Username}, Collections: {Count}",
+                _currentUsername, _availableCollections.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "BankSlipsPage: Error during initialization");
+            SetStatusMessage($"Initialization error: {ex.Message}", "error");
+        }
+    }
+
+    #region User Management
+
+    private async Task LoadCurrentUser()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _currentUsername = authState.User.Identity?.Name ?? "anonymous";
+        _isAdmin = authState.User.IsInRole("Admin");
+
+        Logger.LogDebug("Loaded user: {Username}, IsAdmin: {IsAdmin}", _currentUsername, _isAdmin);
+    }
+
+    #endregion
+
+    #region Collection Management
+
+    private async Task LoadAvailableCollections()
+    {
+        try
+        {
+            _isLoadingCollections = true;
+            StateHasChanged();
+
+            _availableCollections = await BankSlipService.GetUserCollectionsAsync(_currentUsername);
+
+            // Migrate any legacy collections to pattern-based system
+            foreach (var collection in _availableCollections)
+            {
+                if (string.IsNullOrEmpty(collection.DocumentType) || string.IsNullOrEmpty(collection.FormatName))
+                {
+                    collection.MigrateToPatternBased();
+                    Logger.LogInformation("Auto-migrated collection {CollectionName} to pattern-based system", collection.Name);
+                }
+            }
+
+            Logger.LogInformation("Loaded {Count} collections for user {Username}", _availableCollections.Count, _currentUsername);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading collections for user {Username}", _currentUsername);
+            SetStatusMessage($"Error loading collections: {ex.Message}", "error");
+        }
+        finally
+        {
+            _isLoadingCollections = false;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleCollectionSelected(SlipCollection collection)
+    {
+        _selectedCollection = collection;
+        ClearStatusMessage();
+        Logger.LogInformation("Selected collection: {CollectionName} ({DocumentType}/{FormatName})",
+            collection.Name, collection.DocumentType, collection.FormatName);
+    }
+
+    private void HandleCreateCollection()
+    {
+        _editingCollection = new SlipCollection
+            {
+                Name = "",
+                Description = "",
+                SourceDirectory = "",
+                OutputDirectory = "",
+                CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json",
+                IsActive = true,
+                DocumentType = "BankSlips", // Always BankSlips for this page
+                FormatName = "", // Will be selected in editor
+                ProcessingSettings = new ProcessingParameters()
+            };
+        _isEditMode = false;
+        _showCollectionModal = true;
+    }
+
+    private void HandleEditCollection(SlipCollection collection)
+    {
+        // Ensure collection is migrated before editing
+        collection.MigrateToPatternBased();
+
+        _editingCollection = new SlipCollection
+            {
+                Id = collection.Id,
+                Name = collection.Name,
+                Description = collection.Description,
+                SourceDirectory = collection.SourceDirectory,
+                OutputDirectory = collection.OutputDirectory,
+                CredentialsPath = collection.CredentialsPath,
+                IsActive = collection.IsActive,
+                DocumentType = collection.DocumentType,
+                FormatName = collection.FormatName,
+                ProcessingSettings = collection.ProcessingSettings ?? new ProcessingParameters()
+            };
+        _isEditMode = true;
+        _showCollectionModal = true;
+    }
+
+    private async Task HandleDeleteCollection(SlipCollection collection)
+    {
+        try
+        {
+            await BankSlipService.DeleteCollectionAsync(collection.Id, _currentUsername);
+            await LoadAvailableCollections();
+
+            if (_selectedCollection?.Id == collection.Id)
+            {
+                _selectedCollection = null;
+            }
+
+            SetStatusMessage($"Collection '{collection.Name}' deleted successfully", "info");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting collection {CollectionName}", collection.Name);
+            SetStatusMessage($"Error deleting collection: {ex.Message}", "error");
+        }
+    }
+
+    private async Task HandleCollectionSaved(SlipCollection collection)
+    {
+        try
+        {
+            // Set creation metadata for new collections
+            if (string.IsNullOrEmpty(collection.Id))
+            {
+                collection.Id = Guid.NewGuid().ToString();
+                collection.CreatedBy = _currentUsername;
+                collection.CreatedAt = DateTime.UtcNow;
+            }
+
+            await BankSlipService.SaveCollectionAsync(collection, _currentUsername);
+            await LoadAvailableCollections();
+
+            _showCollectionModal = false;
+            _editingCollection = null;
+
+            SetStatusMessage($"Collection '{collection.Name}' saved successfully", "info");
+            Logger.LogInformation("Collection {CollectionName} saved by {Username}", collection.Name, _currentUsername);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving collection {CollectionName}", collection.Name);
+            SetStatusMessage($"Error saving collection: {ex.Message}", "error");
+        }
+    }
+
+    private void HandleCollectionEditorCanceled()
+    {
+        _showCollectionModal = false;
+        _editingCollection = null;
+    }
+
+    #endregion
+
+    #region Processing
+
+    private void HandleStartDateChanged(DateTime newDate)
+    {
+        _startDate = newDate;
+    }
+
+    private void HandleEndDateChanged(DateTime newDate)
+    {
+        _endDate = newDate;
+    }
+
+    private async Task HandleStartProcessing()
+    {
+        if (_selectedCollection == null) return;
+
+        try
+        {
+            _isProcessing = true;
+            _processingProgress = new ProcessingProgress();
+            ClearStatusMessage();
+            StateHasChanged();
+
+            Logger.LogInformation("Starting processing for collection {CollectionName} from {StartDate} to {EndDate}",
+                _selectedCollection.Name, _startDate, _endDate);
+
+            var progressReporter = new ComponentProgressReporter(this);
+            _lastResult = await BankSlipService.ProcessSlipCollectionAsync(
+                _selectedCollection.Id, _startDate, _endDate, _currentUsername, progressReporter);
+
+            if (_lastResult?.ProcessedSlips?.Any() == true)
+            {
+                SetStatusMessage($"✅ Processing completed: {_lastResult.ProcessedSlips.Count} slips processed", "success");
+            }
+            else
+            {
+                SetStatusMessage("⚠️ No slips found in the specified date range", "warning");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error during processing");
+            SetStatusMessage($"Processing error: {ex.Message}", "error");
+        }
+        finally
+        {
+            _isProcessing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void UpdateProcessingProgress(int processed, int total, string currentFile)
+    {
+        _processingProgress.ProcessedCount = processed;
+        _processingProgress.TotalCount = total;
+        _processingProgress.CurrentFile = currentFile;
+        StateHasChanged();
+    }
+
+    #endregion
+
+    #region Export
+
+    private void HandleExportRequested()
+    {
+        if (_lastResult?.ProcessedSlips?.Any() == true)
+        {
+            _showExportModal = true;
+        }
+    }
+
+    private void HandleExportCompleted(string message)
+    {
+        _showExportModal = false;
+        SetStatusMessage(message, "success");
+    }
+
+    private void HandleExportCanceled()
+    {
+        _showExportModal = false;
+    }
+
+    #endregion
+
+    #region Status Management
+
+    private void SetStatusMessage(string message, string type)
+    {
+        _statusMessage = message;
+        _statusMessageType = type;
+        StateHasChanged();
+    }
+
+    private void ClearStatusMessage()
+    {
+        _statusMessage = string.Empty;
+        _statusMessageType = "info";
+    }
+
+    #endregion
+
+    #region Supporting Classes
+
+    public class ProcessingProgress
+    {
+        public int ProcessedCount { get; set; }
+        public int TotalCount { get; set; }
+        public string CurrentFile { get; set; } = string.Empty;
+        public int ProgressPercentage => TotalCount > 0 ? (ProcessedCount * 100 / TotalCount) : 0;
+    }
+
+    private class ComponentProgressReporter : IProgressReporter
+    {
+        private readonly BankSlipsPage _parent;
+
+        public ComponentProgressReporter(BankSlipsPage parent)
+        {
+            _parent = parent;
+        }
+
+        public void ReportProgress(int processedCount, int totalCount, string currentFileName = "")
+        {
+            _parent.UpdateProcessingProgress(processedCount, totalCount, currentFileName);
+        }
+    }
+
+    #endregion
+}

@@ -1,5 +1,52 @@
-﻿<h3>StatusMessage</h3>
+﻿@* StatusMessage.razor - Reusable status message component *@
+
+@if (!string.IsNullOrEmpty(Message))
+{
+    <div class="alert @GetAlertClass() alert-dismissible fade show" role="alert">
+        <i class="bi @GetIconClass() me-2"></i>
+        @Message
+
+        @if (ShowCloseButton)
+        {
+            <button type="button"
+                    class="btn-close"
+                    aria-label="Close"
+                    @onclick="HandleClose">
+            </button>
+        }
+    </div>
+}
 
 @code {
+    [Parameter] public string Message { get; set; } = string.Empty;
+    [Parameter] public string MessageType { get; set; } = "info"; // info, success, warning, error
+    [Parameter] public bool ShowCloseButton { get; set; } = true;
+    [Parameter] public EventCallback OnClear { get; set; }
 
+    private string GetAlertClass()
+    {
+        return MessageType.ToLower() switch
+        {
+            "success" => "alert-success",
+            "warning" => "alert-warning",
+            "error" => "alert-danger",
+            _ => "alert-info"
+        };
+    }
+
+    private string GetIconClass()
+    {
+        return MessageType.ToLower() switch
+        {
+            "success" => "bi-check-circle",
+            "warning" => "bi-exclamation-triangle",
+            "error" => "bi-x-circle",
+            _ => "bi-info-circle"
+        };
+    }
+
+    private async Task HandleClose()
+    {
+        await OnClear.InvokeAsync();
+    }
 }

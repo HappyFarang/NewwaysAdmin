@@ -2,6 +2,7 @@
 @using NewwaysAdmin.GoogleSheets.Models
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer.Shared
+@using ColumnDefinition = NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition;
 
 <div class="template-designer">
     <div class="row">
@@ -152,7 +153,7 @@
     [Parameter] public EventCallback OnCancel { get; set; }
     [Parameter] public EventCallback<SheetTemplate> OnPreview { get; set; }
 
-    private List<ColumnDefinition> _templateColumns = new();
+    private List<NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition> _templateColumns = new();
     private PreviewMode _previewMode = PreviewMode.WithData;
 
     protected override void OnParametersSet()

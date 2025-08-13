@@ -1,0 +1,261 @@
+﻿@* ResultsViewer.razor - Display processing results *@
+
+<div class="card h-100">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-list-check me-2"></i>Results
+        </h5>
+
+        @if (ProcessingResult?.ProcessedSlips?.Any() == true)
+        {
+            <span class="badge bg-primary">@ProcessingResult.ProcessedSlips.Count</span>
+        }
+    </div>
+
+    <div class="card-body">
+        @if (ProcessingResult == null)
+        {
+            <div class="text-center text-muted">
+                <i class="bi bi-hourglass-split fs-1 mb-3"></i>
+                <h6>No Results Yet</h6>
+                <p>Process a collection to see results here.</p>
+            </div>
+        }
+        else
+        {
+            @* Summary Statistics *@
+            <div class="mb-4">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="text-center p-2 bg-light rounded">
+                            <div class="fw-bold text-primary">@ProcessingResult.ProcessedSlips.Count</div>
+                            <small class="text-muted">Total Slips</small>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-center p-2 bg-light rounded">
+                            <div class="fw-bold text-success">@GetSuccessfulCount()</div>
+                            <small class="text-muted">Successful</small>
+                        </div>
+                    </div>
+                </div>
+
+                @if (GetFailedCount() > 0)
+                {
+                    <div class="row g-3 mt-1">
+                        <div class="col-6">
+                            <div class="text-center p-2 bg-light rounded">
+                                <div class="fw-bold text-danger">@GetFailedCount()</div>
+                                <small class="text-muted">Failed</small>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-center p-2 bg-light rounded">
+                                <div class="fw-bold text-info">@GetSuccessRate():F1%</div>
+                                <small class="text-muted">Success Rate</small>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* Results List *@
+            <div class="mb-4" style="max-height: 300px; overflow-y: auto;">
+                @foreach (var slip in ProcessingResult.ProcessedSlips.Take(10))
+                {
+                    <div class="border rounded p-2 mb-2 @GetSlipCssClass(slip)">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                @* Status Icon & Basic Info *@
+                                <div class="d-flex align-items-center mb-1">
+                                    <i class="@GetStatusIcon(slip) me-2"></i>
+                                    <strong>@GetSlipDisplayAmount(slip)</strong>
+
+                                    @if (slip.TransactionDate != default)
+                                    {
+                                        <small class="text-muted ms-2">
+                                            @slip.TransactionDate.ToString("MMM dd")
+                                        </small>
+                                    }
+                                </div>
+
+                                @* Recipient Info *@
+                                @if (!string.IsNullOrEmpty(slip.ReceiverName))
+                                {
+                                    <div class="small text-muted mb-1">
+                                        <i class="bi bi-person me-1"></i>
+                                        @GetTruncatedText(slip.ReceiverName, 30)
+                                    </div>
+                                }
+
+                                @* Pattern Info *@
+                                @if (!string.IsNullOrEmpty(slip.FormatName))
+                                {
+                                    <div class="d-flex gap-1">
+                                        <span class="badge badge-sm @GetFormatBadgeClass(slip.FormatName)">
+                                            @slip.FormatName
+                                        </span>
+
+                                        @if (slip.Status == BankSlipProcessingStatus.Failed)
+                                        {
+                                            <span class="badge badge-sm bg-danger">Failed</span>
+                                        }
+                                        else if (slip.Status == BankSlipProcessingStatus.Completed)
+                                        {
+                                            <span class="badge badge-sm bg-success">OK</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            @* File Name *@
+                            <div class="text-end">
+                                <small class="text-muted">
+                                    @GetFileDisplayName(slip.OriginalFilePath)
+                                </small>
+                            </div>
+                        </div>
+
+                        @* Error Message *@
+                        @if (slip.Status == BankSlipProcessingStatus.Failed && !string.IsNullOrEmpty(slip.ErrorReason))
+                        {
+                            <div class="small text-danger mt-1">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                @GetTruncatedText(slip.ErrorReason, 50)
+                            </div>
+                        }
+                    </div>
+                }
+
+                @* Show More Indicator *@
+                @if (ProcessingResult?.ProcessedSlips?.Count > 10)
+                {
+                    <div class="text-center text-muted small">
+                        ... and @(ProcessingResult.ProcessedSlips.Count - 10) more slips
+                    </div>
+                }
+            </div>
+
+            @* Export Actions *@
+            <div class="mt-auto">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success"
+                            @onclick="HandleExportRequested"
+                            disabled="@(ProcessingResult?.ProcessedSlips?.Any() != true)">
+                        <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                        Export to Google Sheets
+                    </button>
+
+                    <button class="btn btn-outline-secondary"
+                            @onclick="HandleDownloadCsv"
+                            disabled="@(ProcessingResult?.ProcessedSlips?.Any() != true)">
+                        <i class="bi bi-download me-2"></i>
+                        Download CSV
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public BankSlipProcessingResult? ProcessingResult { get; set; }
+    [Parameter] public EventCallback OnExportRequested { get; set; }
+
+    private async Task HandleExportRequested()
+    {
+        await OnExportRequested.InvokeAsync();
+    }
+
+    private async Task HandleDownloadCsv()
+    {
+        // This would trigger CSV download functionality
+        // For now, just call the export callback
+        await OnExportRequested.InvokeAsync();
+    }
+
+    private int GetSuccessfulCount()
+    {
+        return ProcessingResult?.ProcessedSlips?
+            .Count(s => s.Status == BankSlipProcessingStatus.Completed) ?? 0;
+    }
+
+    private int GetFailedCount()
+    {
+        return ProcessingResult?.ProcessedSlips?
+            .Count(s => s.Status == BankSlipProcessingStatus.Failed) ?? 0;
+    }
+
+    private double GetSuccessRate()
+    {
+        var total = ProcessingResult?.ProcessedSlips?.Count ?? 0;
+        if (total == 0) return 0;
+
+        var successful = GetSuccessfulCount();
+        return (double)successful / total * 100;
+    }
+
+    private string GetSlipCssClass(BankSlipData slip)
+    {
+        return slip.Status switch
+        {
+            BankSlipProcessingStatus.Failed => "border-danger bg-danger-subtle",
+            BankSlipProcessingStatus.Completed => "border-success bg-success-subtle",
+            _ => "border-secondary"
+        };
+    }
+
+    private string GetStatusIcon(BankSlipData slip)
+    {
+        return slip.Status switch
+        {
+            BankSlipProcessingStatus.Failed => "bi-x-circle text-danger",
+            BankSlipProcessingStatus.Completed => "bi-check-circle text-success",
+            _ => "bi-hourglass text-muted"
+        };
+    }
+
+    private string GetSlipDisplayAmount(BankSlipData slip)
+    {
+        if (slip.Amount > 0)
+        {
+            return slip.Amount.ToString("C2");
+        }
+        return "No amount";
+    }
+
+    private string GetFormatBadgeClass(string? formatName)
+    {
+        return formatName?.ToUpper() switch
+        {
+            "KBIZ" or "K-BIZ" => "bg-success",
+            "SCB" => "bg-info",
+            "TTB" => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetFileDisplayName(string? filePath)
+    {
+        if (string.IsNullOrEmpty(filePath))
+            return "Unknown file";
+
+        try
+        {
+            var fileName = Path.GetFileName(filePath);
+            return GetTruncatedText(fileName ?? filePath, 20);
+        }
+        catch
+        {
+            return "Invalid path";
+        }
+    }
+
+    private string GetTruncatedText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxLength)
+            return text ?? string.Empty;
+
+        return text[..(maxLength - 3)] + "...";
+    }
+}

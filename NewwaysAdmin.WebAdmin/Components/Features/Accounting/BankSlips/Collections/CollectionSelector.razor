@@ -1,0 +1,250 @@
+﻿@* CollectionSelector.razor - Pattern-based collection management *@
+
+<div class="card h-100">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            <i class="bi bi-collection me-2"></i>
+            Collections
+            <small class="text-muted">(@(AvailableCollections?.Count ?? 0))</small>
+        </h5>
+
+        @if (IsAdmin)
+        {
+            <button class="btn btn-primary btn-sm"
+                    @onclick="HandleCreateCollection"
+                    title="Create new collection">
+                <i class="bi bi-plus-circle me-1"></i>Add
+            </button>
+        }
+    </div>
+
+    <div class="card-body p-0">
+        @if (IsLoading)
+        {
+            <div class="text-center p-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading collections...</span>
+                </div>
+                <p class="mt-2 text-muted">Loading collections...</p>
+            </div>
+        }
+        else if (AvailableCollections?.Any() == true)
+        {
+            <div class="list-group list-group-flush">
+                @foreach (var collection in AvailableCollections)
+                {
+                    <div class="list-group-item @GetCollectionCssClass(collection) position-relative"
+                         style="cursor: pointer;"
+                         @onclick="() => HandleCollectionSelected(collection)">
+
+                        @* Collection Info *@
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1 fw-bold">
+                                    <i class="@GetFormatIcon(collection.FormatName) me-2"></i>
+                                    @collection.Name
+                                </h6>
+
+                                <p class="mb-1 text-muted small">
+                                    @if (!string.IsNullOrEmpty(collection.Description))
+                                    {
+                                        @collection.Description
+                                    }
+                                    else
+                                    {
+                                        <em>No description</em>
+                                    }
+                                </p>
+
+                                @* Pattern Info *@
+                                <div class="d-flex flex-wrap gap-1 mb-2">
+                                    <span class="badge bg-secondary">
+                                        @collection.DocumentType
+                                    </span>
+                                    <span class="badge @GetFormatBadgeClass(collection.FormatName)">
+                                        @collection.FormatName
+                                    </span>
+                                </div>
+
+                                @* Directory Info *@
+                                <small class="text-muted">
+                                    <i class="bi bi-folder me-1"></i>
+                                    @GetDirectoryDisplayName(collection.SourceDirectory)
+                                </small>
+                            </div>
+
+                            @* Action Buttons *@
+                            @if (IsAdmin)
+                            {
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                            type="button"
+                                            data-bs-toggle="dropdown"
+                                            @onclick:stopPropagation="true">
+                                        <i class="bi bi-three-dots"></i>
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li>
+                                            <button class="dropdown-item"
+                                                    @onclick="() => HandleEditCollection(collection)"
+                                                    @onclick:stopPropagation="true">
+                                                <i class="bi bi-pencil me-2"></i>Edit
+                                            </button>
+                                        </li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <button class="dropdown-item text-danger"
+                                                    @onclick="() => HandleDeleteCollection(collection)"
+                                                    @onclick:stopPropagation="true">
+                                                <i class="bi bi-trash me-2"></i>Delete
+                                            </button>
+                                        </li>
+                                    </ul>
+                                </div>
+                            }
+                        </div>
+
+                        @* Selection Indicator *@
+                        @if (IsSelected(collection))
+                        {
+                            <div class="position-absolute top-0 start-0 h-100 bg-primary"
+                                 style="width: 4px;"></div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="text-center p-4">
+                <i class="bi bi-collection fs-1 text-muted mb-3"></i>
+                <h6 class="text-muted">No Collections Found</h6>
+                <p class="text-muted mb-3">
+                    @if (IsAdmin)
+                    {
+                        <span>Create your first collection to get started with bank slip processing.</span>
+                    }
+                    else
+                    {
+                        <span>No collections are available for your account.</span>
+                    }
+                </p>
+
+                @if (IsAdmin)
+                {
+                    <button class="btn btn-primary" @onclick="HandleCreateCollection">
+                        <i class="bi bi-plus-circle me-1"></i>Create Collection
+                    </button>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<SlipCollection>? AvailableCollections { get; set; }
+    [Parameter] public SlipCollection? SelectedCollection { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool IsAdmin { get; set; }
+
+    [Parameter] public EventCallback<SlipCollection> OnCollectionSelected { get; set; }
+    [Parameter] public EventCallback OnCreateCollection { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnEditCollection { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnDeleteCollection { get; set; }
+
+    private async Task HandleCollectionSelected(SlipCollection collection)
+    {
+        if (collection != null)
+        {
+            await OnCollectionSelected.InvokeAsync(collection);
+        }
+    }
+
+    private async Task HandleCreateCollection()
+    {
+        await OnCreateCollection.InvokeAsync();
+    }
+
+    private async Task HandleEditCollection(SlipCollection collection)
+    {
+        if (collection != null)
+        {
+            await OnEditCollection.InvokeAsync(collection);
+        }
+    }
+
+    private async Task HandleDeleteCollection(SlipCollection collection)
+    {
+        if (collection != null)
+        {
+            await OnDeleteCollection.InvokeAsync(collection);
+        }
+    }
+
+    private bool IsSelected(SlipCollection collection)
+    {
+        return SelectedCollection?.Id == collection?.Id;
+    }
+
+    private string GetCollectionCssClass(SlipCollection collection)
+    {
+        var baseClass = "list-group-item-action";
+
+        if (IsSelected(collection))
+        {
+            baseClass += " active";
+        }
+
+        if (!collection.IsActive)
+        {
+            baseClass += " text-muted";
+        }
+
+        return baseClass;
+    }
+
+    private string GetFormatIcon(string? formatName)
+    {
+        if (string.IsNullOrEmpty(formatName))
+            return "bi-bank";
+
+        return formatName.ToUpper() switch
+        {
+            "KBIZ" or "K-BIZ" => "bi-bank2",
+            "SCB" => "bi-credit-card",
+            "TTB" => "bi-wallet2",
+            "KASIKORN" => "bi-cash-coin",
+            _ => "bi-bank"
+        };
+    }
+
+    private string GetFormatBadgeClass(string? formatName)
+    {
+        if (string.IsNullOrEmpty(formatName))
+            return "bg-secondary";
+
+        return formatName.ToUpper() switch
+        {
+            "KBIZ" or "K-BIZ" => "bg-success",
+            "SCB" => "bg-info",
+            "TTB" => "bg-warning",
+            "KASIKORN" => "bg-primary",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetDirectoryDisplayName(string? directoryPath)
+    {
+        if (string.IsNullOrEmpty(directoryPath))
+            return "No directory set";
+
+        try
+        {
+            return Path.GetFileName(directoryPath.TrimEnd('\\', '/')) ?? directoryPath;
+        }
+        catch
+        {
+            return directoryPath;
+        }
+    }
+}

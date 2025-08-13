@@ -1,5 +1,6 @@
 ﻿@namespace NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Designer
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models
+@using ColumnDefinition = NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition;
 
 <div class="basic-template-designer">
     <form @onsubmit="HandleSubmit" @onsubmit:preventDefault="true">
@@ -399,7 +400,7 @@
         }
     }
 
-    private string GetSampleData(ColumnDefinition column)
+    private string GetSampleData(NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets.Models.ColumnDefinition column)
     {
         return column.DataType switch
         {

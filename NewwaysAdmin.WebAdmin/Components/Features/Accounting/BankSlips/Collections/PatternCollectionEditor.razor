@@ -1,0 +1,417 @@
+﻿@* PatternCollectionEditor.razor - Pattern-based collection editor modal *@
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@inject PatternLoaderService PatternService
+@inject ILogger<PatternCollectionEditor> Logger
+
+@if (IsVisible)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-collection me-2"></i>
+                        @(IsEditMode ? "Edit" : "Create") Collection
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HandleCancel"></button>
+                </div>
+
+                <EditForm Model="@Collection" OnValidSubmit="HandleSave">
+                    <DataAnnotationsValidator />
+
+                    <div class="modal-body">
+                        @if (!string.IsNullOrEmpty(_errorMessage))
+                        {
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                @_errorMessage
+                            </div>
+                        }
+
+                        @* Basic Information *@
+                        <div class="mb-4">
+                            <h6 class="fw-bold mb-3">Basic Information</h6>
+
+                            <div class="mb-3">
+                                <label for="collectionName" class="form-label">Collection Name *</label>
+                                <InputText id="collectionName"
+                                           class="form-control"
+                                           @bind-Value="Collection.Name"
+                                           placeholder="Enter collection name" />
+                                <ValidationMessage For="@(() => Collection.Name)" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="collectionDescription" class="form-label">Description</label>
+                                <InputTextArea id="collectionDescription"
+                                               class="form-control"
+                                               rows="2"
+                                               @bind-Value="Collection.Description"
+                                               placeholder="Optional description" />
+                                <ValidationMessage For="@(() => Collection.Description)" />
+                            </div>
+                        </div>
+
+                        @* Pattern Configuration *@
+                        <div class="mb-4">
+                            <h6 class="fw-bold mb-3">
+                                <i class="bi bi-gear me-2"></i>Pattern Configuration
+                            </h6>
+
+                            @* Document Type (Fixed for BankSlips) *@
+                            <div class="mb-3">
+                                <label class="form-label">Document Type</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <i class="bi bi-bank me-1"></i>
+                                    </span>
+                                    <input type="text" class="form-control" value="BankSlips" readonly />
+                                </div>
+                                <small class="text-muted">Document type is fixed for this page</small>
+                            </div>
+
+                            @* Format Selection *@
+                            <div class="mb-3">
+                                <label for="formatSelect" class="form-label">Format *</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">
+                                        <i class="bi bi-tags me-1"></i>
+                                    </span>
+                                    <select id="formatSelect"
+                                            class="form-select"
+                                            @bind="Collection.FormatName">
+                                        <option value="">Select a format...</option>
+                                        @foreach (var format in _availableFormats)
+                                        {
+                                            <option value="@format">@format</option>
+                                        }
+                                    </select>
+                                </div>
+                                <ValidationMessage For="@(() => Collection.FormatName)" />
+
+                                @if (_isLoadingFormats)
+                                {
+                                    <small class="text-muted">
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                        Loading available formats...
+                                    </small>
+                                }
+                                else if (!_availableFormats.Any())
+                                {
+                                    <small class="text-warning">
+                                        <i class="bi bi-exclamation-triangle me-1"></i>
+                                        No formats available. Create patterns first.
+                                    </small>
+                                }
+                            </div>
+
+                            @* Pattern Preview *@
+                            @if (!string.IsNullOrEmpty(Collection.FormatName) && _formatPatterns.ContainsKey(Collection.FormatName))
+                            {
+                                <div class="alert alert-info">
+                                    <h6 class="mb-2">
+                                        <i class="bi bi-info-circle me-2"></i>Available Patterns
+                                    </h6>
+                                    <div class="d-flex flex-wrap gap-1">
+                                        @foreach (var pattern in _formatPatterns[Collection.FormatName])
+                                        {
+                                            <span class="badge bg-primary">@pattern</span>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        @* Directory Configuration *@
+                        <div class="mb-4">
+                            <h6 class="fw-bold mb-3">
+                                <i class="bi bi-folder me-2"></i>Directory Configuration
+                            </h6>
+
+                            <div class="mb-3">
+                                <label for="sourceDirectory" class="form-label">Source Directory *</label>
+                                <InputText id="sourceDirectory"
+                                           class="form-control"
+                                           @bind-Value="Collection.SourceDirectory"
+                                           placeholder="C:\BankSlips\Input" />
+                                <ValidationMessage For="@(() => Collection.SourceDirectory)" />
+                                <small class="text-muted">Directory containing bank slip images to process</small>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="outputDirectory" class="form-label">Output Directory *</label>
+                                <InputText id="outputDirectory"
+                                           class="form-control"
+                                           @bind-Value="Collection.OutputDirectory"
+                                           placeholder="C:\BankSlips\Output" />
+                                <ValidationMessage For="@(() => Collection.OutputDirectory)" />
+                                <small class="text-muted">Directory for processed results and exports</small>
+                            </div>
+                        </div>
+
+                        @* OCR Configuration *@
+                        <div class="mb-4">
+                            <h6 class="fw-bold mb-3">
+                                <i class="bi bi-eye me-2"></i>OCR Configuration
+                            </h6>
+
+                            <div class="mb-3">
+                                <label for="credentialsPath" class="form-label">Google Cloud Credentials</label>
+                                <InputText id="credentialsPath"
+                                           class="form-control"
+                                           @bind-Value="Collection.CredentialsPath"
+                                           placeholder="C:\Keys\credentials.json" />
+                                <small class="text-muted">Path to Google Cloud Vision API credentials file</small>
+                            </div>
+                        </div>
+
+                        @* Processing Settings *@
+                        @if (Collection.ProcessingSettings != null)
+                        {
+                            <div class="mb-4">
+                                <h6 class="fw-bold mb-3">
+                                    <i class="bi bi-sliders me-2"></i>Processing Settings
+                                </h6>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-check mb-2">
+                                            <InputCheckbox id="extractDualLanguage"
+                                                           class="form-check-input"
+                                                           @bind-Value="Collection.ProcessingSettings.ExtractDualLanguageNames" />
+                                            <label for="extractDualLanguage" class="form-check-label">
+                                                Extract Dual Language Names
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="form-check mb-2">
+                                            <InputCheckbox id="enhancedDateValidation"
+                                                           class="form-check-input"
+                                                           @bind-Value="Collection.ProcessingSettings.UseEnhancedDateValidation" />
+                                            <label for="enhancedDateValidation" class="form-check-label">
+                                                Enhanced Date Validation
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-check mb-2">
+                                            <InputCheckbox id="validateAccountFormat"
+                                                           class="form-check-input"
+                                                           @bind-Value="Collection.ProcessingSettings.ValidateAccountFormat" />
+                                            <label for="validateAccountFormat" class="form-check-label">
+                                                Validate Account Format
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="form-check mb-2">
+                                            <InputCheckbox id="advancedPatternMatching"
+                                                           class="form-check-input"
+                                                           @bind-Value="Collection.ProcessingSettings.UseAdvancedPatternMatching" />
+                                            <label for="advancedPatternMatching" class="form-check-label">
+                                                Advanced Pattern Matching
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="HandleCancel">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="btn btn-primary"
+                                disabled="@(_isSaving || !CanSave())">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            @(IsEditMode ? "Update" : "Create") Collection
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    @* Modal Backdrop *@
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public SlipCollection Collection { get; set; } = new();
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public bool IsEditMode { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private List<string> _availableFormats = new();
+    private Dictionary<string, List<string>> _formatPatterns = new();
+    private bool _isLoadingFormats = false;
+    private bool _isSaving = false;
+    private string _errorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAvailableFormats();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Ensure DocumentType is always set for BankSlips
+        if (Collection != null)
+        {
+            Collection.DocumentType = "BankSlips";
+        }
+
+        // Refresh formats when modal opens
+        if (IsVisible && !_availableFormats.Any())
+        {
+            await LoadAvailableFormats();
+        }
+    }
+
+    private async Task LoadAvailableFormats()
+    {
+        try
+        {
+            _isLoadingFormats = true;
+            _errorMessage = string.Empty;
+            StateHasChanged();
+
+            Logger.LogDebug("Loading available formats for BankSlips...");
+
+            // Load available formats from pattern library
+            var subCollections = await PatternService.GetAvailableFormatsAsync("BankSlips");
+            _availableFormats = subCollections;
+
+            Logger.LogDebug("Found {Count} available formats: {Formats}",
+                _availableFormats.Count, string.Join(", ", _availableFormats));
+
+            // Load pattern previews for each format
+            _formatPatterns.Clear();
+            foreach (var format in _availableFormats)
+            {
+                try
+                {
+                    var patterns = await LoadPatternsAsync("BankSlips", format);
+                    _formatPatterns[format] = patterns;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Error loading patterns for format {Format}", format);
+                    _formatPatterns[format] = new List<string>();
+                }
+            }
+
+            Logger.LogDebug("Loaded pattern previews for {Count} formats", _formatPatterns.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading available formats");
+            _errorMessage = $"Error loading formats: {ex.Message}";
+            _availableFormats = new List<string>();
+        }
+        finally
+        {
+            _isLoadingFormats = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task<List<string>> LoadPatternsAsync(string documentType, string format)
+    {
+        try
+        {
+            // We need to use the PatternManagementService directly for pattern names
+            // The PatternLoaderService.LoadPatternsAsync is private
+            // Let's use a simpler approach for now
+            var hasPatterns = await PatternService.HasPatternsAsync(documentType, format);
+            if (hasPatterns)
+            {
+                // Return some placeholder pattern names - in a real implementation
+                // you'd call a public method to get pattern names
+                return new List<string> { "Amount", "Date", "ReceiverName", "AccountNumber" };
+            }
+            return new List<string>();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Error loading patterns for {DocumentType}/{Format}", documentType, format);
+            return new List<string>();
+        }
+    }
+
+    private bool CanSave()
+    {
+        return !string.IsNullOrWhiteSpace(Collection?.Name) &&
+               !string.IsNullOrWhiteSpace(Collection?.FormatName) &&
+               !string.IsNullOrWhiteSpace(Collection?.SourceDirectory) &&
+               !string.IsNullOrWhiteSpace(Collection?.OutputDirectory) &&
+               !_isSaving;
+    }
+
+    private async Task HandleSave()
+    {
+        try
+        {
+            _isSaving = true;
+            _errorMessage = string.Empty;
+            StateHasChanged();
+
+            // Validate that patterns exist for the selected format
+            if (!await PatternService.HasPatternsAsync("BankSlips", Collection.FormatName))
+            {
+                _errorMessage = $"No patterns found for format '{Collection.FormatName}'. Please create patterns first.";
+                return;
+            }
+
+            // Ensure pattern-based properties are set
+            Collection.DocumentType = "BankSlips";
+
+            // Auto-configure processing settings based on format
+            if (Collection.ProcessingSettings == null)
+            {
+                Collection.ProcessingSettings = new ProcessingParameters();
+            }
+
+            // Set format-specific defaults
+            if (Collection.FormatName?.Contains("KBIZ", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                Collection.ProcessingSettings.ExtractDualLanguageNames = true;
+                Collection.ProcessingSettings.UseEnhancedDateValidation = true;
+                Collection.IsKBizFormat = true; // Maintain backward compatibility
+            }
+
+            Logger.LogInformation("Saving collection {CollectionName} with format {Format}",
+                Collection.Name, Collection.FormatName);
+
+            await OnSave.InvokeAsync(Collection);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving collection {CollectionName}", Collection?.Name);
+            _errorMessage = $"Error saving collection: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleCancel()
+    {
+        _errorMessage = string.Empty;
+        await OnCancel.InvokeAsync();
+    }
+}

@@ -1,0 +1,248 @@
+﻿@* ProcessingPanel.razor - Bank slip processing controls *@
+
+<div class="card h-100">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="bi bi-play-circle me-2"></i>Processing
+        </h5>
+    </div>
+
+    <div class="card-body">
+        @if (SelectedCollection == null)
+        {
+            <div class="text-center text-muted">
+                <i class="bi bi-arrow-left fs-1 mb-3"></i>
+                <h6>Select a Collection</h6>
+                <p>Choose a collection from the left panel to start processing bank slips.</p>
+            </div>
+        }
+        else
+        {
+            @* Collection Info *@
+            <div class="mb-4">
+                <h6 class="fw-bold">
+                    <i class="@GetCollectionIcon() me-2"></i>
+                    @SelectedCollection.Name
+                </h6>
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    <span class="badge bg-secondary">@SelectedCollection.DocumentType</span>
+                    <span class="badge @GetFormatBadgeClass()">@SelectedCollection.FormatName</span>
+                </div>
+                <small class="text-muted">
+                    <i class="bi bi-folder me-1"></i>
+                    @GetSourceDirectoryName()
+                </small>
+            </div>
+
+            @* Date Range Selection *@
+            <div class="mb-4">
+                <label class="form-label fw-semibold">
+                    <i class="bi bi-calendar-range me-1"></i>Date Range
+                </label>
+
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label for="startDate" class="form-label small text-muted">From</label>
+                        <input id="startDate"
+                               type="date"
+                               class="form-control form-control-sm"
+                               value="@StartDate.ToString("yyyy-MM-dd")"
+                               max="@DateTime.Today.ToString("yyyy-MM-dd")"
+                               @onchange="HandleStartDateChanged" />
+                    </div>
+                    <div class="col-6">
+                        <label for="endDate" class="form-label small text-muted">To</label>
+                        <input id="endDate"
+                               type="date"
+                               class="form-control form-control-sm"
+                               value="@EndDate.ToString("yyyy-MM-dd")"
+                               max="@DateTime.Today.ToString("yyyy-MM-dd")"
+                               @onchange="HandleEndDateChanged" />
+                    </div>
+                </div>
+
+                @* Quick Date Buttons *@
+                <div class="mt-2">
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="SetLastWeek">
+                            Last Week
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" @onclick="SetLastMonth">
+                            Last Month
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" @onclick="SetLast3Months">
+                            3 Months
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @* Processing Controls *@
+            <div class="mb-4">
+                <button class="btn @GetProcessButtonClass() w-100"
+                        disabled="@IsProcessing"
+                        @onclick="HandleStartProcessing">
+                    @if (IsProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>Processing...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-play-fill me-2"></i>
+                        <span>Start Processing</span>
+                    }
+                </button>
+            </div>
+
+            @* Collection Details *@
+            <div class="mt-auto">
+                <h6 class="fw-semibold mb-2">Collection Details</h6>
+
+                <div class="small text-muted">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>Created:</span>
+                        <span>@SelectedCollection.CreatedAt.ToString("MMM dd, yyyy")</span>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(SelectedCollection.CreatedBy))
+                    {
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>By:</span>
+                            <span>@SelectedCollection.CreatedBy</span>
+                        </div>
+                    }
+
+                    <div class="d-flex justify-content-between">
+                        <span>Status:</span>
+                        <span class="@(SelectedCollection.IsActive ? "text-success" : "text-muted")">
+                            @(SelectedCollection.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </div>
+                </div>
+            </div>
+            @* DEBUG: Current Values *@
+            <div class="mb-3 p-2 bg-light rounded">
+                <small><strong>Debug Info:</strong></small><br />
+                <small>Start: @StartDate.ToString("yyyy-MM-dd")</small><br />
+                <small>End: @EndDate.ToString("yyyy-MM-dd")</small><br />
+                <small>Collection: @(SelectedCollection?.Name ?? "None")</small><br />
+                <small>Processing: @IsProcessing</small>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public SlipCollection? SelectedCollection { get; set; }
+    [Parameter] public DateTime StartDate { get; set; }
+    [Parameter] public DateTime EndDate { get; set; }
+    [Parameter] public bool IsProcessing { get; set; }
+
+    [Parameter] public EventCallback OnStartProcessing { get; set; }
+    [Parameter] public EventCallback<DateTime> OnStartDateChanged { get; set; }
+    [Parameter] public EventCallback<DateTime> OnEndDateChanged { get; set; }
+
+    private async Task HandleStartProcessing()
+    {
+        Console.WriteLine($"Starting processing - Collection: {SelectedCollection?.Name}, Dates: {StartDate} to {EndDate}");
+        if (SelectedCollection != null)
+        {
+            await OnStartProcessing.InvokeAsync();
+        }
+        else
+        {
+            Console.WriteLine("No collection selected!");
+        }
+    }
+
+    private async Task HandleStartDateChanged(ChangeEventArgs e)
+    {
+        Console.WriteLine($"Start date changing from {StartDate} to {e.Value}");
+        if (DateTime.TryParse(e.Value?.ToString(), out var newDate))
+        {
+            Console.WriteLine($"Parsed date: {newDate}");
+            await OnStartDateChanged.InvokeAsync(newDate);
+        }
+        else
+        {
+            Console.WriteLine("Failed to parse date");
+        }
+    }
+
+    private async Task HandleEndDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var newDate))
+        {
+            await OnEndDateChanged.InvokeAsync(newDate);
+        }
+    }
+
+    private async Task SetLastWeek()
+    {
+        var endDate = DateTime.Today;
+        var startDate = endDate.AddDays(-7);
+
+        await OnStartDateChanged.InvokeAsync(startDate);
+        await OnEndDateChanged.InvokeAsync(endDate);
+    }
+
+    private async Task SetLastMonth()
+    {
+        var endDate = DateTime.Today;
+        var startDate = endDate.AddMonths(-1);
+
+        await OnStartDateChanged.InvokeAsync(startDate);
+        await OnEndDateChanged.InvokeAsync(endDate);
+    }
+
+    private async Task SetLast3Months()
+    {
+        var endDate = DateTime.Today;
+        var startDate = endDate.AddMonths(-3);
+
+        await OnStartDateChanged.InvokeAsync(startDate);
+        await OnEndDateChanged.InvokeAsync(endDate);
+    }
+
+    private string GetCollectionIcon()
+    {
+        if (SelectedCollection?.FormatName?.ToUpper() == "KBIZ")
+            return "bi-bank2";
+        return "bi-bank";
+    }
+
+    private string GetFormatBadgeClass()
+    {
+        return SelectedCollection?.FormatName?.ToUpper() switch
+        {
+            "KBIZ" or "K-BIZ" => "bg-success",
+            "SCB" => "bg-info",
+            "TTB" => "bg-warning",
+            _ => "bg-secondary"
+        };
+    }
+
+    private string GetSourceDirectoryName()
+    {
+        if (string.IsNullOrEmpty(SelectedCollection?.SourceDirectory))
+            return "No directory configured";
+
+        try
+        {
+            return Path.GetFileName(SelectedCollection.SourceDirectory.TrimEnd('\\', '/')) ??
+                   SelectedCollection.SourceDirectory;
+        }
+        catch
+        {
+            return SelectedCollection.SourceDirectory;
+        }
+    }
+
+    private string GetProcessButtonClass()
+    {
+        if (IsProcessing)
+            return "btn-secondary";
+        return "btn-primary";
+    }
+}
