@@ -46,9 +46,13 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips.Parsers
                     _logger.LogInformation("Auto-migrated collection {CollectionName} to pattern-based system", collection.Name);
                 }
 
-                // Step 1: Extract data using pattern system
-                var genericDoc = _patternLoader.ExtractPatternsAsync(
-                    text, imagePath, collection.DocumentType, collection.FormatName).Result;
+                // 🔥 FIX: Use ConfigureAwait(false) to prevent deadlock instead of .Result
+                _logger.LogDebug("🔍 Calling ExtractPatternsAsync...");
+                var genericDoc = Task.Run(async () =>
+                    await _patternLoader.ExtractPatternsAsync(text, imagePath, collection.DocumentType, collection.FormatName)
+                        .ConfigureAwait(false)).GetAwaiter().GetResult();
+
+                _logger.LogDebug("✅ ExtractPatternsAsync completed");
 
                 if (genericDoc.Status == DocumentProcessingStatus.Failed)
                 {

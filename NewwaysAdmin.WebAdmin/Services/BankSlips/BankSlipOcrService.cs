@@ -44,11 +44,11 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         #region Interface Implementation - Existing Methods
 
         public async Task<BankSlipProcessingResult> ProcessSlipCollectionAsync(
-            string collectionId,
-            DateTime startDate,
-            DateTime endDate,
-            string username,
-            IProgressReporter? progressReporter = null)
+    string collectionId,
+    DateTime startDate,
+    DateTime endDate,
+    string username,
+    IProgressReporter? progressReporter = null)
         {
             var collection = await GetCollectionAsync(collectionId, username);
             if (collection == null)
@@ -84,11 +84,15 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 Directory.CreateDirectory(collection.OutputDirectory);
 
                 // Initialize Vision API client
+                _logger.LogInformation("🔧 Setting up Vision API client...");
                 await SetupVisionClientAsync(collection);
+                _logger.LogInformation("✅ Vision API client setup completed");
 
                 // Get image files filtered by date range
+                _logger.LogInformation("📁 Getting image files in date range...");
                 var imageFiles = GetImageFilesInDateRange(collection.SourceDirectory, startDate, endDate);
                 result.Summary.TotalFiles = imageFiles.Count;
+                _logger.LogInformation("📁 Found {Count} files to process", imageFiles.Count);
 
                 _logger.LogInformation("Processing {Count} files from collection {CollectionName}",
                     imageFiles.Count, collection.Name);
@@ -97,17 +101,30 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 var processedSlips = new List<BankSlipData>();
                 int processedCount = 0;
 
+                _logger.LogInformation("🚀 Starting to process {Count} files...", imageFiles.Count);
+
                 foreach (var imagePath in imageFiles)
                 {
                     try
                     {
+                        _logger.LogInformation("📄 Processing file {Index}/{Total}: {FileName}",
+                            processedCount + 1, imageFiles.Count, Path.GetFileName(imagePath));
+
                         progressReporter?.ReportProgress(processedCount, imageFiles.Count, Path.GetFileName(imagePath));
 
+                        _logger.LogInformation("🔄 Calling ProcessSingleFileAsync for {FileName}...", Path.GetFileName(imagePath));
+
                         var slipData = await ProcessSingleFileAsync(imagePath, collection, username);
+
+                        _logger.LogInformation("✅ ProcessSingleFileAsync completed for {FileName}. Result: {HasData}",
+                            Path.GetFileName(imagePath), slipData != null);
+
                         if (slipData != null)
                         {
                             processedSlips.Add(slipData);
                             result.Summary.ProcessedFiles++;
+                            _logger.LogInformation("✅ Successfully processed {FileName} - Total successful: {Count}",
+                                Path.GetFileName(imagePath), processedSlips.Count);
                         }
                         else
                         {
@@ -118,11 +135,12 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                                 Reason = "Failed to extract slip data",
                                 ErrorTime = DateTime.UtcNow
                             });
+                            _logger.LogWarning("❌ Failed to process {FileName} - no slip data returned", Path.GetFileName(imagePath));
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error processing file {FilePath}", imagePath);
+                        _logger.LogError(ex, "💥 Exception processing file {FilePath}: {Message}", imagePath, ex.Message);
                         result.Summary.FailedFiles++;
                         result.Errors.Add(new ProcessingError
                         {
@@ -131,16 +149,28 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                             ErrorTime = DateTime.UtcNow
                         });
                     }
-
-                    processedCount++;
+                    finally
+                    {
+                        processedCount++;
+                        _logger.LogInformation("📊 Progress: {Processed}/{Total} files completed", processedCount, imageFiles.Count);
+                    }
                 }
+
+                _logger.LogInformation("🏁 Processing loop completed. Processed: {Processed}, Failed: {Failed}",
+                    processedSlips.Count, result.Summary.FailedFiles);
 
                 // Save processed slips
-                 if (processedSlips.Any())
+                if (processedSlips.Any())
                 {
+                    _logger.LogInformation("💾 Saving {Count} processed slips...", processedSlips.Count);
                     await SaveProcessedSlipsAsync(processedSlips, username);
+                    _logger.LogInformation("✅ Slips saved successfully");
                 }
-                
+                else
+                {
+                    _logger.LogWarning("⚠️ No slips to save - all processing failed");
+                }
+
                 result.ProcessedSlips = processedSlips;
                 result.ProcessingCompleted = DateTime.UtcNow;
                 result.Summary.ProcessingDuration = result.ProcessingCompleted - result.ProcessingStarted;
@@ -152,7 +182,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing collection {CollectionName}", collection.Name);
+                _logger.LogError(ex, "💥 FATAL ERROR processing collection {CollectionName}: {Message}", collection.Name, ex.Message);
                 result.Errors.Add(new ProcessingError
                 {
                     FilePath = collection.SourceDirectory,
@@ -308,67 +338,66 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         {
             try
             {
-                _logger.LogDebug("Processing single file: {FilePath}", Path.GetFileName(imagePath));
+                _logger.LogInformation("🔍 ProcessSingleFileAsync START for: {FileName}", Path.GetFileName(imagePath));
 
                 // Step 1: Process image if needed
+                _logger.LogInformation("🖼️ Step 1: Processing image...");
                 var processedImagePath = await _imageProcessor.ProcessImageAsync(imagePath, collection.ProcessingSettings);
+                _logger.LogInformation("🖼️ Image processing completed. Processed path: {ProcessedPath}",
+                    processedImagePath ?? "using original");
 
                 // Step 2: Extract text via OCR
+                _logger.LogInformation("🔤 Step 2: Starting OCR text extraction...");
                 var ocrText = await ExtractTextAsync(processedImagePath ?? imagePath);
-                if (string.IsNullOrWhiteSpace(ocrText))
+
+                if (string.IsNullOrEmpty(ocrText))
                 {
-                    _logger.LogWarning("No text extracted from {FilePath}", Path.GetFileName(imagePath));
+                    _logger.LogWarning("🔤 OCR returned no text for {FileName}", Path.GetFileName(imagePath));
                     return null;
                 }
 
-                // Step 3: Get appropriate parser based on collection format
+                _logger.LogInformation("🔤 OCR completed. Extracted {CharCount} characters", ocrText.Length);
+                _logger.LogDebug("🔤 OCR text preview: {TextPreview}...",
+                    ocrText.Length > 200 ? ocrText.Substring(0, 200) : ocrText);
+
+                // Step 3: Parse using appropriate parser
+                _logger.LogInformation("🧠 Step 3: Getting parser for collection...");
                 var parser = _parserFactory.GetParser(collection);
+                _logger.LogInformation("🧠 Parser obtained: {ParserType}", parser.GetType().Name);
 
-                // Try auto-detection if the designated parser can't handle it
-                if (!parser.CanParse(ocrText, collection))
+                _logger.LogInformation("🧠 Starting parsing...");
+                var bankSlipData = parser.Parse(ocrText, imagePath, collection);
+
+                if (bankSlipData == null)
                 {
-                    _logger.LogInformation("Designated parser can't handle {FilePath}, trying auto-detection",
-                        Path.GetFileName(imagePath));
-                    parser = _parserFactory.GetBestParser(ocrText, collection);
-                }
-
-                _logger.LogDebug("Using parser {ParserName} for {FilePath}",
-                    parser.GetParserName(), Path.GetFileName(imagePath));
-
-                // Step 4: Parse the slip
-                var slipData = parser.Parse(ocrText, imagePath, collection);
-                if (slipData == null)
-                {
-                    _logger.LogWarning("Parser {ParserName} failed to parse {FilePath}",
-                        parser.GetParserName(), Path.GetFileName(imagePath));
+                    _logger.LogWarning("🧠 Parser returned null for {FileName}", Path.GetFileName(imagePath));
                     return null;
                 }
 
-                // Step 5: Validate parsed data
-                if (!_validator.ValidateSlipData(slipData, collection))
+                _logger.LogInformation("🧠 Parsing completed successfully");
+
+                // Step 4: Validate the data
+                _logger.LogInformation("✅ Step 4: Validating parsed data...");
+                if (!_validator.ValidateSlipData(bankSlipData, collection))
                 {
-                    _logger.LogWarning("Validation failed for {FilePath}", Path.GetFileName(imagePath));
-                    slipData.Status = BankSlipProcessingStatus.Failed;
-                    slipData.ErrorReason = "Validation failed";
-                }
-                else
-                {
-                    slipData.Status = BankSlipProcessingStatus.Completed;
+                    _logger.LogWarning("✅ Validation failed for {FileName}", Path.GetFileName(imagePath));
+                    return null;
                 }
 
-                // Step 6: Post-process validation and cleanup
-                _validator.PostProcessValidation(slipData, collection);
+                _logger.LogInformation("✅ Validation completed successfully");
 
-                // Step 7: Set processing metadata
-                slipData.ProcessedBy = username;
-                slipData.ProcessedAt = DateTime.UtcNow;
-                slipData.SlipCollectionName = collection.Name;
+                // Set processing metadata
+                bankSlipData.ProcessedBy = username;
+                bankSlipData.ProcessedAt = DateTime.UtcNow;
+                bankSlipData.SlipCollectionName = collection.Name;
 
-                return slipData;
+                _logger.LogInformation("🎉 ProcessSingleFileAsync SUCCESS for: {FileName}", Path.GetFileName(imagePath));
+                return bankSlipData;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing single file {FilePath}", imagePath);
+                _logger.LogError(ex, "💥 ProcessSingleFileAsync FAILED for {FileName}: {Message}",
+                    Path.GetFileName(imagePath), ex.Message);
                 return null;
             }
         }
@@ -431,24 +460,36 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         {
             try
             {
+                _logger.LogInformation("🔤 ExtractTextAsync START for: {FileName}", Path.GetFileName(imagePath));
+
+                if (_visionClient == null)
+                {
+                    _logger.LogError("🔤 Vision client is null!");
+                    return null;
+                }
+
+                _logger.LogInformation("🔤 Creating image from file...");
                 var image = Google.Cloud.Vision.V1.Image.FromFile(imagePath);
-                var response = await _visionClient!.DetectTextAsync(image);
+
+                _logger.LogInformation("🔤 Calling Google Vision API...");
+                var response = await _visionClient.DetectTextAsync(image);
 
                 if (!response.Any())
                 {
-                    _logger.LogDebug("OCR returned no text for {ImagePath}", Path.GetFileName(imagePath));
+                    _logger.LogDebug("🔤 OCR returned no text for {ImagePath}", Path.GetFileName(imagePath));
                     return null;
                 }
 
                 var text = string.Join("\n", response.Select(r => r.Description));
-                _logger.LogDebug("OCR extracted {CharCount} characters from {ImagePath}",
+                _logger.LogInformation("🔤 OCR extracted {CharCount} characters from {ImagePath}",
                     text.Length, Path.GetFileName(imagePath));
 
                 return text;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during OCR extraction for {ImagePath}", imagePath);
+                _logger.LogError(ex, "💥 Error during OCR extraction for {ImagePath}: {Message}",
+                    Path.GetFileName(imagePath), ex.Message);
                 return null;
             }
         }

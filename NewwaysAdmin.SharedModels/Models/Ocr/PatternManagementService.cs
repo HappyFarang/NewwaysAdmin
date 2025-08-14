@@ -1,5 +1,5 @@
 ﻿// NewwaysAdmin.SharedModels/Services/Ocr/PatternManagementService.cs
-// UPDATED for 3-level structure
+// CLEANED and OPTIMIZED for 3-level structure
 
 using NewwaysAdmin.SharedModels.Models.Ocr;
 using NewwaysAdmin.Shared.IO;
@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace NewwaysAdmin.SharedModels.Services.Ocr
 {
-    public class PatternManagementService
+    public class PatternManagementService : IDisposable
     {
         private readonly IDataStorage<PatternLibrary> _storage;
         private readonly ILogger<PatternManagementService> _logger;
@@ -69,7 +69,8 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 var library = await LoadLibraryAsync();
                 var names = library.Collections.Keys.ToList();
 
-                _logger.LogDebug("Retrieved {Count} collection names", names.Count);
+                _logger.LogDebug("Retrieved {Count} collection names: {Names}",
+                    names.Count, string.Join(", ", names));
                 return names;
             }
             catch (Exception ex)
@@ -85,7 +86,10 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         public async Task<List<string>> GetSubCollectionNamesAsync(string collectionName)
         {
             if (string.IsNullOrWhiteSpace(collectionName))
+            {
+                _logger.LogWarning("GetSubCollectionNamesAsync called with empty collectionName");
                 return new List<string>();
+            }
 
             try
             {
@@ -94,11 +98,12 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 if (library.Collections.TryGetValue(collectionName, out var collection))
                 {
                     var names = collection.SubCollections.Keys.ToList();
-                    _logger.LogDebug("Retrieved {Count} sub-collection names from '{CollectionName}'",
-                        names.Count, collectionName);
+                    _logger.LogDebug("Retrieved {Count} sub-collection names from '{CollectionName}': {Names}",
+                        names.Count, collectionName, string.Join(", ", names));
                     return names;
                 }
 
+                _logger.LogDebug("No collection found with name '{CollectionName}'", collectionName);
                 return new List<string>();
             }
             catch (Exception ex)
@@ -109,12 +114,23 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         }
 
         /// <summary>
+        /// Get available formats (sub-collection names) for a document type - alias for GetSubCollectionNamesAsync
+        /// </summary>
+        public async Task<List<string>> GetAvailableFormatsAsync(string documentType)
+        {
+            return await GetSubCollectionNamesAsync(documentType);
+        }
+
+        /// <summary>
         /// Get list of search pattern names in a specific sub-collection
         /// </summary>
         public async Task<List<string>> GetSearchPatternNamesAsync(string collectionName, string subCollectionName)
         {
             if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName))
+            {
+                _logger.LogWarning("GetSearchPatternNamesAsync called with empty parameters");
                 return new List<string>();
+            }
 
             try
             {
@@ -124,11 +140,13 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     collection.SubCollections.TryGetValue(subCollectionName, out var subCollection))
                 {
                     var names = subCollection.SearchPatterns.Keys.ToList();
-                    _logger.LogDebug("Retrieved {Count} pattern names from '{CollectionName}.{SubCollectionName}'",
-                        names.Count, collectionName, subCollectionName);
+                    _logger.LogDebug("Retrieved {Count} pattern names from '{CollectionName}.{SubCollectionName}': {Names}",
+                        names.Count, collectionName, subCollectionName, string.Join(", ", names));
                     return names;
                 }
 
+                _logger.LogDebug("No patterns found for '{CollectionName}.{SubCollectionName}'",
+                    collectionName, subCollectionName);
                 return new List<string>();
             }
             catch (Exception ex)
@@ -144,8 +162,12 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         /// </summary>
         public async Task<SearchPattern?> LoadSearchPatternAsync(string collectionName, string subCollectionName, string patternName)
         {
-            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) || string.IsNullOrWhiteSpace(patternName))
+            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) ||
+                string.IsNullOrWhiteSpace(patternName))
+            {
+                _logger.LogWarning("LoadSearchPatternAsync called with empty parameters");
                 return null;
+            }
 
             try
             {
@@ -183,7 +205,10 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         {
             if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) ||
                 string.IsNullOrWhiteSpace(patternName) || pattern == null)
+            {
+                _logger.LogWarning("SaveSearchPatternAsync called with invalid parameters");
                 return false;
+            }
 
             try
             {
@@ -194,6 +219,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 {
                     collection = new PatternCollection { Name = collectionName };
                     library.Collections[collectionName] = collection;
+                    _logger.LogInformation("Created new collection '{CollectionName}'", collectionName);
                 }
 
                 // Get or create the sub-collection
@@ -201,20 +227,23 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 {
                     subCollection = new PatternSubCollection { Name = subCollectionName };
                     collection.SubCollections[subCollectionName] = subCollection;
+                    _logger.LogInformation("Created new sub-collection '{SubCollectionName}' in '{CollectionName}'",
+                        subCollectionName, collectionName);
                 }
 
                 // Ensure pattern has proper name
                 pattern.SearchName = patternName;
 
                 // Add or update the pattern
+                var isUpdate = subCollection.SearchPatterns.ContainsKey(patternName);
                 subCollection.SearchPatterns[patternName] = pattern;
 
                 var success = await SaveLibraryAsync(library);
 
                 if (success)
                 {
-                    _logger.LogInformation("Saved pattern '{PatternName}' in '{CollectionName}.{SubCollectionName}'",
-                        patternName, collectionName, subCollectionName);
+                    _logger.LogInformation("{Action} pattern '{PatternName}' in '{CollectionName}.{SubCollectionName}'",
+                        isUpdate ? "Updated" : "Created", patternName, collectionName, subCollectionName);
                 }
 
                 return success;
@@ -233,7 +262,10 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         public async Task<bool> SaveLibraryAsync(PatternLibrary library)
         {
             if (library == null)
+            {
+                _logger.LogWarning("SaveLibraryAsync called with null library");
                 return false;
+            }
 
             try
             {
@@ -243,7 +275,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
 
                 await _storage.SaveAsync(LIBRARY_KEY, library);
 
-                _logger.LogInformation("Saved pattern library with {CollectionCount} collections",
+                _logger.LogDebug("Saved pattern library with {CollectionCount} collections",
                     library.Collections.Count);
 
                 return true;
@@ -264,15 +296,16 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         #region Delete Operations
 
         /// <summary>
-        /// Delete a specific search pattern
-        /// </summary>
-        /// <summary>
-        /// Delete a specific search pattern and clean up empty containers
+        /// Delete a specific search pattern and auto-cleanup empty containers
         /// </summary>
         public async Task<bool> DeleteSearchPatternAsync(string collectionName, string subCollectionName, string patternName)
         {
-            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) || string.IsNullOrWhiteSpace(patternName))
+            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) ||
+                string.IsNullOrWhiteSpace(patternName))
+            {
+                _logger.LogWarning("DeleteSearchPatternAsync called with empty parameters");
                 return false;
+            }
 
             try
             {
@@ -282,11 +315,14 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     collection.SubCollections.TryGetValue(subCollectionName, out var subCollection) &&
                     subCollection.SearchPatterns.Remove(patternName))
                 {
+                    _logger.LogInformation("Deleted pattern '{PatternName}' from '{CollectionName}.{SubCollectionName}'",
+                        patternName, collectionName, subCollectionName);
+
                     // AUTO-CLEANUP: Remove empty sub-collection if it has no patterns
                     if (subCollection.SearchPatterns.Count == 0)
                     {
                         collection.SubCollections.Remove(subCollectionName);
-                        _logger.LogInformation("Removed empty sub-collection '{SubCollectionName}' from '{CollectionName}'",
+                        _logger.LogInformation("Auto-removed empty sub-collection '{SubCollectionName}' from '{CollectionName}'",
                             subCollectionName, collectionName);
                     }
 
@@ -294,21 +330,14 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     if (collection.SubCollections.Count == 0)
                     {
                         library.Collections.Remove(collectionName);
-                        _logger.LogInformation("Removed empty collection '{CollectionName}'", collectionName);
+                        _logger.LogInformation("Auto-removed empty collection '{CollectionName}'", collectionName);
                     }
 
                     var success = await SaveLibraryAsync(library);
-
-                    if (success)
-                    {
-                        _logger.LogInformation("Deleted pattern '{PatternName}' from '{CollectionName}.{SubCollectionName}' with auto-cleanup",
-                            patternName, collectionName, subCollectionName);
-                    }
-
                     return success;
                 }
 
-                _logger.LogDebug("Pattern '{PatternName}' not found in '{CollectionName}.{SubCollectionName}' for deletion",
+                _logger.LogWarning("Pattern '{PatternName}' not found in '{CollectionName}.{SubCollectionName}' for deletion",
                     patternName, collectionName, subCollectionName);
                 return false;
             }
@@ -320,10 +349,8 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             }
         }
 
-        // ADD this new method to clean up existing mess
         /// <summary>
         /// Clean up empty sub-collections and collections in the entire library
-        /// Call this once to fix existing data, then auto-cleanup will prevent future issues
         /// </summary>
         public async Task<bool> CleanupEmptyContainersAsync()
         {
@@ -331,6 +358,8 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             {
                 var library = await LoadLibraryAsync();
                 var cleanupCount = 0;
+
+                _logger.LogInformation("Starting library cleanup...");
 
                 // Clean up empty sub-collections
                 var collectionsToRemove = new List<string>();
@@ -398,11 +427,41 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         #region Utility Operations
 
         /// <summary>
-        /// Check if a pattern exists
+        /// Check if patterns exist for a specific document type and format
+        /// </summary>
+        public async Task<bool> HasPatternsAsync(string collectionName, string subCollectionName)
+        {
+            if (string.IsNullOrEmpty(collectionName) || string.IsNullOrEmpty(subCollectionName))
+                return false;
+
+            try
+            {
+                var library = await LoadLibraryAsync();
+
+                var hasPatterns = library.Collections.TryGetValue(collectionName, out var collection) &&
+                                 collection.SubCollections.TryGetValue(subCollectionName, out var subCollection) &&
+                                 subCollection.SearchPatterns.Any();
+
+                _logger.LogDebug("HasPatterns check for {CollectionName}.{SubCollectionName}: {HasPatterns}",
+                    collectionName, subCollectionName, hasPatterns);
+
+                return hasPatterns;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking patterns for {CollectionName}.{SubCollectionName}",
+                    collectionName, subCollectionName);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Check if a specific pattern exists
         /// </summary>
         public async Task<bool> SearchPatternExistsAsync(string collectionName, string subCollectionName, string patternName)
         {
-            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) || string.IsNullOrWhiteSpace(patternName))
+            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName) ||
+                string.IsNullOrWhiteSpace(patternName))
                 return false;
 
             try
@@ -418,20 +477,122 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             }
         }
 
+        /// <summary>
+        /// Create a new sub-collection for a document type
+        /// </summary>
+        public async Task<bool> CreateSubCollectionAsync(string collectionName, string subCollectionName)
+        {
+            if (string.IsNullOrWhiteSpace(collectionName) || string.IsNullOrWhiteSpace(subCollectionName))
+            {
+                _logger.LogWarning("CreateSubCollectionAsync called with empty parameters");
+                return false;
+            }
+
+            try
+            {
+                var library = await LoadLibraryAsync();
+
+                // Get or create the main collection
+                if (!library.Collections.TryGetValue(collectionName, out var collection))
+                {
+                    collection = new PatternCollection { Name = collectionName };
+                    library.Collections[collectionName] = collection;
+                    _logger.LogInformation("Created new collection '{CollectionName}'", collectionName);
+                }
+
+                // Create the sub-collection if it doesn't exist
+                if (!collection.SubCollections.ContainsKey(subCollectionName))
+                {
+                    collection.SubCollections[subCollectionName] = new PatternSubCollection { Name = subCollectionName };
+
+                    var success = await SaveLibraryAsync(library);
+
+                    if (success)
+                    {
+                        _logger.LogInformation("Created sub-collection '{SubCollectionName}' in '{CollectionName}'",
+                            subCollectionName, collectionName);
+                    }
+
+                    return success;
+                }
+
+                _logger.LogDebug("Sub-collection '{SubCollectionName}' already exists in '{CollectionName}'",
+                    subCollectionName, collectionName);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating sub-collection '{SubCollectionName}' in '{CollectionName}'",
+                    subCollectionName, collectionName);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Debug method to log the complete library structure
+        /// </summary>
+        public async Task LogLibraryStructureAsync()
+        {
+            try
+            {
+                var library = await LoadLibraryAsync();
+
+                _logger.LogInformation("=== PATTERN LIBRARY STRUCTURE ===");
+                _logger.LogInformation("Total Collections: {Count}", library.Collections.Count);
+
+                if (!library.Collections.Any())
+                {
+                    _logger.LogInformation("📝 Library is empty - no collections found");
+                }
+
+                foreach (var (collectionName, collection) in library.Collections)
+                {
+                    _logger.LogInformation("📁 Collection: {CollectionName} ({SubCount} sub-collections)",
+                        collectionName, collection.SubCollections.Count);
+
+                    if (!collection.SubCollections.Any())
+                    {
+                        _logger.LogInformation("    📝 No sub-collections in {CollectionName}", collectionName);
+                    }
+
+                    foreach (var (subName, subCollection) in collection.SubCollections)
+                    {
+                        _logger.LogInformation("    🏷️ {SubName} ({PatternCount} patterns): {Patterns}",
+                            subName,
+                            subCollection.SearchPatterns.Count,
+                            subCollection.SearchPatterns.Any() ? string.Join(", ", subCollection.SearchPatterns.Keys) : "none");
+                    }
+                }
+                _logger.LogInformation("=== END LIBRARY STRUCTURE ===");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error logging library structure");
+            }
+        }
+
         #endregion
 
         #region Private Helpers
 
         private static PatternLibrary CreateEmptyLibrary()
         {
-            return new PatternLibrary();
+            return new PatternLibrary
+            {
+                Collections = new Dictionary<string, PatternCollection>()
+            };
         }
 
         #endregion
 
+        #region IDisposable
+
         public void Dispose()
         {
             _lock?.Dispose();
+            GC.SuppressFinalize(this);
         }
+
+        #endregion
     }
 }

@@ -64,6 +64,9 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         [Required(ErrorMessage = "Format name is required")]
         public string FormatName { get; set; } = string.Empty;
 
+        [Key(13)]
+        public bool AutoProcessNewFiles { get; set; } = false;
+
         // Helper properties for display and compatibility
         [IgnoreMember]
         public string FormatDisplayName =>
@@ -169,6 +172,15 @@ namespace NewwaysAdmin.SharedModels.BankSlips
 
         [Key(11)]
         public bool UseAdvancedPatternMatching { get; set; } = true;
+
+        [Key(12)]
+        public bool EnableAutoProcessing { get; set; } = false;
+
+        [Key(13)]
+        public int AutoProcessIntervalMinutes { get; set; } = 5;
+
+        [Key(14)]
+        public string[] AutoProcessFileExtensions { get; set; } = new[] { ".jpg", ".jpeg", ".png", ".pdf", ".tiff" };
     }
 
     // Processing pass enumeration
