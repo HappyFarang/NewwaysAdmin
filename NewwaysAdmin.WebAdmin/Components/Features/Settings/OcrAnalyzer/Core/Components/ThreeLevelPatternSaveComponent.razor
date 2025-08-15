@@ -1,42 +1,11 @@
-﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/ThreeLevelPatternSaveComponent.razor *@
+﻿@* ImprovedThreeLevelPatternSaveComponent.razor - Now with multiple regex pattern support *@
 @using NewwaysAdmin.SharedModels.Services.Ocr
 @using NewwaysAdmin.SharedModels.Models.Ocr
 @using System.Text.Json
 @inject PatternManagementService PatternService
 
 <div style="background: #e8f5e8; padding: 15px; margin: 10px; border: 2px solid #28a745; border-radius: 8px;">
-    <h6><i class="bi bi-floppy"></i> Save Pattern - Proper 3-Level Structure</h6>
-
-    @* Debug Tools - Show if there are issues *@
-    @if (showDebugTools)
-    {
-        <div class="alert alert-warning mb-3">
-            <h6><i class="bi bi-tools"></i> Debug Tools</h6>
-            <div class="btn-group" role="group">
-                <button @onclick="DebugLibraryState" class="btn btn-outline-warning btn-sm">
-                    <i class="bi bi-bug"></i> Debug Library
-                </button>
-                <button @onclick="MigrateLegacyPatterns" class="btn btn-outline-info btn-sm">
-                    <i class="bi bi-arrow-repeat"></i> Migrate Legacy
-                </button>
-                <button @onclick="ForceRefreshAll" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-arrow-clockwise"></i> Force Refresh
-                </button>
-                <button @onclick="CreateSampleData" class="btn btn-outline-success btn-sm">
-                    <i class="bi bi-plus-square"></i> Create Sample
-                </button>
-            </div>
-            <button @onclick="ToggleDebugTools" class="btn btn-sm btn-outline-secondary ms-2">
-                <i class="bi bi-x"></i> Hide
-            </button>
-        </div>
-    }
-    else
-    {
-        <button @onclick="ToggleDebugTools" class="btn btn-outline-warning btn-sm mb-2">
-            <i class="bi bi-tools"></i> Show Debug Tools
-        </button>
-    }
+    <h6><i class="bi bi-floppy"></i> Save Pattern - With Multiple Regex Support</h6>
 
     <!-- Step 1: Document Type Selection -->
     <div class="mb-3">
@@ -54,35 +23,24 @@
             </button>
         </div>
 
-        @if (!availableDocumentTypes.Any())
-        {
-            <div class="alert alert-warning mt-2">
-                <i class="bi bi-exclamation-triangle"></i> No document types found!
-                <button @onclick="CreateSampleData" class="btn btn-sm btn-outline-primary ms-2">
-                    Create Sample Data
-                </button>
-            </div>
-        }
-
         <!-- Create New Document Type -->
         <div class="mt-2">
             <div class="input-group">
                 <input @bind="newDocumentType" class="form-control form-control-sm"
-                       placeholder="Or create new document type (e.g., BankSlips, Invoices, Bills)" />
+                       placeholder="Or create new (e.g., BankSlips, Invoices)" />
                 <button @onclick="CreateNewDocumentType" class="btn btn-success btn-sm"
                         disabled="@(string.IsNullOrEmpty(newDocumentType))">
                     <i class="bi bi-plus"></i> Create
                 </button>
             </div>
-            <small class="form-text text-muted">Document types group related formats together</small>
         </div>
     </div>
 
-    <!-- Step 2: Sub-Collection Selection (only show when document type is selected) -->
+    <!-- Step 2: Sub-Collection (Format) Selection -->
     @if (!string.IsNullOrEmpty(selectedDocumentType))
     {
         <div class="mb-3">
-            <label class="form-label"><strong>Step 2: Select Format Collection</strong></label>
+            <label class="form-label"><strong>Step 2: Select Format</strong></label>
             <div class="input-group">
                 <select @onchange="OnSubCollectionChanged" class="form-select form-select-sm" value="@selectedSubCollection">
                     <option value="">-- Select Format --</option>
@@ -91,373 +49,241 @@
                         <option value="@subCol">@subCol</option>
                     }
                 </select>
-                <button @onclick="LoadSubCollections" class="btn btn-outline-secondary btn-sm" type="button" title="Refresh">
-                    <i class="bi bi-arrow-clockwise"></i>
-                </button>
             </div>
-
-            @if (selectedDocumentType == "BankSlips" && !availableSubCollections.Any())
-            {
-                <div class="alert alert-info mt-2">
-                    <i class="bi bi-info-circle"></i> No BankSlips formats found!
-                    <button @onclick="CreateKBIZFormat" class="btn btn-sm btn-outline-primary ms-2">
-                        Create KBIZ Format
-                    </button>
-                </div>
-            }
 
             <!-- Create New Sub-Collection -->
             <div class="mt-2">
                 <div class="input-group">
                     <input @bind="newSubCollection" class="form-control form-control-sm"
-                           placeholder="Or create new format (e.g., KBIZ, KBank, SCB, HomePro)" />
+                           placeholder="Or create new (e.g., KBIZ, SCB)" />
                     <button @onclick="CreateNewSubCollection" class="btn btn-success btn-sm"
                             disabled="@(string.IsNullOrEmpty(newSubCollection))">
                         <i class="bi bi-plus"></i> Create
                     </button>
                 </div>
-                <small class="form-text text-muted">Each format represents a specific document layout/bank</small>
             </div>
         </div>
     }
 
-    <!-- Currently Working In + JSON/Delete Actions (show when both levels are selected) -->
-    @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
-    {
-        <div class="alert alert-info py-2 mb-3">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <i class="bi bi-folder"></i> <strong>Currently working in:</strong> @selectedDocumentType → @selectedSubCollection
-                    <small class="d-block text-muted">All patterns will be saved to this specific format collection</small>
-                    @if (existingPatterns.Any())
-                    {
-                        <small class="d-block text-success">
-                            <i class="bi bi-check-circle"></i> @existingPatterns.Count existing patterns: @string.Join(", ", existingPatterns)
-                        </small>
-                    }
-                </div>
-                <div>
-                    <button @onclick="ShowCurrentJson" class="btn btn-outline-info btn-sm me-2">
-                        <i class="bi bi-code"></i> Show JSON
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- DELETE SECTION - Show existing patterns for deletion -->
-        @if (existingPatterns.Any())
-        {
-            <div class="mb-3" style="background: #ffe6e6; border: 1px solid #ffcccc; padding: 10px; border-radius: 5px;">
-                <h6><i class="bi bi-trash"></i> Delete Existing Pattern</h6>
-                <div class="row align-items-end">
-                    <div class="col-md-8">
-                        <label class="form-label"><small>Select pattern to delete:</small></label>
-                        <select @bind="selectedPatternToDelete" class="form-select form-select-sm">
-                            <option value="">-- Select Pattern to Delete --</option>
-                            @foreach (var pattern in existingPatterns)
-                            {
-                                <option value="@pattern">@pattern</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <button @onclick="DeleteSelectedPattern"
-                                class="btn btn-danger btn-sm"
-                                disabled="@(string.IsNullOrEmpty(selectedPatternToDelete) || isDeleting)">
-                            @if (isDeleting)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2"></span>
-                            }
-                            <i class="bi bi-trash"></i> Delete
-                        </button>
-                    </div>
-                </div>
-            </div>
-        }
-    }
-
-    <!-- Step 3: Pattern Details (only show when both levels are selected) -->
+    <!-- Step 3: Pattern Details -->
     @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedSubCollection))
     {
         <div class="mb-3">
             <label class="form-label"><strong>Step 3: Pattern Details</strong></label>
-            <div class="row">
-                <div class="col-md-6">
-                    <input @bind="patternName" class="form-control form-control-sm"
-                           placeholder="Pattern name (e.g., Date, To, Total, Memo)" />
-                </div>
-                <div class="col-md-6">
-                    @if (CurrentPattern != null)
-                    {
-                        <div style="background: #f8f9fa; padding: 5px; border-radius: 4px; font-size: 0.75em;">
-                            @CurrentPattern.PatternType | "@CurrentPattern.KeyWord" | X:@CurrentPattern.ToleranceX Y:@CurrentPattern.ToleranceY
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="text-muted" style="font-size: 0.8em;">
-                            <i class="bi bi-info-circle"></i> Configure pattern in OCR Analyzer first
-                        </div>
-                    }
-                </div>
+
+            <!-- Pattern Name -->
+            <div class="mb-2">
+                <input @bind="patternName" class="form-control form-control-sm"
+                       placeholder="Pattern name (e.g., Date, To, Total, Subject)" />
             </div>
+
+            <!-- Current Pattern Info from OCR Analyzer -->
+            @if (CurrentPattern != null)
+            {
+                <div class="alert alert-info py-2 mb-2" style="font-size: 0.85rem;">
+                    <strong>From OCR:</strong>
+                    @CurrentPattern.PatternType | Keyword: "@CurrentPattern.KeyWord" |
+                    Tolerances: X:@CurrentPattern.ToleranceX Y:@CurrentPattern.ToleranceY
+                </div>
+            }
+
+            <!-- MULTIPLE REGEX PATTERNS SECTION -->
+            <div class="mb-3" style="background: #f0f8ff; padding: 10px; border-radius: 5px;">
+                <label class="form-label"><strong>Regex Patterns</strong> (can have multiple)</label>
+
+                <!-- Add new regex pattern -->
+                <div class="input-group mb-2">
+                    <input @bind="newRegexPattern"
+                           class="form-control form-control-sm"
+                           placeholder="Enter regex pattern (e.g., \d+, [A-Z]+)"
+                           style="font-family: monospace;" />
+                    <button @onclick="AddRegexPattern"
+                            class="btn btn-outline-primary btn-sm"
+                            disabled="@(string.IsNullOrEmpty(newRegexPattern))">
+                        <i class="bi bi-plus"></i> Add
+                    </button>
+                </div>
+
+                <!-- List of current regex patterns -->
+                @if (regexPatternsList.Any())
+                {
+                    <div class="border rounded p-2" style="background: white;">
+                        <small class="text-muted">Patterns to save:</small>
+                        @foreach (var (pattern, index) in regexPatternsList.Select((p, i) => (p, i)))
+                        {
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <code style="font-size: 0.85rem;">@pattern</code>
+                                <button @onclick="() => RemoveRegexPattern(index)"
+                                        class="btn btn-sm btn-outline-danger py-0 px-1">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <small class="text-muted">No regex patterns added yet (optional)</small>
+                }
+            </div>
+
+            <!-- Existing Patterns List -->
+            @if (existingPatterns.Any())
+            {
+                <div class="mb-3" style="background: #fff9e6; padding: 10px; border-radius: 5px;">
+                    <label class="form-label"><strong>Existing Patterns</strong></label>
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var pattern in existingPatterns)
+                        {
+                            <span class="badge bg-secondary">@pattern</span>
+                        }
+                    </div>
+                </div>
+            }
         </div>
 
         <!-- Save Button -->
         <div class="mb-3">
             <button @onclick="SavePattern"
-                    class="btn btn-success btn-sm"
-                    disabled="@(!CanSavePattern())">
+                    class="btn btn-success"
+                    disabled="@(string.IsNullOrEmpty(patternName) || CurrentPattern == null || isSaving)">
                 @if (isSaving)
                 {
                     <span class="spinner-border spinner-border-sm me-2"></span>
                 }
-                <i class="bi bi-floppy"></i> Save "@patternName" to @selectedDocumentType → @selectedSubCollection
+                <i class="bi bi-floppy"></i>
+                Save "@patternName" to @selectedDocumentType → @selectedSubCollection
+                @if (regexPatternsList.Any())
+                {
+                    <span class="badge bg-light text-dark ms-2">@regexPatternsList.Count regex patterns</span>
+                }
             </button>
-
-            @if (!string.IsNullOrEmpty(lastSavedJson))
-            {
-                <button @onclick="ToggleJsonView" class="btn btn-outline-info btn-sm ms-2">
-                    <i class="bi bi-code"></i> @(showJson ? "Hide" : "Show") JSON
-                </button>
-            }
-
-            @if (!CanSavePattern())
-            {
-                <div class="mt-2">
-                    <small class="text-muted">
-                        @if (string.IsNullOrEmpty(patternName))
-                        {
-                            <span>❌ Pattern name required</span>
-                        }
-                        @if (CurrentPattern == null)
-                        {
-                            <span>❌ Pattern configuration required</span>
-                        }
-                    </small>
-                </div>
-            }
         </div>
     }
 
     <!-- Status Messages -->
     @if (!string.IsNullOrEmpty(statusMessage))
     {
-        <div class="alert @(isError ? "alert-danger" : "alert-success") py-2 mb-3">
-            <i class="bi @(isError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
-            @statusMessage
-            @if (isError && showDebugInfo)
-            {
-                <div class="mt-2">
-                    <small>Debug info: @debugInfo</small>
-                </div>
-            }
+        <div class="alert @(isError ? "alert-danger" : "alert-success") py-2">
+            @((MarkupString)statusMessage)
         </div>
     }
-
-    <!-- JSON Output (for debugging) -->
-    @if (showJson && !string.IsNullOrEmpty(lastSavedJson))
-    {
-        <div>
-            <strong>Full Library Structure:</strong>
-            <pre style="background: #2d3748; color: #e2e8f0; padding: 10px; border-radius: 4px; font-size: 0.7em; max-height: 300px; overflow-y: auto;">@lastSavedJson</pre>
-        </div>
-    }
-
-    <!-- CLEANUP SECTION -->
-    <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;">
-        <h6><i class="bi bi-tools"></i> Library Maintenance</h6>
-        <p><small>Clean up empty sub-collections and document types from the pattern library.</small></p>
-
-        <button @onclick="CleanupLibrary"
-                class="btn btn-warning btn-sm"
-                disabled="@isCleaningUp">
-            @if (isCleaningUp)
-            {
-                <span class="spinner-border spinner-border-sm me-2"></span>
-            }
-            <i class="bi bi-broom"></i> Clean Up Empty Containers
-        </button>
-
-        @if (!string.IsNullOrEmpty(cleanupMessage))
-        {
-            <div class="alert @(cleanupError ? "alert-danger" : "alert-success") mt-2 mb-0 py-2">
-                <i class="bi @(cleanupError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
-                @cleanupMessage
-            </div>
-        }
-    </div>
 </div>
 
 @code {
     [Parameter] public SearchPattern? CurrentPattern { get; set; }
     [Parameter] public EventCallback OnPatternSaved { get; set; }
 
-    // Debug and maintenance
-    private bool isCleaningUp = false;
-    private string cleanupMessage = "";
-    private bool cleanupError = false;
-    private bool showDebugTools = false;
-    private bool showDebugInfo = false;
-    private string debugInfo = "";
-
-    // Level 1: Document Types
-    private List<string> availableDocumentTypes = new();
+    // Document type and sub-collection
     private string selectedDocumentType = "";
-    private string newDocumentType = "";
-
-    // Level 2: Sub-Collections
-    private List<string> availableSubCollections = new();
     private string selectedSubCollection = "";
+    private string newDocumentType = "";
     private string newSubCollection = "";
+    private List<string> availableDocumentTypes = new();
+    private List<string> availableSubCollections = new();
 
-    // Level 3: Pattern
+    // Pattern details
     private string patternName = "";
-
-    // Delete functionality
+    private string newRegexPattern = "";
+    private List<string> regexPatternsList = new();
     private List<string> existingPatterns = new();
-    private string selectedPatternToDelete = "";
-    private bool isDeleting = false;
 
-    // UI State
+    // UI state
     private bool isSaving = false;
     private string statusMessage = "";
     private bool isError = false;
-    private string lastSavedJson = "";
-    private bool showJson = false;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDocumentTypes();
     }
 
-    private bool CanSavePattern()
+    protected override void OnParametersSet()
     {
-        return !string.IsNullOrEmpty(patternName) &&
-               CurrentPattern != null &&
-               !string.IsNullOrEmpty(selectedDocumentType) &&
-               !string.IsNullOrEmpty(selectedSubCollection) &&
-               !isSaving;
+        // If CurrentPattern has regex patterns from OCR analyzer, use them
+        if (CurrentPattern?.RegexPatterns != null && CurrentPattern.RegexPatterns.Any())
+        {
+            regexPatternsList = new List<string>(CurrentPattern.RegexPatterns);
+        }
     }
-
-    #region Data Loading Methods
 
     private async Task LoadDocumentTypes()
     {
         try
         {
-            ClearStatus();
             availableDocumentTypes = await PatternService.GetCollectionNamesAsync();
-
-            Console.WriteLine($"📁 Loaded {availableDocumentTypes.Count} document types: {string.Join(", ", availableDocumentTypes)}");
-
-            // Auto-select BankSlips if it exists and nothing is selected
-            if (string.IsNullOrEmpty(selectedDocumentType) && availableDocumentTypes.Contains("BankSlips"))
-            {
-                selectedDocumentType = "BankSlips";
-                await LoadSubCollections();
-            }
-
-            StateHasChanged();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error loading document types: {ex.Message}");
             ShowError($"Error loading document types: {ex.Message}");
-            SetDebugInfo($"LoadDocumentTypes failed: {ex}");
         }
+    }
+
+    private async Task OnDocumentTypeChanged(ChangeEventArgs e)
+    {
+        selectedDocumentType = e.Value?.ToString() ?? "";
+        selectedSubCollection = "";
+        await LoadSubCollections();
     }
 
     private async Task LoadSubCollections()
     {
         if (string.IsNullOrEmpty(selectedDocumentType))
         {
-            availableSubCollections.Clear();
+            availableSubCollections = new();
             return;
         }
 
         try
         {
-            ClearStatus();
             availableSubCollections = await PatternService.GetSubCollectionNamesAsync(selectedDocumentType);
-
-            Console.WriteLine($"🏷️ Loaded {availableSubCollections.Count} sub-collections for {selectedDocumentType}: {string.Join(", ", availableSubCollections)}");
-
-            StateHasChanged();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error loading sub-collections: {ex.Message}");
             ShowError($"Error loading sub-collections: {ex.Message}");
-            SetDebugInfo($"LoadSubCollections failed: {ex}");
         }
+    }
+
+    private async Task OnSubCollectionChanged(ChangeEventArgs e)
+    {
+        selectedSubCollection = e.Value?.ToString() ?? "";
+        await LoadExistingPatterns();
     }
 
     private async Task LoadExistingPatterns()
     {
         if (string.IsNullOrEmpty(selectedDocumentType) || string.IsNullOrEmpty(selectedSubCollection))
         {
-            existingPatterns.Clear();
+            existingPatterns = new();
             return;
         }
 
         try
         {
             existingPatterns = await PatternService.GetSearchPatternNamesAsync(selectedDocumentType, selectedSubCollection);
-            selectedPatternToDelete = ""; // Reset selection
-
-            Console.WriteLine($"🔍 Loaded {existingPatterns.Count} existing patterns: {string.Join(", ", existingPatterns)}");
-
-            StateHasChanged();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error loading existing patterns: {ex.Message}");
             ShowError($"Error loading existing patterns: {ex.Message}");
-            SetDebugInfo($"LoadExistingPatterns failed: {ex}");
-            existingPatterns.Clear();
         }
     }
 
-    #endregion
-
-    #region Event Handlers
-
-    private async Task OnDocumentTypeChanged(ChangeEventArgs e)
+    private void AddRegexPattern()
     {
-        selectedDocumentType = e.Value?.ToString() ?? "";
-        selectedSubCollection = "";
-        patternName = "";
-        availableSubCollections.Clear();
-        existingPatterns.Clear();
-
-        Console.WriteLine($"📝 Document type changed to: {selectedDocumentType}");
-
-        if (!string.IsNullOrEmpty(selectedDocumentType))
+        if (!string.IsNullOrWhiteSpace(newRegexPattern))
         {
-            await LoadSubCollections();
+            regexPatternsList.Add(newRegexPattern);
+            newRegexPattern = "";
         }
-
-        ClearStatus();
     }
 
-    private async Task OnSubCollectionChanged(ChangeEventArgs e)
+    private void RemoveRegexPattern(int index)
     {
-        selectedSubCollection = e.Value?.ToString() ?? "";
-        patternName = "";
-        selectedPatternToDelete = "";
-
-        Console.WriteLine($"🏷️ Sub-collection changed to: {selectedSubCollection}");
-
-        // Load existing patterns for the delete dropdown
-        await LoadExistingPatterns();
-
-        ClearStatus();
+        if (index >= 0 && index < regexPatternsList.Count)
+        {
+            regexPatternsList.RemoveAt(index);
+        }
     }
-
-    #endregion
-
-    #region CRUD Operations
 
     private async Task CreateNewDocumentType()
     {
@@ -466,35 +292,27 @@
 
         try
         {
-            Console.WriteLine($"➕ Creating new document type: {newDocumentType}");
-
-            // Create document type by creating a temporary sub-collection
-            var dummyPattern = new SearchPattern
+            // Create a temporary pattern to establish the document type
+            var tempPattern = new SearchPattern
                 {
                     SearchName = "_temp",
                     KeyWord = "temp",
                     PatternType = "VerticalColumn",
-                    ToleranceX = 0,
-                    ToleranceY = 0,
-                    StopWords = "",
                     RegexPatterns = new List<string>()
                 };
 
-            await PatternService.SaveSearchPatternAsync(newDocumentType, "_temp", "_temp", dummyPattern);
+            await PatternService.SaveSearchPatternAsync(newDocumentType, "_temp", "_temp", tempPattern);
             await PatternService.DeleteSearchPatternAsync(newDocumentType, "_temp", "_temp");
 
             await LoadDocumentTypes();
             selectedDocumentType = newDocumentType;
             newDocumentType = "";
 
-            ShowSuccess($"✅ Created document type '{selectedDocumentType}'");
-            Console.WriteLine($"✅ Successfully created document type: {selectedDocumentType}");
+            ShowSuccess($"Created document type '{selectedDocumentType}'");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error creating document type: {ex.Message}");
-            ShowError($"Error creating document type: {ex.Message}");
-            SetDebugInfo($"CreateNewDocumentType failed: {ex}");
+            ShowError($"Error: {ex.Message}");
         }
     }
 
@@ -505,44 +323,34 @@
 
         try
         {
-            Console.WriteLine($"➕ Creating new sub-collection: {selectedDocumentType}/{newSubCollection}");
-
-            // Create sub-collection by creating a temporary pattern
-            var dummyPattern = new SearchPattern
+            var tempPattern = new SearchPattern
                 {
                     SearchName = "_temp",
                     KeyWord = "temp",
                     PatternType = "VerticalColumn",
-                    ToleranceX = 0,
-                    ToleranceY = 0,
-                    StopWords = "",
                     RegexPatterns = new List<string>()
                 };
 
-            await PatternService.SaveSearchPatternAsync(selectedDocumentType, newSubCollection, "_temp", dummyPattern);
+            await PatternService.SaveSearchPatternAsync(selectedDocumentType, newSubCollection, "_temp", tempPattern);
             await PatternService.DeleteSearchPatternAsync(selectedDocumentType, newSubCollection, "_temp");
 
             await LoadSubCollections();
             selectedSubCollection = newSubCollection;
             newSubCollection = "";
 
-            ShowSuccess($"✅ Created format collection '{selectedSubCollection}' in '{selectedDocumentType}'");
-            Console.WriteLine($"✅ Successfully created sub-collection: {selectedDocumentType}/{selectedSubCollection}");
-
-            // Load patterns for the new sub-collection
+            ShowSuccess($"Created format '{selectedSubCollection}'");
             await LoadExistingPatterns();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error creating sub-collection: {ex.Message}");
-            ShowError($"Error creating sub-collection: {ex.Message}");
-            SetDebugInfo($"CreateNewSubCollection failed: {ex}");
+            ShowError($"Error: {ex.Message}");
         }
     }
 
     private async Task SavePattern()
     {
-        if (!CanSavePattern())
+        if (CurrentPattern == null || string.IsNullOrEmpty(selectedDocumentType) ||
+            string.IsNullOrEmpty(selectedSubCollection) || string.IsNullOrEmpty(patternName))
             return;
 
         try
@@ -550,8 +358,6 @@
             isSaving = true;
             ClearStatus();
             StateHasChanged();
-
-            Console.WriteLine($"💾 Saving pattern: {selectedDocumentType}/{selectedSubCollection}/{patternName}");
 
             var patternToSave = new SearchPattern
                 {
@@ -561,43 +367,35 @@
                     ToleranceX = CurrentPattern.ToleranceX,
                     ToleranceY = CurrentPattern.ToleranceY,
                     StopWords = CurrentPattern.StopWords ?? "",
-                    RegexPatterns = CurrentPattern.RegexPatterns ?? new List<string>()
+                    RegexPatterns = regexPatternsList.Any() ? regexPatternsList : new List<string>()
                 };
 
-            var success = await PatternService.SaveSearchPatternAsync(selectedDocumentType, selectedSubCollection, patternName, patternToSave);
+            var success = await PatternService.SaveSearchPatternAsync(
+                selectedDocumentType,
+                selectedSubCollection,
+                patternName,
+                patternToSave);
 
             if (success)
             {
-                ShowSuccess($"✅ Pattern '{patternName}' saved to {selectedDocumentType} → {selectedSubCollection}!");
-                Console.WriteLine($"✅ Successfully saved pattern: {patternName}");
+                ShowSuccess($"✅ Pattern '<strong>{patternName}</strong>' saved with <strong>{regexPatternsList.Count}</strong> regex patterns!");
 
-                var library = await PatternService.LoadLibraryAsync();
-                lastSavedJson = JsonSerializer.Serialize(library, new JsonSerializerOptions
-                    {
-                        WriteIndented = true
-                    });
-
-                Console.WriteLine("=== FULL 3-LEVEL PATTERN LIBRARY ===");
-                Console.WriteLine(lastSavedJson);
-
+                // Clear for next pattern
                 patternName = "";
+                regexPatternsList = new();
+                newRegexPattern = "";
 
-                // Refresh existing patterns list
                 await LoadExistingPatterns();
-
                 await OnPatternSaved.InvokeAsync();
             }
             else
             {
-                ShowError("❌ Failed to save pattern. Check console for errors.");
-                Console.WriteLine($"❌ Failed to save pattern: {patternName}");
+                ShowError("Failed to save pattern");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Error saving pattern: {ex.Message}");
-            ShowError($"❌ Error saving pattern: {ex.Message}");
-            SetDebugInfo($"SavePattern failed: {ex}");
+            ShowError($"Error: {ex.Message}");
         }
         finally
         {
@@ -606,507 +404,21 @@
         }
     }
 
-    private async Task DeleteSelectedPattern()
-    {
-        if (string.IsNullOrEmpty(selectedDocumentType) ||
-            string.IsNullOrEmpty(selectedSubCollection) ||
-            string.IsNullOrEmpty(selectedPatternToDelete))
-            return;
-
-        try
-        {
-            isDeleting = true;
-            ClearStatus();
-            StateHasChanged();
-
-            Console.WriteLine($"🗑️ Deleting pattern: {selectedDocumentType}/{selectedSubCollection}/{selectedPatternToDelete}");
-
-            var success = await PatternService.DeleteSearchPatternAsync(selectedDocumentType, selectedSubCollection, selectedPatternToDelete);
-
-            if (success)
-            {
-                ShowSuccess($"✅ Pattern '{selectedPatternToDelete}' deleted from {selectedDocumentType} → {selectedSubCollection}!");
-                Console.WriteLine($"✅ Successfully deleted pattern: {selectedPatternToDelete}");
-
-                // Refresh the patterns list
-                await LoadExistingPatterns();
-
-                // Refresh document types in case we deleted everything
-                await LoadDocumentTypes();
-
-                selectedPatternToDelete = "";
-            }
-            else
-            {
-                ShowError("❌ Failed to delete pattern. Check console for errors.");
-                Console.WriteLine($"❌ Failed to delete pattern: {selectedPatternToDelete}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error deleting pattern: {ex.Message}");
-            ShowError($"❌ Error deleting pattern: {ex.Message}");
-            SetDebugInfo($"DeleteSelectedPattern failed: {ex}");
-        }
-        finally
-        {
-            isDeleting = false;
-            StateHasChanged();
-        }
-    }
-
-    #endregion
-
-    #region Debug and Maintenance Methods
-
-    private async Task DebugLibraryState()
-    {
-        try
-        {
-            Console.WriteLine("🔍 === DEBUG: Current Library State ===");
-
-            // Log the complete library structure
-            if (PatternService.GetType().GetMethod("LogLibraryStructureAsync") != null)
-            {
-                await PatternService.LogLibraryStructureAsync();
-            }
-            else
-            {
-                var library = await PatternService.LoadLibraryAsync();
-                Console.WriteLine($"📚 Library has {library.Collections.Count} collections");
-
-                foreach (var (collectionName, collection) in library.Collections)
-                {
-                    Console.WriteLine($"  📁 {collectionName} ({collection.SubCollections.Count} sub-collections)");
-
-                    foreach (var (subName, subCollection) in collection.SubCollections)
-                    {
-                        Console.WriteLine($"    🏷️ {subName} ({subCollection.SearchPatterns.Count} patterns)");
-
-                        foreach (var (patternName, pattern) in subCollection.SearchPatterns)
-                        {
-                            Console.WriteLine($"      🔍 {patternName} [{pattern.PatternType}] \"{pattern.KeyWord}\"");
-                        }
-                    }
-                }
-            }
-
-            // Check specific collections
-            var bankSlipsFormats = await PatternService.GetSubCollectionNamesAsync("BankSlips");
-            Console.WriteLine($"🏦 BankSlips formats: {string.Join(", ", bankSlipsFormats)}");
-
-            // Check if KBIZ specifically exists
-            var hasKBIZ = await PatternService.HasPatternsAsync("BankSlips", "KBIZ");
-            Console.WriteLine($"🏦 BankSlips.KBIZ exists: {hasKBIZ}");
-
-            // Get all collection names
-            var allCollections = await PatternService.GetCollectionNamesAsync();
-            Console.WriteLine($"📋 All collections: {string.Join(", ", allCollections)}");
-
-            Console.WriteLine("🔍 === END DEBUG ===");
-
-            ShowSuccess("✅ Debug information logged to console");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Debug error: {ex.Message}");
-            ShowError($"Debug error: {ex.Message}");
-        }
-    }
-
-    private async Task MigrateLegacyPatterns()
-    {
-        try
-        {
-            Console.WriteLine("🔄 === MIGRATING LEGACY PATTERNS ===");
-
-            var library = await PatternService.LoadLibraryAsync();
-            bool foundKBIZ = false;
-            bool madeChanges = false;
-
-            // Look for KBIZ patterns in any location
-            foreach (var (collectionName, collection) in library.Collections.ToList())
-            {
-                foreach (var (subName, subCollection) in collection.SubCollections.ToList())
-                {
-                    if (subName.Contains("KBIZ", StringComparison.OrdinalIgnoreCase) ||
-                        subName.Contains("K-BIZ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Console.WriteLine($"🔍 Found KBIZ patterns in {collectionName}.{subName}");
-                        foundKBIZ = true;
-
-                        // If KBIZ is not in BankSlips, move it there
-                        if (collectionName != "BankSlips")
-                        {
-                            await MoveSubCollection(library, collectionName, "BankSlips", subName);
-                            madeChanges = true;
-                        }
-                    }
-                }
-            }
-
-            if (!foundKBIZ)
-            {
-                Console.WriteLine("❌ No KBIZ patterns found - creating sample pattern");
-                await CreateSampleKBIZPattern();
-                madeChanges = true;
-            }
-
-            if (madeChanges)
-            {
-                await LoadDocumentTypes();
-                await LoadSubCollections();
-                ShowSuccess("✅ Legacy patterns migrated successfully!");
-            }
-            else
-            {
-                ShowSuccess("✅ No migration needed - patterns are already in correct location");
-            }
-
-            Console.WriteLine("🔄 === MIGRATION COMPLETE ===");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Migration error: {ex.Message}");
-            ShowError($"Migration error: {ex.Message}");
-        }
-    }
-
-    private async Task MoveSubCollection(PatternLibrary library, string fromCollection, string toCollection, string subCollectionName)
-    {
-        try
-        {
-            if (!library.Collections.TryGetValue(fromCollection, out var fromColl) ||
-                !fromColl.SubCollections.TryGetValue(subCollectionName, out var subColl))
-            {
-                return;
-            }
-
-            // Ensure target collection exists
-            if (!library.Collections.TryGetValue(toCollection, out var toColl))
-            {
-                toColl = new PatternCollection { Name = toCollection };
-                library.Collections[toCollection] = toColl;
-            }
-
-            // Move the sub-collection
-            toColl.SubCollections[subCollectionName] = subColl;
-            fromColl.SubCollections.Remove(subCollectionName);
-
-            // Clean up empty collections
-            if (!fromColl.SubCollections.Any())
-            {
-                library.Collections.Remove(fromCollection);
-            }
-
-            await PatternService.SaveLibraryAsync(library);
-            Console.WriteLine($"📦 Moved {subCollectionName} from {fromCollection} to {toCollection}");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error moving sub-collection: {ex.Message}");
-        }
-    }
-
-    private async Task CreateSampleKBIZPattern()
-    {
-        try
-        {
-            Console.WriteLine("🆕 Creating sample KBIZ pattern...");
-
-            // Create a basic KBIZ pattern so the system works
-            var samplePattern = new SearchPattern
-                {
-                    SearchName = "Amount",
-                    KeyWord = "จำนวน",
-                    PatternType = "VerticalColumn",
-                    ToleranceX = 20,
-                    ToleranceY = 20,
-                    StopWords = "",
-                    RegexPatterns = new List<string> { @"\d+\.\d{2}" }
-                };
-
-            await PatternService.SaveSearchPatternAsync("BankSlips", "KBIZ", "Amount", samplePattern);
-            Console.WriteLine("✅ Created sample KBIZ pattern");
-
-            ShowSuccess("✅ Created sample KBIZ pattern for testing");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error creating sample pattern: {ex.Message}");
-        }
-    }
-
-    private async Task CreateKBIZFormat()
-    {
-        try
-        {
-            selectedDocumentType = "BankSlips";
-            newSubCollection = "KBIZ";
-            await CreateNewSubCollection();
-
-            // Create a sample pattern
-            await CreateSampleKBIZPattern();
-
-            // Refresh the UI
-            await LoadSubCollections();
-            selectedSubCollection = "KBIZ";
-            await LoadExistingPatterns();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error creating KBIZ format: {ex.Message}");
-            ShowError($"Error creating KBIZ format: {ex.Message}");
-        }
-    }
-
-    private async Task CreateSampleData()
-    {
-        try
-        {
-            Console.WriteLine("🆕 Creating sample data...");
-
-            // Ensure BankSlips exists
-            if (!availableDocumentTypes.Contains("BankSlips"))
-            {
-                newDocumentType = "BankSlips";
-                await CreateNewDocumentType();
-            }
-
-            // Create KBIZ format if it doesn't exist
-            var bankSlipsFormats = await PatternService.GetSubCollectionNamesAsync("BankSlips");
-            if (!bankSlipsFormats.Contains("KBIZ"))
-            {
-                await CreateKBIZFormat();
-            }
-
-            // Create some sample patterns
-            var samplePatterns = new[]
-            {
-                new { Name = "Date", Keyword = "วันที่", Regex = @"\d{1,2}/\d{1,2}/\d{4}" },
-                new { Name = "To", Keyword = "ชื่อผู้รับ", Regex = @"[ก-๙a-zA-Z\s]+" },
-                new { Name = "Total", Keyword = "จำนวนเงิน", Regex = @"\d+\.\d{2}" },
-                new { Name = "Fee", Keyword = "ค่าธรรมเนียม", Regex = @"\d+\.\d{2}" }
-            };
-
-            foreach (var sample in samplePatterns)
-            {
-                var hasPattern = await PatternService.HasPatternsAsync("BankSlips", "KBIZ");
-                if (!hasPattern || !(await PatternService.GetSearchPatternNamesAsync("BankSlips", "KBIZ")).Contains(sample.Name))
-                {
-                    var pattern = new SearchPattern
-                        {
-                            SearchName = sample.Name,
-                            KeyWord = sample.Keyword,
-                            PatternType = "VerticalColumn",
-                            ToleranceX = 20,
-                            ToleranceY = 20,
-                            StopWords = "",
-                            RegexPatterns = new List<string> { sample.Regex }
-                        };
-
-                    await PatternService.SaveSearchPatternAsync("BankSlips", "KBIZ", sample.Name, pattern);
-                    Console.WriteLine($"✅ Created sample pattern: {sample.Name}");
-                }
-            }
-
-            // Refresh everything
-            await LoadDocumentTypes();
-            selectedDocumentType = "BankSlips";
-            await LoadSubCollections();
-            selectedSubCollection = "KBIZ";
-            await LoadExistingPatterns();
-
-            ShowSuccess("✅ Sample data created successfully!");
-            Console.WriteLine("✅ Sample data creation complete");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error creating sample data: {ex.Message}");
-            ShowError($"Error creating sample data: {ex.Message}");
-        }
-    }
-
-    private async Task ForceRefreshAll()
-    {
-        try
-        {
-            Console.WriteLine("🔄 Force refreshing all data...");
-
-            selectedDocumentType = "";
-            selectedSubCollection = "";
-            patternName = "";
-            availableDocumentTypes.Clear();
-            availableSubCollections.Clear();
-            existingPatterns.Clear();
-
-            await LoadDocumentTypes();
-            StateHasChanged();
-
-            ShowSuccess("🔄 All data refreshed successfully!");
-            Console.WriteLine("✅ Force refresh complete");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error during refresh: {ex.Message}");
-            ShowError($"Error during refresh: {ex.Message}");
-        }
-    }
-
-    private void ToggleDebugTools()
-    {
-        showDebugTools = !showDebugTools;
-        StateHasChanged();
-    }
-
-    private async Task CleanupLibrary()
-    {
-        try
-        {
-            isCleaningUp = true;
-            cleanupMessage = "";
-            StateHasChanged();
-
-            Console.WriteLine("🧹 Starting library cleanup...");
-
-            // Check if CleanupEmptyContainersAsync method exists
-            if (PatternService.GetType().GetMethod("CleanupEmptyContainersAsync") != null)
-            {
-                var success = await PatternService.CleanupEmptyContainersAsync();
-
-                if (success)
-                {
-                    cleanupMessage = "✅ Library cleanup completed successfully!";
-                    cleanupError = false;
-                    Console.WriteLine("✅ Library cleanup successful");
-                }
-                else
-                {
-                    cleanupMessage = "❌ Cleanup failed. Check logs for details.";
-                    cleanupError = true;
-                    Console.WriteLine("❌ Library cleanup failed");
-                }
-            }
-            else
-            {
-                // Manual cleanup if method doesn't exist
-                var library = await PatternService.LoadLibraryAsync();
-                bool madeChanges = false;
-
-                // Remove empty sub-collections
-                foreach (var (collectionName, collection) in library.Collections.ToList())
-                {
-                    var emptySubCollections = collection.SubCollections
-                        .Where(sc => !sc.Value.SearchPatterns.Any())
-                        .Select(sc => sc.Key)
-                        .ToList();
-
-                    foreach (var emptySubCollection in emptySubCollections)
-                    {
-                        collection.SubCollections.Remove(emptySubCollection);
-                        madeChanges = true;
-                        Console.WriteLine($"🗑️ Removed empty sub-collection: {collectionName}.{emptySubCollection}");
-                    }
-                }
-
-                // Remove empty collections
-                var emptyCollections = library.Collections
-                    .Where(c => !c.Value.SubCollections.Any())
-                    .Select(c => c.Key)
-                    .ToList();
-
-                foreach (var emptyCollection in emptyCollections)
-                {
-                    library.Collections.Remove(emptyCollection);
-                    madeChanges = true;
-                    Console.WriteLine($"🗑️ Removed empty collection: {emptyCollection}");
-                }
-
-                if (madeChanges)
-                {
-                    await PatternService.SaveLibraryAsync(library);
-                    cleanupMessage = "✅ Manual cleanup completed successfully!";
-                    cleanupError = false;
-                }
-                else
-                {
-                    cleanupMessage = "ℹ️ No cleanup needed - library is already clean!";
-                    cleanupError = false;
-                }
-            }
-
-            // Refresh the dropdowns to reflect the cleanup
-            await LoadDocumentTypes();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Error during cleanup: {ex.Message}");
-            cleanupMessage = $"❌ Error during cleanup: {ex.Message}";
-            cleanupError = true;
-        }
-        finally
-        {
-            isCleaningUp = false;
-            StateHasChanged();
-        }
-    }
-
-    #endregion
-
-    #region UI Helper Methods
-
-    private async Task ShowCurrentJson()
-    {
-        try
-        {
-            var library = await PatternService.LoadLibraryAsync();
-            lastSavedJson = JsonSerializer.Serialize(library, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-            showJson = true;
-            StateHasChanged();
-        }
-        catch (Exception ex)
-        {
-            ShowError($"Error loading JSON: {ex.Message}");
-        }
-    }
-
-    private void ToggleJsonView()
-    {
-        showJson = !showJson;
-    }
-
     private void ShowSuccess(string message)
     {
         statusMessage = message;
         isError = false;
-        showDebugInfo = false;
-        StateHasChanged();
     }
 
     private void ShowError(string message)
     {
         statusMessage = message;
         isError = true;
-        showDebugInfo = true;
-        StateHasChanged();
     }
 
     private void ClearStatus()
     {
         statusMessage = "";
         isError = false;
-        showDebugInfo = false;
-        debugInfo = "";
     }
-
-    private void SetDebugInfo(string info)
-    {
-        debugInfo = info;
-        showDebugInfo = true;
-    }
-
-    #endregion
 }
