@@ -1,5 +1,5 @@
 ﻿// NewwaysAdmin.WebAdmin/Extensions/ServiceCollectionExtensions.cs
-// 🔥 UPDATED: Ditched the old rigid parsers, embracing the new pattern-based future!
+// 🔥 UPDATED: Added our new DocumentParser!
 
 using Microsoft.Extensions.DependencyInjection;
 using NewwaysAdmin.GoogleSheets.Services;
@@ -15,36 +15,31 @@ namespace NewwaysAdmin.WebAdmin.Extensions
     {
         /// <summary>
         /// Registers all bank slip processing services with dependency injection
-        /// 🚀 MODERN VERSION: Pattern-based parsing, no more hardcoded nonsense!
+        /// 🚀 MODERN VERSION: Direct dictionary results, no legacy parsers!
         /// </summary>
         public static IServiceCollection AddBankSlipServices(this IServiceCollection services)
         {
-            // Core OCR service (orchestrator)
+            // Core OCR service (orchestrator) - now uses DocumentParser directly
             services.AddScoped<IBankSlipOcrService, BankSlipOcrService>();
 
             // Supporting services
             services.AddScoped<BankSlipImageProcessor>();
-            services.AddScoped<BankSlipValidator>();
 
-            // 🔥 NEW: Modern pattern-based parser factory and parser
-            services.AddScoped<BankSlipParserFactory>();
-            services.AddScoped<PatternBasedBankSlipParser>();
+            // 🚀 MODERN: Our lean DocumentParser (core functionality)
+            services.AddScoped<DocumentParser>();
 
-            // 🗑️ REMOVED: Old rigid parsers - GOODBYE FOREVER!
-            // services.AddScoped<OriginalSlipParser>();  // 🔥 DELETED
-            // services.AddScoped<KBizSlipParser>();      // 🔥 DELETED
-
-            // Export services (keep these for Google Sheets integration)
+            // Export services (for Google Sheets integration)
             services.AddScoped<BankSlipExportService>();
             services.AddScoped<SimpleEmailStorageService>();
 
             // Spatial OCR services
             services.AddScoped<ISpatialOcrService, SpatialOcrService>();
 
-            // 🎯 NEW: Pattern management services (should already be registered in Program.cs)
-            // These are the core of our new system:
-            // - PatternManagementService (already registered in Program.cs)
-            // - PatternLoaderService (already registered in Program.cs)
+            // 🗑️ REMOVED: All legacy parser infrastructure
+            // - BankSlipParserFactory ❌
+            // - PatternBasedBankSlipParser ❌  
+            // - IBankSlipParser interface ❌
+            // - BankSlipValidator ❌
 
             return services;
         }
