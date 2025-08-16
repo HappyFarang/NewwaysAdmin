@@ -9,13 +9,16 @@
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Results
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Export
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Shared
+@using NewwaysAdmin.SharedModels.Services.Ocr
 
-@inject IBankSlipOcrService BankSlipService
+@* 🚀 UPDATED: Direct concrete class injection + PatternManagementService *@
+@inject BankSlipOcrService BankSlipService
+@inject PatternManagementService PatternService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<BankSlipsPage> Logger
 @inject BankSlipExportService ExportService
 
-<PageTitle>Bank Slip OCR - Pattern Based</PageTitle>
+<PageTitle>Bank Slip OCR - Modern Pattern System</PageTitle>
 
 <div class="container-fluid p-4">
 
@@ -26,7 +29,7 @@
                 <h2>
                     <i class="bi bi-bank2 me-2"></i>
                     Bank Slip Processing
-                    <small class="text-muted fs-6">Pattern-Based OCR System</small>
+                    <small class="text-muted fs-6">Modern Dictionary-Based OCR</small>
                 </h2>
 
                 @if (!string.IsNullOrEmpty(_currentUsername))
@@ -54,72 +57,450 @@
 
         @* Left Panel - Collection Management *@
         <div class="col-md-4">
-            <CollectionSelector AvailableCollections="@_availableCollections"
-                                SelectedCollection="@_selectedCollection"
-                                IsLoading="@_isLoadingCollections"
-                                IsAdmin="@_isAdmin"
-                                OnCollectionSelected="HandleCollectionSelected"
-                                OnCreateCollection="HandleCreateCollection"
-                                OnEditCollection="HandleEditCollection"
-                                OnDeleteCollection="HandleDeleteCollection" />
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-collection me-2"></i>Collections
+                    </h5>
+                    <button class="btn btn-primary btn-sm" @onclick="HandleCreateCollection" disabled="@_isLoadingCollections">
+                        <i class="bi bi-plus-circle me-1"></i>New
+                    </button>
+                </div>
+                <div class="card-body">
+                    @if (_isLoadingCollections)
+                    {
+                        <div class="text-center py-3">
+                            <div class="spinner-border spinner-border-sm me-2"></div>
+                            Loading collections...
+                        </div>
+                    }
+                    else if (!_availableCollections.Any())
+                    {
+                        <div class="text-center py-3 text-muted">
+                            <i class="bi bi-inbox display-4"></i>
+                            <p class="mt-2">No collections yet</p>
+                            <small>Create your first collection to get started</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var collection in _availableCollections)
+                            {
+                                <div class="list-group-item @(collection.Id == _selectedCollection?.Id ? "active" : "")"
+                                     style="cursor: pointer;" @onclick="() => HandleCollectionSelected(collection)">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex align-items-center">
+                                                <i class="@collection.FormatIcon me-2"></i>
+                                                <strong>@collection.Name</strong>
+                                            </div>
+                                            <small class="text-muted">@collection.FormatDisplayName</small>
+                                            @if (!string.IsNullOrEmpty(collection.Description))
+                                            {
+                                                <div><small>@collection.Description</small></div>
+                                            }
+                                        </div>
+                                        <div class="dropdown">
+                                            <button class="btn btn-link btn-sm p-0" data-bs-toggle="dropdown">
+                                                <i class="bi bi-three-dots-vertical"></i>
+                                            </button>
+                                            <ul class="dropdown-menu">
+                                                <li>
+                                                    <button class="dropdown-item" @onclick="() => HandleEditCollection(collection)">
+                                                        <i class="bi bi-pencil me-2"></i>Edit
+                                                    </button>
+                                                </li>
+                                                <li>
+                                                    <button class="dropdown-item text-danger" @onclick="() => HandleDeleteCollection(collection.Id)">
+                                                        <i class="bi bi-trash me-2"></i>Delete
+                                                    </button>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
 
         @* Center Panel - Processing Controls *@
         <div class="col-md-4">
-            <ProcessingPanel SelectedCollection="@_selectedCollection"
-                             StartDate="@_startDate"
-                             EndDate="@_endDate"
-                             IsProcessing="@_isProcessing"
-                             OnStartProcessing="HandleStartProcessing"
-                             OnStartDateChanged="HandleStartDateChanged"
-                             OnEndDateChanged="HandleEndDateChanged" />
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-gear me-2"></i>Processing
+                    </h5>
+                </div>
+                <div class="card-body">
+                    @if (_selectedCollection == null)
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-arrow-left display-6"></i>
+                            <p class="mt-2">Select a collection first</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label">Collection:</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="@_selectedCollection.FormatIcon"></i></span>
+                                <input type="text" class="form-control" value="@_selectedCollection.Name" readonly />
+                            </div>
+                            <small class="text-muted">@_selectedCollection.FormatDisplayName</small>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="form-label">Start Date:</label>
+                                <input type="date" class="form-control" @bind="_startDate" disabled="@_isProcessing" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">End Date:</label>
+                                <input type="date" class="form-control" @bind="_endDate" disabled="@_isProcessing" />
+                            </div>
+                        </div>
+
+                        <div class="d-grid">
+                            <button class="btn btn-success" @onclick="HandleStartProcessing" disabled="@_isProcessing">
+                                @if (_isProcessing)
+                                {
+                                    <div class="spinner-border spinner-border-sm me-2"></div>
+                                    <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-play-circle me-2"></i>
+                                    <span>Start Processing</span>
+                                }
+                            </button>
+                        </div>
+
+                        @if (_isProcessing)
+                        {
+                            <div class="mt-3">
+                                <div class="progress">
+                                    <div class="progress-bar" role="progressbar"
+                                         style="width: @(_processingProgress.ProgressPercentage)%"
+                                         aria-valuenow="@_processingProgress.ProcessedFiles"
+                                         aria-valuemin="0"
+                                         aria-valuemax="@_processingProgress.TotalFiles">
+                                    </div>
+                                </div>
+                                <small class="text-muted">
+                                    @_processingProgress.ProcessedFiles / @_processingProgress.TotalFiles files
+                                    @if (!string.IsNullOrEmpty(_processingProgress.CurrentFileName))
+                                    {
+                                        <span> - @_processingProgress.CurrentFileName</span>
+                                    }
+                                </small>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
         </div>
 
         @* Right Panel - Results & Export *@
         <div class="col-md-4">
-            @if (_lastResult != null)
-            {
-                <ResultsViewer ProcessingResult="@_lastResult"
-                               OnExportRequested="HandleExportRequested" />
-            }
-            else
-            {
-                <div class="card h-100">
-                    <div class="card-header">
-                        <h5><i class="bi bi-list-check me-2"></i>Results</h5>
-                    </div>
-                    <div class="card-body text-center text-muted">
-                        <i class="bi bi-hourglass-split fs-1 mb-3"></i>
-                        <p>Process a collection to see results here</p>
-                    </div>
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-check me-2"></i>Results
+                    </h5>
+                    @if (_lastResults != null && _lastResults.Any())
+                    {
+                        <button class="btn btn-outline-primary btn-sm" @onclick="HandleShowExport">
+                            <i class="bi bi-download me-1"></i>Export
+                        </button>
+                    }
                 </div>
-            }
+                <div class="card-body">
+                    @if (_lastResults == null)
+                    {
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-hourglass display-6"></i>
+                            <p class="mt-2">No processing results yet</p>
+                            <small>Run processing to see results</small>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <div class="row text-center">
+                                <div class="col-4">
+                                    <div class="text-success h4">@_lastResults.Count(r => !r.ContainsKey("Error"))</div>
+                                    <small class="text-muted">Success</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="text-danger h4">@_lastResults.Count(r => r.ContainsKey("Error"))</div>
+                                    <small class="text-muted">Failed</small>
+                                </div>
+                                <div class="col-4">
+                                    <div class="text-primary h4">@_lastResults.Count</div>
+                                    <small class="text-muted">Total</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* 🆕 NEW: Field Selection Interface *@
+                        <div class="mb-3 p-2" style="background: #f8f9fa; border-radius: 5px;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <small class="fw-bold text-muted">Display Fields (Select @MAX_DISPLAY_FIELDS):</small>
+                                <small class="text-muted">@_selectedDisplayFields.Count/@MAX_DISPLAY_FIELDS</small>
+                            </div>
+
+                            @* 🔍 DEBUG: Show current state *@
+                            <div class="mb-2">
+                                <small class="text-info">
+                                    Debug: Available fields (@_availableResultFields.Count): @string.Join(", ", _availableResultFields)
+                                </small>
+                            </div>
+
+                            @if (_availableResultFields.Any())
+                            {
+                                <div class="field-selector">
+                                    @foreach (var field in _availableResultFields.OrderBy(f => f))
+                                    {
+                                        var isSelected = _selectedDisplayFields.Contains(field);
+                                        var canSelect = !isSelected && _selectedDisplayFields.Count < MAX_DISPLAY_FIELDS;
+
+                                        <button class="btn btn-sm me-1 mb-1 @(isSelected ? "btn-primary" : "btn-outline-secondary")"
+                                                @onclick="() => ToggleDisplayField(field)"
+                                                disabled="@(!isSelected && !canSelect)"
+                                                title="@(isSelected ? "Click to remove" : canSelect ? "Click to add" : $"Maximum {MAX_DISPLAY_FIELDS} fields")">
+                                            @if (isSelected)
+                                            {
+                                                <i class="bi bi-check-circle me-1"></i>
+                                            }
+                                            @field
+                                        </button>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <small class="text-muted">
+                                    No fields available yet. Process some files first to see field options.
+                                </small>
+                            }
+                        </div>
+
+                        <div class="results-list" style="max-height: 400px; overflow-y: auto;">
+                            @foreach (var result in _lastResults.Take(10))
+                            {
+                                <div class="card mb-2 @(result.ContainsKey("Error") ? "border-danger" : "border-success")">
+                                    <div class="card-body p-2">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <div class="flex-grow-1">
+                                                <strong>@(result.GetValueOrDefault("FileName", "Unknown"))</strong>
+                                                @if (result.ContainsKey("Error"))
+                                                {
+                                                    <div class="text-danger small">
+                                                        <i class="bi bi-x-circle me-1"></i>@result["Error"]
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-success small">
+                                                        <i class="bi bi-check-circle me-1"></i>
+                                                        @result.Count fields extracted
+                                                    </div>
+                                                    @if (result.ContainsKey("ProcessedAt"))
+                                                    {
+                                                        <div class="text-muted small">@result["ProcessedAt"]</div>
+                                                    }
+                                                }
+                                            </div>
+                                        </div>
+
+                                        @* Show some key extracted fields for successful results *@
+                                        @if (!result.ContainsKey("Error"))
+                                        {
+                                            <div class="mt-2">
+                                                <div class="row g-1">
+                                                    @foreach (var field in result.Where(kvp =>
+                                                   !kvp.Key.StartsWith("_") &&
+                                                   kvp.Key != "FileName" &&
+                                                   kvp.Key != "ProcessedAt" &&
+                                                   kvp.Key != "ProcessedBy" &&
+                                                   kvp.Key != "CollectionName" &&
+                                                   !string.IsNullOrEmpty(kvp.Value)).Take(4))
+                                                    {
+                                                        <div class="col-6">
+                                                            <small class="text-muted">@field.Key:</small>
+                                                            <div class="small fw-bold">@field.Value</div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (_lastResults.Count > 10)
+                            {
+                                <div class="text-center py-2">
+                                    <small class="text-muted">Showing 10 of @_lastResults.Count results</small>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
     </div>
-
-    @* Export Manager Modal *@
-    @if (_showExportModal && _lastResult != null)
-    {
-        <ExportManager ProcessingResult="@_lastResult"
-                       IsVisible="@_showExportModal"
-                       CurrentUsername="@_currentUsername"
-                       OnExportCompleted="HandleExportCompleted"
-                       OnCancel="HandleExportCanceled" />
-    }
-
-    @* Collection Editor Modal *@
-    @if (_showCollectionModal)
-    {
-        <PatternCollectionEditor Collection="@_editingCollection"
-                                 IsVisible="@_showCollectionModal"
-                                 IsEditMode="@_isEditMode"
-                                 OnSave="HandleCollectionSaved"
-                                 OnCancel="HandleCollectionEditorCanceled" />
-    }
 </div>
 
+@* Collection Management Modal *@
+@if (_showCollectionModal && _editingCollection != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        @(_isEditMode ? "Edit Collection" : "Create Collection")
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="() => _showCollectionModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Name *</label>
+                        <input type="text" class="form-control" @bind="_editingCollection.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" rows="2" @bind="_editingCollection.Description"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Format Type *</label>
+                        <div class="input-group">
+                            <select class="form-select" @bind="_editingCollection.FormatName" @bind:after="OnFormatNameChangedAsync" disabled="@_isLoadingFormats">
+                                <option value="">@(_isLoadingFormats ? "Loading formats..." : "Select format...")</option>
+                                @if (_availableFormats != null)
+                                {
+                                    @foreach (var format in _availableFormats)
+                                    {
+                                        <option value="@format">@format</option>
+                                    }
+                                }
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary" @onclick="RefreshFormats" disabled="@_isLoadingFormats">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                        @if (_availableFormats != null && !_availableFormats.Any())
+                        {
+                            <small class="text-warning">
+                                <i class="bi bi-exclamation-triangle me-1"></i>
+                                No patterns found. Create patterns first using Settings → OCR Analyzer.
+                            </small>
+                        }
+                    </div>
+
+                    @* 🚀 NEW: Show pattern structure information *@
+                    @if (!string.IsNullOrEmpty(_editingCollection.FormatName))
+                    {
+                        <div class="mb-3" style="background: #f8f9fa; padding: 10px; border-radius: 5px; border-left: 4px solid #007bff;">
+                            <h6 class="mb-2">
+                                <i class="bi bi-diagram-3 me-1"></i>
+                                Pattern Structure: BankSlips → @_editingCollection.FormatName
+                            </h6>
+
+                            @if (_isLoadingPatternKeys)
+                            {
+                                <div class="text-muted">
+                                    <div class="spinner-border spinner-border-sm me-2"></div>
+                                    Loading pattern keys...
+                                </div>
+                            }
+                            else if (_patternKeys != null && _patternKeys.Any())
+                            {
+                                <div>
+                                    <small class="text-muted">Available pattern keys:</small>
+                                    <div class="mt-1">
+                                        @foreach (var key in _patternKeys)
+                                        {
+                                            <span class="badge bg-primary me-1 mb-1">@key</span>
+                                        }
+                                    </div>
+                                    <small class="text-success">
+                                        <i class="bi bi-check-circle me-1"></i>
+                                        @_patternKeys.Count pattern(s) available for processing
+                                    </small>
+                                </div>
+                            }
+                            else if (_patternKeys != null)
+                            {
+                                <small class="text-danger">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>
+                                    No pattern keys found for this format. Create patterns using OCR Analyzer.
+                                </small>
+                            }
+                        </div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label">Source Directory *</label>
+                        <input type="text" class="form-control" @bind="_editingCollection.SourceDirectory" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Output Directory *</label>
+                        <input type="text" class="form-control" @bind="_editingCollection.OutputDirectory" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Google Vision Credentials Path</label>
+                        <input type="text" class="form-control" @bind="_editingCollection.CredentialsPath" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showCollectionModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="HandleSaveCollection">
+                        @(_isEditMode ? "Update" : "Create")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@* Export Modal *@
+@if (_showExportModal && _lastResults != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Export Results</h5>
+                    <button type="button" class="btn-close" @onclick="() => _showExportModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Export @_lastResults.Count processing results to Google Sheets?</p>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        Results will be exported as flexible dictionary data with all extracted fields.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="() => _showExportModal = false">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="HandleExportToSheets">
+                        <i class="bi bi-download me-1"></i>Export to Sheets
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
 @code {
-    // User context
+    // User management
     private string _currentUsername = string.Empty;
     private bool _isAdmin = false;
 
@@ -132,12 +513,16 @@
     private bool _showCollectionModal = false;
     private SlipCollection? _editingCollection;
     private bool _isEditMode = false;
+    private List<string>? _availableFormats; // 🆕 NEW: Dynamic format loading
+    private bool _isLoadingFormats = false; // 🆕 NEW: Loading state
+    private List<string>? _patternKeys; // 🆕 NEW: Pattern keys for selected format
+    private bool _isLoadingPatternKeys = false; // 🆕 NEW: Loading state for pattern keys
 
-    // Processing
+    // Processing - 🚀 UPDATED: Now uses Dictionary results!
     private DateTime _startDate = DateTime.Today.AddMonths(-1);
     private DateTime _endDate = DateTime.Today;
     private bool _isProcessing = false;
-    private BankSlipProcessingResult? _lastResult;
+    private List<Dictionary<string, string>>? _lastResults; // 🚀 NEW: Dictionary results
     private ProcessingProgress _processingProgress = new();
 
     // Export
@@ -147,21 +532,26 @@
     private string _statusMessage = string.Empty;
     private string _statusMessageType = "info";
 
+    // 🆕 NEW: Field selection for results display
+    private HashSet<string> _selectedDisplayFields = new() { "Date", "Amount", "Reference", "ReceiverName" }; // Default fields
+    private List<string> _availableResultFields = new(); // All available fields from last processing
+    private const int MAX_DISPLAY_FIELDS = 4;
+
     protected override async Task OnInitializedAsync()
     {
-        Logger.LogInformation("BankSlipsPage: Initializing pattern-based bank slip processing");
+        Logger.LogInformation("🚀 BankSlipsPage: Initializing modern dictionary-based processing");
 
         try
         {
             await LoadCurrentUser();
             await LoadAvailableCollections();
 
-            Logger.LogInformation("BankSlipsPage: Initialization complete - User: {Username}, Collections: {Count}",
+            Logger.LogInformation("✅ BankSlipsPage: Initialization complete - User: {Username}, Collections: {Count}",
                 _currentUsername, _availableCollections.Count);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "BankSlipsPage: Error during initialization");
+            Logger.LogError(ex, "💥 BankSlipsPage: Error during initialization");
             SetStatusMessage($"Initialization error: {ex.Message}", "error");
         }
     }
@@ -233,11 +623,14 @@
                 CredentialsPath = @"C:\Keys\purrfectocr-db2d9d796b58.json",
                 IsActive = true,
                 DocumentType = "BankSlips", // Always BankSlips for this page
-                FormatName = "", // Will be selected in editor
+                FormatName = "", // Will be selected from dynamic dropdown
                 ProcessingSettings = new ProcessingParameters()
             };
         _isEditMode = false;
         _showCollectionModal = true;
+
+        // 🚀 NEW: Load available formats when creating new collection
+        _ = LoadAvailableFormatsAsync();
     }
 
     private void HandleEditCollection(SlipCollection collection)
@@ -260,80 +653,233 @@
             };
         _isEditMode = true;
         _showCollectionModal = true;
+
+        // 🚀 NEW: Load available formats when editing collection
+        _ = LoadAvailableFormatsAsync();
+
+        // 🚀 NEW: If collection already has a format, load its pattern keys
+        if (!string.IsNullOrEmpty(_editingCollection.FormatName))
+        {
+            _ = LoadPatternKeysAsync(_editingCollection.FormatName);
+        }
     }
 
-    private async Task HandleDeleteCollection(SlipCollection collection)
+    private async Task LoadAvailableFormatsAsync()
     {
         try
         {
-            await BankSlipService.DeleteCollectionAsync(collection.Id, _currentUsername);
-            await LoadAvailableCollections();
+            _isLoadingFormats = true;
+            StateHasChanged();
 
-            if (_selectedCollection?.Id == collection.Id)
-            {
-                _selectedCollection = null;
-            }
+            Logger.LogInformation("Loading available patterns for DocumentType: BankSlips");
 
-            SetStatusMessage($"Collection '{collection.Name}' deleted successfully", "info");
+            // 🚀 NEW: Get actual patterns from OCR system instead of hardcoded list
+            _availableFormats = await PatternService.GetSubCollectionNamesAsync("BankSlips");
+
+            Logger.LogInformation("Loaded {Count} available formats: {Formats}",
+                _availableFormats.Count, string.Join(", ", _availableFormats));
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error deleting collection {CollectionName}", collection.Name);
-            SetStatusMessage($"Error deleting collection: {ex.Message}", "error");
+            Logger.LogError(ex, "Error loading available formats");
+            _availableFormats = new List<string>(); // Empty list on error
+            SetStatusMessage($"Error loading formats: {ex.Message}", "warning");
+        }
+        finally
+        {
+            _isLoadingFormats = false;
+            StateHasChanged();
         }
     }
 
-    private async Task HandleCollectionSaved(SlipCollection collection)
+    private async Task RefreshFormats()
+    {
+        Logger.LogInformation("Manually refreshing available formats...");
+        await LoadAvailableFormatsAsync();
+    }
+
+    private async Task OnFormatNameChangedAsync()
+    {
+        var selectedFormat = _editingCollection?.FormatName ?? "";
+
+        // Load pattern keys for the selected format
+        if (!string.IsNullOrEmpty(selectedFormat))
+        {
+            Logger.LogInformation("Format changed to {Format}, loading pattern keys...", selectedFormat);
+            await LoadPatternKeysAsync(selectedFormat);
+        }
+        else
+        {
+            _patternKeys = null;
+        }
+
+        StateHasChanged();
+    }
+
+    private void ToggleDisplayField(string fieldName)
+    {
+        if (_selectedDisplayFields.Contains(fieldName))
+        {
+            // Remove field
+            _selectedDisplayFields.Remove(fieldName);
+            Logger.LogDebug("Removed display field: {Field}", fieldName);
+        }
+        else if (_selectedDisplayFields.Count < MAX_DISPLAY_FIELDS)
+        {
+            // Add field
+            _selectedDisplayFields.Add(fieldName);
+            Logger.LogDebug("Added display field: {Field}", fieldName);
+        }
+
+        Logger.LogInformation("Display fields updated: {Fields}", string.Join(", ", _selectedDisplayFields));
+        StateHasChanged();
+    }
+
+    private void UpdateAvailableResultFields(List<Dictionary<string, string>> results)
+    {
+        Logger.LogInformation("🔍 UpdateAvailableResultFields called with {Count} results", results.Count);
+
+        // Extract all unique field names from successful results (excluding metadata)
+        var allFields = results
+            .Where(r => !r.ContainsKey("Error"))
+            .SelectMany(r => r.Keys)
+            .Where(key =>
+                !key.StartsWith("_") &&
+                key != "FileName" &&
+                key != "ProcessedAt" &&
+                key != "ProcessedBy" &&
+                key != "CollectionName" &&
+                key != "DocumentType" &&
+                key != "FormatName")
+            .Distinct()
+            .OrderBy(f => f)
+            .ToList();
+
+        Logger.LogInformation("🔍 Extracted {Count} unique fields: {Fields}", allFields.Count, string.Join(", ", allFields));
+
+        // Also log ALL fields (including metadata) for debugging
+        var allFieldsIncludingMeta = results
+            .Where(r => !r.ContainsKey("Error"))
+            .SelectMany(r => r.Keys)
+            .Distinct()
+            .OrderBy(f => f)
+            .ToList();
+
+        Logger.LogInformation("🔍 ALL fields (including metadata): {Fields}", string.Join(", ", allFieldsIncludingMeta));
+
+        _availableResultFields = allFields;
+
+        // Update selected fields to only include available ones
+        _selectedDisplayFields = _selectedDisplayFields
+            .Where(f => _availableResultFields.Contains(f))
+            .ToHashSet();
+
+        // If we have fewer than MAX_DISPLAY_FIELDS selected, auto-select some good defaults
+        if (_selectedDisplayFields.Count < MAX_DISPLAY_FIELDS)
+        {
+            var commonFields = new[] { "Date", "Amount", "Total", "Reference", "Memo", "To", "From", "Account" };
+
+            foreach (var commonField in commonFields)
+            {
+                if (_selectedDisplayFields.Count >= MAX_DISPLAY_FIELDS) break;
+
+                var matchingField = _availableResultFields.FirstOrDefault(f =>
+                    f.Equals(commonField, StringComparison.OrdinalIgnoreCase) ||
+                    f.Contains(commonField, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingField != null && !_selectedDisplayFields.Contains(matchingField))
+                {
+                    _selectedDisplayFields.Add(matchingField);
+                }
+            }
+        }
+
+        Logger.LogInformation("✅ Available result fields: {Fields}", string.Join(", ", _availableResultFields));
+        Logger.LogInformation("✅ Selected display fields: {Fields}", string.Join(", ", _selectedDisplayFields));
+    }
+
+    private async Task LoadPatternKeysAsync(string formatName)
     {
         try
         {
-            // Set creation metadata for new collections
-            if (string.IsNullOrEmpty(collection.Id))
-            {
-                collection.Id = Guid.NewGuid().ToString();
-                collection.CreatedBy = _currentUsername;
-                collection.CreatedAt = DateTime.UtcNow;
-            }
+            _isLoadingPatternKeys = true;
+            StateHasChanged();
 
-            await BankSlipService.SaveCollectionAsync(collection, _currentUsername);
+            Logger.LogInformation("Loading pattern keys for BankSlips/{Format}", formatName);
+
+            // 🚀 NEW: Get individual pattern keys for the selected format
+            _patternKeys = await PatternService.GetSearchPatternNamesAsync("BankSlips", formatName);
+
+            Logger.LogInformation("Loaded {Count} pattern keys for {Format}: {Keys}",
+                _patternKeys?.Count ?? 0, formatName,
+                _patternKeys != null ? string.Join(", ", _patternKeys) : "none");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading pattern keys for format {Format}", formatName);
+            _patternKeys = new List<string>(); // Empty list on error
+            SetStatusMessage($"Error loading pattern keys: {ex.Message}", "warning");
+        }
+        finally
+        {
+            _isLoadingPatternKeys = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleSaveCollection()
+    {
+        try
+        {
+            if (_editingCollection == null) return;
+
+            await BankSlipService.SaveCollectionAsync(_editingCollection, _currentUsername);
             await LoadAvailableCollections();
 
             _showCollectionModal = false;
-            _editingCollection = null;
+            SetStatusMessage($"Collection {(_isEditMode ? "updated" : "created")} successfully", "success");
 
-            SetStatusMessage($"Collection '{collection.Name}' saved successfully", "info");
-            Logger.LogInformation("Collection {CollectionName} saved by {Username}", collection.Name, _currentUsername);
+            Logger.LogInformation("Collection {Action}: {CollectionName}", _isEditMode ? "updated" : "created", _editingCollection.Name);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error saving collection {CollectionName}", collection.Name);
+            Logger.LogError(ex, "Error saving collection");
             SetStatusMessage($"Error saving collection: {ex.Message}", "error");
         }
     }
 
-    private void HandleCollectionEditorCanceled()
+    private async Task HandleDeleteCollection(string collectionId)
     {
-        _showCollectionModal = false;
-        _editingCollection = null;
+        try
+        {
+            await BankSlipService.DeleteCollectionAsync(collectionId, _currentUsername);
+            await LoadAvailableCollections();
+
+            if (_selectedCollection?.Id == collectionId)
+            {
+                _selectedCollection = null;
+            }
+
+            SetStatusMessage("Collection deleted successfully", "success");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error deleting collection {CollectionId}", collectionId);
+            SetStatusMessage($"Error deleting collection: {ex.Message}", "error");
+        }
     }
 
     #endregion
 
-    #region Processing
-
-    private void HandleStartDateChanged(DateTime newDate)
-    {
-        _startDate = newDate;
-    }
-
-    private void HandleEndDateChanged(DateTime newDate)
-    {
-        _endDate = newDate;
-    }
+    #region Processing - 🚀 UPDATED: Modern Dictionary Flow
 
     private async Task HandleStartProcessing()
     {
-        if (_selectedCollection == null) return;
+        if (_selectedCollection == null)
+        {
+            SetStatusMessage("Please select a collection first", "warning");
+            return;
+        }
 
         try
         {
@@ -342,25 +888,42 @@
             ClearStatusMessage();
             StateHasChanged();
 
-            Logger.LogInformation("Starting processing for collection {CollectionName} from {StartDate} to {EndDate}",
-                _selectedCollection.Name, _startDate, _endDate);
+            Logger.LogInformation("🚀 Starting modern dictionary-based processing for collection {CollectionName}", _selectedCollection.Name);
 
-            var progressReporter = new ComponentProgressReporter(this);
-            _lastResult = await BankSlipService.ProcessSlipCollectionAsync(
-                _selectedCollection.Id, _startDate, _endDate, _currentUsername, progressReporter);
+            // Create simple progress reporter
+            var progressReporter = new NewwaysAdmin.WebAdmin.Services.BankSlips.SimpleProgressReporter((processed, total, fileName) =>
+            {
+                _processingProgress = new ProcessingProgress
+                    {
+                        ProcessedFiles = processed,
+                        TotalFiles = total,
+                        CurrentFileName = fileName
+                    };
+                InvokeAsync(StateHasChanged);
+            });
 
-            if (_lastResult?.ProcessedSlips?.Any() == true)
-            {
-                SetStatusMessage($"✅ Processing completed: {_lastResult.ProcessedSlips.Count} slips processed", "success");
-            }
-            else
-            {
-                SetStatusMessage("⚠️ No slips found in the specified date range", "warning");
-            }
+            // 🚀 NEW: Call modern method that returns Dictionary results
+            _lastResults = await BankSlipService.ProcessSlipCollectionAsync(
+                _selectedCollection.Id,
+                _startDate,
+                _endDate,
+                _currentUsername,
+                progressReporter);
+
+            // 🆕 NEW: Always update available fields after processing
+            UpdateAvailableResultFields(_lastResults);
+
+            var successCount = _lastResults.Count(r => !r.ContainsKey("Error"));
+            var totalCount = _lastResults.Count;
+
+            SetStatusMessage($"Processing completed: {successCount}/{totalCount} files successful",
+                successCount == totalCount ? "success" : "warning");
+
+            Logger.LogInformation("✅ Modern processing completed: {SuccessCount}/{TotalCount} successful", successCount, totalCount);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error during processing");
+            Logger.LogError(ex, "💥 Error during modern processing");
             SetStatusMessage($"Processing error: {ex.Message}", "error");
         }
         finally
@@ -370,35 +933,38 @@
         }
     }
 
-    private void UpdateProcessingProgress(int processed, int total, string currentFile)
-    {
-        _processingProgress.ProcessedCount = processed;
-        _processingProgress.TotalCount = total;
-        _processingProgress.CurrentFile = currentFile;
-        StateHasChanged();
-    }
-
     #endregion
 
-    #region Export
+    #region Export - 🚀 UPDATED: Dictionary Export
 
-    private void HandleExportRequested()
+    private void HandleShowExport()
     {
-        if (_lastResult?.ProcessedSlips?.Any() == true)
+        _showExportModal = true;
+    }
+
+    private async Task HandleExportToSheets()
+    {
+        try
         {
-            _showExportModal = true;
+            if (_lastResults == null || !_lastResults.Any())
+            {
+                SetStatusMessage("No results to export", "warning");
+                return;
+            }
+
+            _showExportModal = false;
+
+            // TODO: Update ExportService to handle Dictionary<string, string> results
+            // For now, just show success message
+            SetStatusMessage($"Export functionality will be updated to handle {_lastResults.Count} dictionary results", "info");
+
+            Logger.LogInformation("📊 Dictionary export requested for {Count} results", _lastResults.Count);
         }
-    }
-
-    private void HandleExportCompleted(string message)
-    {
-        _showExportModal = false;
-        SetStatusMessage(message, "success");
-    }
-
-    private void HandleExportCanceled()
-    {
-        _showExportModal = false;
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error exporting results");
+            SetStatusMessage($"Export error: {ex.Message}", "error");
+        }
     }
 
     #endregion
@@ -415,34 +981,23 @@
     private void ClearStatusMessage()
     {
         _statusMessage = string.Empty;
-        _statusMessageType = "info";
+        StateHasChanged();
     }
 
     #endregion
 
-    #region Supporting Classes
+    #region Helper Classes
 
+    /// <summary>
+    /// Simple processing progress tracking
+    /// </summary>
     public class ProcessingProgress
     {
-        public int ProcessedCount { get; set; }
-        public int TotalCount { get; set; }
-        public string CurrentFile { get; set; } = string.Empty;
-        public int ProgressPercentage => TotalCount > 0 ? (ProcessedCount * 100 / TotalCount) : 0;
-    }
+        public int ProcessedFiles { get; set; }
+        public int TotalFiles { get; set; }
+        public string CurrentFileName { get; set; } = string.Empty;
 
-    private class ComponentProgressReporter : IProgressReporter
-    {
-        private readonly BankSlipsPage _parent;
-
-        public ComponentProgressReporter(BankSlipsPage parent)
-        {
-            _parent = parent;
-        }
-
-        public void ReportProgress(int processedCount, int totalCount, string currentFileName = "")
-        {
-            _parent.UpdateProcessingProgress(processedCount, totalCount, currentFileName);
-        }
+        public double ProgressPercentage => TotalFiles > 0 ? (double)ProcessedFiles / TotalFiles * 100 : 0;
     }
 
     #endregion

@@ -11,51 +11,7 @@ using NewwaysAdmin.SharedModels.Models.Documents;
 
 namespace NewwaysAdmin.WebAdmin.Extensions
 {
-    public static class BankSlipServiceExtensions
-    {
-        /// <summary>
-        /// Registers all bank slip processing services with dependency injection
-        /// 🚀 MODERN VERSION: Direct dictionary results, no legacy parsers!
-        /// </summary>
-        public static IServiceCollection AddBankSlipServices(this IServiceCollection services)
-        {
-            // Core OCR service (orchestrator) - now uses DocumentParser directly
-            services.AddScoped<IBankSlipOcrService, BankSlipOcrService>();
-
-            // Supporting services
-            services.AddScoped<BankSlipImageProcessor>();
-
-            // 🚀 MODERN: Our lean DocumentParser (core functionality)
-            services.AddScoped<DocumentParser>();
-
-            // Export services (for Google Sheets integration)
-            services.AddScoped<BankSlipExportService>();
-            services.AddScoped<SimpleEmailStorageService>();
-
-            // Spatial OCR services
-            services.AddScoped<ISpatialOcrService, SpatialOcrService>();
-
-            // 🗑️ REMOVED: All legacy parser infrastructure
-            // - BankSlipParserFactory ❌
-            // - PatternBasedBankSlipParser ❌  
-            // - IBankSlipParser interface ❌
-            // - BankSlipValidator ❌
-
-            return services;
-        }
-
-        /// <summary>
-        /// Registers bank slip services with custom configuration
-        /// </summary>
-        public static IServiceCollection AddBankSlipServices(
-            this IServiceCollection services,
-            Action<BankSlipServiceOptions> configureOptions)
-        {
-            services.Configure(configureOptions);
-            return services.AddBankSlipServices();
-        }
-    }
-
+    
     /// <summary>
     /// Configuration options for bank slip services
     /// 🎯 MODERN VERSION: Pattern-based configuration

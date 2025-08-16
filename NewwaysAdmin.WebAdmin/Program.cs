@@ -32,6 +32,7 @@ using NewwaysAdmin.SharedModels.Services.Ocr;
 using NewwaysAdmin.SharedModels.Models.Ocr;
 using NewwaysAdmin.WebAdmin.Services.Security;
 using NewwaysAdmin.WebAdmin.Middleware;
+using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -251,8 +252,9 @@ public class Program
         // Register the Bank Slip layout
         services.AddSheetLayout(new BankSlipSheetLayout());
 
-        // Register bank slip services (core only)
-        services.AddBankSlipServices(options =>
+        
+        // Configure BankSlip options
+        services.Configure<BankSlipServiceOptions>(options =>
         {
             options.DefaultCredentialsPath = configuration.GetValue<string>("BankSlips:DefaultCredentialsPath")
                 ?? @"C:\Keys\purrfectocr-db2d9d796b58.json";
@@ -260,8 +262,14 @@ public class Program
             options.EnableEnhancedValidation = true;
             options.EnableAutoFormatDetection = true;
         });
-        services.AddTestingServices();
 
+        // Register BankSlip services directly
+        services.AddScoped<BankSlipOcrService>();
+        services.AddScoped<BankSlipImageProcessor>();
+        services.AddScoped<DocumentParser>();
+        services.AddScoped<BankSlipExportService>();
+        services.AddScoped<SimpleEmailStorageService>();
+        services.AddScoped<ISpatialOcrService, SpatialOcrService>();
         // ADD THESE BACK (no longer in extension method):
         services.AddScoped<UserSheetConfigService>(sp =>
         {

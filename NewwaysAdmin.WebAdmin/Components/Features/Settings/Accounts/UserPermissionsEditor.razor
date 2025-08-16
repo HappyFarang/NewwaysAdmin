@@ -245,7 +245,7 @@
     [Parameter] public EventCallback OnCancel { get; set; }
 
     // Add IBankSlipOcrService injection
-    [Inject] public IBankSlipOcrService BankSlipService { get; set; } = null!;
+    [Inject] public BankSlipOcrService BankSlipService { get; set; } = null!;
 
     private string Password { get; set; } = string.Empty;
     private string? _validationMessage;

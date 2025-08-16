@@ -26,6 +26,7 @@
     <Folder Include="Components\Features\GoogleSheets\" />
     <Folder Include="Components\Features\NewFolder\" />
     <Folder Include="Services\GoogleSheets\" />
+    <Folder Include="Services\Testing\" />
   </ItemGroup>
 
 </Project>

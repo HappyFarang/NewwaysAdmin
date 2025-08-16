@@ -168,7 +168,17 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     CreateBackups = true,
                     MaxBackupCount = 10
                 },
-
+                // Bank Slip Processing Results (per-user processing results)
+                new StorageFolder
+                {
+                    Name = "BankSlip_Results",
+                    Description = "Bank slip processing results per user (Dictionary format)",
+                    Type = StorageType.Binary, // Using binary for efficient storage
+                    Path = "BankSlips",
+                    IsShared = false, // Per-user storage  
+                    CreateBackups = true,
+                    MaxBackupCount = 20 // Keep processing history
+                },
                 // Ocr Patterns
                 new StorageFolder
                 {
