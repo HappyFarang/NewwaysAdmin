@@ -19,15 +19,17 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         private readonly ISpatialOcrService _spatialOcrService; // 🔧 CHANGED: From PatternLoaderService to ISpatialOcrService
         private readonly PatternManagementService _patternManagement;
         private readonly ILogger<DocumentParser> _logger;
+        private readonly SpatialPatternExtractor _spatialPatternExtractor;
 
         public DocumentParser(
             ISpatialOcrService spatialOcrService, // 🔧 CHANGED: Use the same service as Settings
             PatternManagementService patternManagement,
-            ILogger<DocumentParser> logger)
+            ILogger<DocumentParser> logger, SpatialPatternExtractor spatialPatternExtractor)
         {
             _spatialOcrService = spatialOcrService ?? throw new ArgumentNullException(nameof(spatialOcrService));
             _patternManagement = patternManagement ?? throw new ArgumentNullException(nameof(patternManagement));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _spatialPatternExtractor = spatialPatternExtractor;
         }
 
         /// <summary>
@@ -151,7 +153,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         }
 
         /// <summary>
-        /// Extract value using spatial pattern matching (same logic as Settings → OCR Analyzer)
+        /// Extract value using spatial pattern matching - NOW USES SAME LOGIC AS SETTINGS!
         /// </summary>
         private async Task<string> ExtractValueUsingSpatialPatternAsync(
             SpatialDocument document,
@@ -163,45 +165,55 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 _logger.LogDebug("🔍 Starting spatial pattern extraction for '{PatternName}' with keyword '{KeyWord}' on {FileName}",
                     pattern.SearchName, pattern.KeyWord, fileName);
 
-                // Find the keyword word in the spatial document
-                var keywordWord = document.Words.FirstOrDefault(w =>
-                    w.Text.Contains(pattern.KeyWord, StringComparison.OrdinalIgnoreCase));
+                // 🎯 USE THE EXACT SAME ALGORITHM AS SETTINGS!
+                var extractionResult = _spatialPatternExtractor.ExtractPattern(document, pattern);
 
-                if (keywordWord == null)
+                if (!extractionResult.Success)
                 {
-                    _logger.LogWarning("❌ Keyword '{KeyWord}' not found in spatial document for pattern '{PatternName}' on {FileName}",
-                        pattern.KeyWord, pattern.SearchName, fileName);
+                    _logger.LogWarning("❌ Pattern extraction failed for '{PatternName}' on {FileName}: {Error}",
+                        pattern.SearchName, fileName, extractionResult.ErrorMessage);
                     return string.Empty;
                 }
 
-                _logger.LogDebug("✅ Keyword '{KeyWord}' found at position ({X},{Y}) for pattern '{PatternName}' on {FileName}",
-                    pattern.KeyWord, keywordWord.NormX1, keywordWord.NormY1, pattern.SearchName, fileName);
-
-                // Extract text based on pattern type using spatial coordinates
-                var candidateWords = pattern.PatternType.ToLower() switch
+                if (!extractionResult.GroupedWords.Any())
                 {
-                    "verticalcolumn" => GetWordsInVerticalColumn(document.Words, keywordWord, pattern),
-                    "horizontal" => GetWordsInHorizontalLine(document.Words, keywordWord, pattern),
-                    _ => new List<WordBoundingBox>()
-                };
-
-                if (!candidateWords.Any())
-                {
-                    _logger.LogWarning("❌ No candidate words found using {PatternType} method for pattern '{PatternName}' on {FileName}",
-                        pattern.PatternType, pattern.SearchName, fileName);
+                    _logger.LogWarning("❌ No words found for pattern '{PatternName}' on {FileName}",
+                        pattern.SearchName, fileName);
                     return string.Empty;
                 }
 
-                // Combine candidate words into text
-                var extractedText = string.Join(" ", candidateWords.Select(w => w.Text)).Trim();
+                // 🔄 REMOVE THE ANCHOR WORD FROM RESULTS (we only want the extracted content, not the keyword)
+                var contentWords = extractionResult.GroupedWords
+                    .Where(w => w != extractionResult.AnchorWord)
+                    .ToList();
+
+                if (!contentWords.Any())
+                {
+                    _logger.LogWarning("❌ No content words found (only anchor) for pattern '{PatternName}' on {FileName}",
+                        pattern.SearchName, fileName);
+                    return string.Empty;
+                }
+
+                // 📝 COMBINE WORDS INTO TEXT (preserving the order from Settings algorithm)
+                string extractedText;
+                if (pattern.PatternType.ToLower() == "verticalcolumn")
+                {
+                    // For vertical: join with newlines to preserve line structure
+                    extractedText = string.Join("\n", contentWords.Select(w => w.Text)).Trim();
+                }
+                else
+                {
+                    // For horizontal: join with spaces
+                    extractedText = string.Join(" ", contentWords.Select(w => w.Text)).Trim();
+                }
 
                 _logger.LogDebug("📝 Extracted text for pattern '{PatternName}' on {FileName}: '{ExtractedText}'",
                     pattern.SearchName, fileName, extractedText);
 
-                // Apply regex patterns if specified
+                // 🎯 APPLY REGEX PATTERNS IF SPECIFIED (or return full text if no regex)
                 var finalValue = ApplyRegexPatterns(extractedText, pattern.RegexPatterns, pattern.SearchName, fileName);
 
-                // Clean up stop words
+                // 🧹 CLEAN UP STOP WORDS
                 if (!string.IsNullOrWhiteSpace(pattern.StopWords))
                 {
                     var beforeStopWords = finalValue;
@@ -228,51 +240,17 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 return string.Empty;
             }
         }
-
+                        
         /// <summary>
-        /// Get words in vertical column below the keyword (with tolerance)
-        /// </summary>
-        private List<WordBoundingBox> GetWordsInVerticalColumn(List<WordBoundingBox> allWords, WordBoundingBox keywordWord, SearchPattern pattern)
-        {
-            var tolerance = pattern.ToleranceY / 1000.0f; // Convert to normalized coordinates
-            var horizontalTolerance = pattern.ToleranceX / 1000.0f;
-
-            return allWords
-                .Where(w => w != keywordWord) // Exclude the keyword itself
-                .Where(w => w.NormY1 > keywordWord.NormY2) // Below the keyword
-                .Where(w => Math.Abs(w.NormX1 - keywordWord.NormX1) <= horizontalTolerance) // Same column
-                .Where(w => w.NormY1 <= keywordWord.NormY2 + tolerance) // Within tolerance
-                .OrderBy(w => w.NormY1) // Top to bottom
-                .Take(3) // Limit results
-                .ToList();
-        }
-
-        /// <summary>
-        /// Get words in horizontal line after the keyword (with tolerance)
-        /// </summary>
-        private List<WordBoundingBox> GetWordsInHorizontalLine(List<WordBoundingBox> allWords, WordBoundingBox keywordWord, SearchPattern pattern)
-        {
-            var tolerance = pattern.ToleranceY / 1000.0f;
-            var horizontalTolerance = pattern.ToleranceX / 1000.0f;
-
-            return allWords
-                .Where(w => w != keywordWord) // Exclude the keyword itself
-                .Where(w => w.NormX1 > keywordWord.NormX2) // To the right of keyword
-                .Where(w => Math.Abs(w.NormY1 - keywordWord.NormY1) <= tolerance) // Same line
-                .Where(w => w.NormX1 <= keywordWord.NormX2 + horizontalTolerance) // Within tolerance
-                .OrderBy(w => w.NormX1) // Left to right
-                .Take(3) // Limit results
-                .ToList();
-        }
-
-        /// <summary>
-        /// Apply regex patterns to extracted text
+        /// Apply regex patterns to extracted text - FIXED for no-regex fields
         /// </summary>
         private string ApplyRegexPatterns(string text, List<string> regexPatterns, string patternName, string fileName)
         {
+            // 🎯 KEY FIX: If no regex patterns, return full text (this is what you wanted for Memo and To fields)
             if (regexPatterns == null || regexPatterns.Count == 0)
             {
-                _logger.LogDebug("No regex patterns defined for '{PatternName}' on {FileName}, returning original text", patternName, fileName);
+                _logger.LogDebug("No regex patterns defined for '{PatternName}' on {FileName}, returning full extracted text",
+                    patternName, fileName);
                 return text;
             }
 
@@ -306,7 +284,8 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 }
             }
 
-            _logger.LogWarning("❌ No regex patterns matched for '{PatternName}' on {FileName}, returning original text", patternName, fileName);
+            _logger.LogWarning("❌ No regex patterns matched for '{PatternName}' on {FileName}, returning original text",
+                patternName, fileName);
             return text;
         }
 

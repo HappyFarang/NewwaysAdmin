@@ -10,6 +10,9 @@
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Export
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Shared
 @using NewwaysAdmin.SharedModels.Services.Ocr
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.UI
+@using System.Globalization
+
 
 @* 🚀 UPDATED: Direct concrete class injection + PatternManagementService *@
 @inject BankSlipOcrService BankSlipService
@@ -214,9 +217,16 @@
                     </h5>
                     @if (_lastResults != null && _lastResults.Any())
                     {
-                        <button class="btn btn-outline-primary btn-sm" @onclick="HandleShowExport">
-                            <i class="bi bi-download me-1"></i>Export
-                        </button>
+                        <div class="btn-group">
+                            @* NEW: View Table Button *@
+                            <button class="btn btn-primary btn-sm" @onclick="ShowResultsTable">
+                                <i class="bi bi-table me-1"></i>View Table
+                            </button>
+                            @* Existing Export Button *@
+                            <button class="btn btn-outline-primary btn-sm" @onclick="HandleShowExport">
+                                <i class="bi bi-download me-1"></i>Export
+                            </button>
+                        </div>
                     }
                 </div>
                 <div class="card-body">
@@ -342,30 +352,31 @@
                                                     </div>
                                                 }
                                             </div>
-
-                                            <hr class="my-2">
-                                            <div class="d-flex justify-content-between">
-                                                <small class="text-muted">
-                                                    <i class="bi bi-calendar me-1"></i>
-                                                    @_startDate.ToString("dd/MM/yyyy") - @_endDate.ToString("dd/MM/yyyy")
-                                                </small>
-                                                <small class="text-muted">
-                                                    <i class="bi bi-files me-1"></i>
-                                                    @_lastResults.Count(r => !r.ContainsKey("Error")) successful files
-                                                </small>
-                                            </div>
                                         </div>
                                     </div>
                                 }
                             }
                             else
                             {
-                                <small class="text-muted">
-                                    No fields available yet. Process some files first to see field options.
-                                </small>
+                                <div class="text-center text-muted py-2">
+                                    <small>
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        Process some files first to see field options.
+                                    </small>
+                                </div>
+                            }
+                            @if (_lastResults != null && _lastResults.Any() && _selectedDisplayFields.Any())
+                            {
+                                <div class="text-center mb-3">
+                                    <button class="btn btn-outline-primary btn-sm" @onclick="ShowResultsTable">
+                                        <i class="bi bi-table me-1"></i>
+                                        View Full Table (@_selectedDisplayFields.Count fields)
+                                    </button>
+                                </div>
                             }
                         </div>
 
+                        @* Results Cards - NOW SHOWS SELECTED FIELDS AND UPDATES DYNAMICALLY *@
                         <div class="results-list" style="max-height: 400px; overflow-y: auto;">
                             @foreach (var result in _lastResults.Take(10))
                             {
@@ -373,63 +384,129 @@
                                     <div class="card-body p-2">
                                         <div class="d-flex justify-content-between align-items-start">
                                             <div class="flex-grow-1">
-                                                <strong>@(result.GetValueOrDefault("FileName", "Unknown"))</strong>
+                                                @* File Name Header *@
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <strong class="me-2">@(result.GetValueOrDefault("FileName", "Unknown"))</strong>
+                                                    @if (result.ContainsKey("Error"))
+                                                    {
+                                                        <span class="badge bg-danger">
+                                                            <i class="bi bi-x-circle me-1"></i>Failed
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-success">
+                                                            <i class="bi bi-check-circle me-1"></i>Success
+                                                        </span>
+                                                    }
+                                                </div>
+
                                                 @if (result.ContainsKey("Error"))
                                                 {
-                                                    <div class="text-danger small">
-                                                        <i class="bi bi-x-circle me-1"></i>@result["Error"]
+                                                    <div class="text-danger small mb-2">
+                                                        <i class="bi bi-exclamation-triangle me-1"></i>@result["Error"]
                                                     </div>
                                                 }
                                                 else
                                                 {
-                                                    <div class="text-success small">
-                                                        <i class="bi bi-check-circle me-1"></i>
-                                                        @result.Count fields extracted
-                                                    </div>
-                                                    @if (result.ContainsKey("ProcessedAt"))
+                                                    @* Show Selected Fields Data (Dynamic based on field selection) *@
+                                                    @if (_selectedDisplayFields.Any())
                                                     {
-                                                        <div class="text-muted small">@result["ProcessedAt"]</div>
+                                                        <div class="selected-fields-display">
+                                                            @foreach (var field in _selectedDisplayFields.OrderBy(f => f))
+                                                            {
+                                                                var value = result.GetValueOrDefault(field, "");
+                                                                var isEmpty = string.IsNullOrWhiteSpace(value);
+                                                                var isNumeric = IsNumericFieldName(field);
+
+                                                                <div class="field-row d-flex justify-content-between align-items-center py-1">
+                                                                    <span class="field-label small fw-bold text-muted">@field:</span>
+                                                                    @if (isEmpty)
+                                                                    {
+                                                                        <span class="field-value small text-muted fst-italic">—</span>
+                                                                    }
+                                                                    else if (isNumeric && TryParseNumber(value, out var numValue))
+                                                                    {
+                                                                        <span class="field-value small text-success fw-bold">@FormatSum(numValue, field)</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="field-value small text-truncate" style="max-width: 150px;" title="@value">
+                                                                            @(value.Length > 30 ? value.Substring(0, 30) + "..." : value)
+                                                                        </span>
+                                                                    }
+                                                                </div>
+                                                            }
+                                                        </div>
                                                     }
+                                                    else
+                                                    {
+                                                        <div class="text-muted small">
+                                                            <i class="bi bi-info-circle me-1"></i>
+                                                            Select display fields to see extracted data
+                                                        </div>
+                                                    }
+
+                                                    @* Summary Info *@
+                                                    <div class="text-muted small mt-2 pt-2 border-top">
+                                                        <div class="d-flex justify-content-between">
+                                                            <span>
+                                                                <i class="bi bi-database me-1"></i>
+                                                                @GetActualFieldCount(result) OCR fields
+                                                            </span>
+                                                            @if (result.ContainsKey("ProcessedAt"))
+                                                            {
+                                                                <span>
+                                                                    <i class="bi bi-clock me-1"></i>
+                                                                    @FormatProcessedTime(result["ProcessedAt"])
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                    </div>
                                                 }
                                             </div>
                                         </div>
-
-                                        @* Show some key extracted fields for successful results *@
-                                        @if (!result.ContainsKey("Error"))
-                                        {
-                                            <div class="mt-2">
-                                                <div class="row g-1">
-                                                    @foreach (var field in result.Where(kvp =>
-                                                   !kvp.Key.StartsWith("_") &&
-                                                   kvp.Key != "FileName" &&
-                                                   kvp.Key != "ProcessedAt" &&
-                                                   kvp.Key != "ProcessedBy" &&
-                                                   kvp.Key != "CollectionName" &&
-                                                   !string.IsNullOrEmpty(kvp.Value)).Take(4))
-                                                    {
-                                                        <div class="col-6">
-                                                            <small class="text-muted">@field.Key:</small>
-                                                            <div class="small fw-bold">@field.Value</div>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            </div>
-                                        }
                                     </div>
                                 </div>
                             }
 
                             @if (_lastResults.Count > 10)
                             {
-                                <div class="text-center py-2">
-                                    <small class="text-muted">Showing 10 of @_lastResults.Count results</small>
+                                <div class="text-center text-muted py-2">
+                                    <small>
+                                        <i class="bi bi-three-dots me-1"></i>
+                                        and @(_lastResults.Count - 10) more results (see full table below)
+                                    </small>
                                 </div>
                             }
                         </div>
+
+                        <style>
+                            .selected-fields-display .field-row {
+                                border-bottom: 1px solid #f1f3f4;
+                            }
+
+                                .selected-fields-display .field-row:last-child {
+                                    border-bottom: none;
+                                }
+
+                            .field-label {
+                                min-width: 60px;
+                                max-width: 80px;
+                            }
+
+                            .field-value {
+                                text-align: right;
+                                flex: 1;
+                                margin-left: 8px;
+                            }
+                        </style>
                     }
                 </div>
             </div>
         </div>
+
+
     </div>
 </div>
 
@@ -574,6 +651,11 @@
     </div>
     <div class="modal-backdrop fade show"></div>
 }
+<ResultsTableModal ShowModal="_showResultsTableModal"
+                   Results="_lastResults"
+                   SelectedFields="_selectedDisplayFields"
+                   SumEnabledFields="_sumEnabledFields"
+                   OnClose="CloseResultsTable" />
 
 @code {
     // User management
@@ -612,7 +694,20 @@
     private HashSet<string> _selectedDisplayFields = new(); // Remove default values - let auto-selection handle it
     private HashSet<string> _sumEnabledFields = new(); // Track which fields have SUM enabled
     private List<string> _availableResultFields = new(); // All available fields from last processing
-    private const int MAX_DISPLAY_FIELDS = 4;
+    private const int MAX_DISPLAY_FIELDS = 8;
+    private bool _showResultsTableModal = false;
+
+    private void ShowResultsTable()
+    {
+        _showResultsTableModal = true;
+        StateHasChanged();
+    }
+
+    private void CloseResultsTable()
+    {
+        _showResultsTableModal = false;
+        StateHasChanged();
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -631,6 +726,53 @@
             Logger.LogError(ex, "💥 BankSlipsPage: Error during initialization");
             SetStatusMessage($"Initialization error: {ex.Message}", "error");
         }
+    }
+
+    /// <summary>
+    /// Get count of actual OCR-extracted fields (excluding metadata)
+    /// </summary>
+    private int GetActualFieldCount(Dictionary<string, string> result)
+    {
+        return result.Keys.Count(key =>
+            !key.StartsWith("_") &&
+            key != "FileName" &&
+            key != "ProcessedAt" &&
+            key != "ProcessedBy" &&
+            key != "CollectionName" &&
+            key != "DocumentType" &&
+            key != "FormatName" &&
+            key != "Error");
+    }
+
+    /// <summary>
+    /// Format the processed time to show relative time if recent
+    /// </summary>
+    private string FormatProcessedTime(string processedAtString)
+    {
+        if (DateTime.TryParse(processedAtString, out var processedAt))
+        {
+            var now = DateTime.Now;
+            var diff = now - processedAt;
+
+            if (diff.TotalMinutes < 60)
+            {
+                return $"{(int)diff.TotalMinutes}m ago";
+            }
+            else if (diff.TotalHours < 24)
+            {
+                return $"{(int)diff.TotalHours}h ago";
+            }
+            else if (diff.TotalDays < 7)
+            {
+                return $"{(int)diff.TotalDays}d ago";
+            }
+            else
+            {
+                return processedAt.ToString("MMM dd");
+            }
+        }
+
+        return processedAtString;
     }
 
     #region User Management

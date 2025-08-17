@@ -252,7 +252,7 @@ public class Program
         // Register the Bank Slip layout
         services.AddSheetLayout(new BankSlipSheetLayout());
 
-        
+        // Register bank slip services (core only)
         // Configure BankSlip options
         services.Configure<BankSlipServiceOptions>(options =>
         {
@@ -270,7 +270,7 @@ public class Program
         services.AddScoped<BankSlipExportService>();
         services.AddScoped<SimpleEmailStorageService>();
         services.AddScoped<ISpatialOcrService, SpatialOcrService>();
-        // ADD THESE BACK (no longer in extension method):
+        services.AddScoped<SpatialPatternExtractor>();
         services.AddScoped<UserSheetConfigService>(sp =>
         {
             var storageManager = sp.GetRequiredService<StorageManager>();
