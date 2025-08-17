@@ -1,15 +1,21 @@
 ﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Views/PatternView.razor *@
+@using NewwaysAdmin.SharedModels.Services.Ocr
 @using WordBoundingBox = NewwaysAdmin.SharedModels.Models.Ocr.Core.WordBoundingBox;
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core.Components
 @using NewwaysAdmin.SharedModels.Models.Ocr
 @implements IDisposable
 @inject IJSRuntime JSRuntime
+@inject PatternManagementService PatternService
 
 <div class="patterns-section">
 
-    <!-- TEST: Super simple component -->
+    <!-- Pattern Save Component -->
     <ThreeLevelPatternSaveComponent CurrentPattern="@GetCurrentSearchPattern()"
-                                OnPatternSaved="@OnPatternSaved" />
+                                    OnPatternSaved="@OnPatternSaved" />
+
+    <!-- Streamlined Pattern Browser Component -->
+    <PatternBrowserComponent OnPatternLoaded="@HandlePatternLoaded"
+                             OnPatternSaveRequested="@HandlePatternSaveRequest" />
 
     <div class="row">
         <!-- Left: Pattern Configuration -->
@@ -55,6 +61,50 @@
                     <input @bind="State.PatternStopWords" class="form-control form-control-sm"
                            placeholder="e.g., Total, End (comma separated)" />
                     <small class="form-text">Hard stop when these words are found</small>
+                </div>
+
+                <!-- NEW: Regex Pattern Editor -->
+                <div class="config-group">
+                    <label class="config-label">Regex Patterns</label>
+
+                    <!-- Add new regex pattern -->
+                    <div class="input-group mb-2">
+                        <input @bind="newRegexPattern"
+                               class="form-control form-control-sm"
+                               placeholder="Enter regex pattern (e.g., \d+, [A-Z]+)"
+                               style="font-family: monospace;"
+                               @onkeypress="@(async (e) => { if (e.Key == "Enter") await AddRegexPattern(); })" />
+                        <button @onclick="AddRegexPattern"
+                                class="btn btn-outline-primary btn-sm"
+                                disabled="@(string.IsNullOrWhiteSpace(newRegexPattern))"
+                                title="Add regex pattern">
+                            <i class="bi bi-plus"></i>
+                        </button>
+                    </div>
+
+                    <!-- List of current regex patterns -->
+                    @if (currentRegexPatterns.Any())
+                    {
+                        <div class="border rounded p-2 mb-2" style="background: #f8f9fa; max-height: 120px; overflow-y: auto;">
+                            @foreach (var (pattern, index) in currentRegexPatterns.Select((p, i) => (p, i)))
+                            {
+                                <div class="d-flex justify-content-between align-items-center mb-1 p-1"
+                                     style="background: white; border: 1px solid #ddd; border-radius: 3px;">
+                                    <code style="font-size: 0.75rem; flex-grow: 1; margin-right: 0.5rem;">@pattern</code>
+                                    <button @onclick="() => RemoveRegexPattern(index)"
+                                            class="btn btn-sm btn-outline-danger py-0 px-1"
+                                            title="Remove this pattern">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                        <small class="form-text">@currentRegexPatterns.Count pattern(s) - will be saved with the pattern</small>
+                    }
+                    else
+                    {
+                        <small class="form-text">No regex patterns added yet (optional)</small>
+                    }
                 </div>
 
                 <!-- Test Button -->
@@ -158,6 +208,8 @@
     [Parameter, EditorRequired] public SpatialOcrAnalyzerState State { get; set; } = default!;
 
     private string currentRegexPattern = "";
+    private List<string> currentRegexPatterns = new(); // NEW: List to manage multiple regex patterns
+    private string newRegexPattern = ""; // NEW: For adding new patterns
 
     private void OnRegexPatternChanged(string regexPattern)
     {
@@ -173,6 +225,148 @@
     public void Dispose()
     {
         State.StateChanged -= StateHasChanged;
+    }
+
+    // NEW: Handle pattern save request from PatternBrowserComponent
+    private async Task HandlePatternSaveRequest(NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core.Components.PatternBrowserComponent.SavePatternRequest saveRequest)
+    {
+        Console.WriteLine($"=== SAVE REQUEST RECEIVED ===");
+        Console.WriteLine($"Pattern Name: {saveRequest.PatternName}");
+        Console.WriteLine($"Document Type: {saveRequest.DocumentType}");
+        Console.WriteLine($"Format: {saveRequest.Format}");
+
+        try
+        {
+            // Check if we have a valid search term
+            if (string.IsNullOrEmpty(State.PatternSearchTerm))
+            {
+                Console.WriteLine("ERROR: No search term in State.PatternSearchTerm");
+                return;
+            }
+
+            // Check our regex patterns
+            Console.WriteLine($"Current regex patterns count: {currentRegexPatterns.Count}");
+            foreach (var pattern in currentRegexPatterns)
+            {
+                Console.WriteLine($"  - '{pattern}'");
+            }
+
+            // Create pattern to save with current tester values - INCLUDING all regex patterns
+            var patternToSave = new SearchPattern
+                {
+                    SearchName = saveRequest.PatternName, // Keep original name
+                    KeyWord = State.PatternSearchTerm, // Use current search term directly
+                    PatternType = State.SelectedPatternType ?? "VerticalColumn",
+                    ToleranceX = State.PatternXTolerance,
+                    ToleranceY = State.PatternYTolerance,
+                    StopWords = State.PatternStopWords ?? "",
+                    RegexPatterns = currentRegexPatterns.ToList() // Use the full list
+                };
+
+            // Debug: Log what we're about to save
+            Console.WriteLine($"=== PATTERN TO SAVE ===");
+            Console.WriteLine($"SearchName: {patternToSave.SearchName}");
+            Console.WriteLine($"KeyWord: {patternToSave.KeyWord}");
+            Console.WriteLine($"PatternType: {patternToSave.PatternType}");
+            Console.WriteLine($"ToleranceX: {patternToSave.ToleranceX}");
+            Console.WriteLine($"ToleranceY: {patternToSave.ToleranceY}");
+            Console.WriteLine($"StopWords: {patternToSave.StopWords}");
+            Console.WriteLine($"RegexPatterns Count: {patternToSave.RegexPatterns?.Count ?? 0}");
+            if (patternToSave.RegexPatterns != null)
+            {
+                for (int i = 0; i < patternToSave.RegexPatterns.Count; i++)
+                {
+                    Console.WriteLine($"  Regex {i}: '{patternToSave.RegexPatterns[i]}'");
+                }
+            }
+
+            // Check if PatternService is available
+            if (PatternService == null)
+            {
+                Console.WriteLine("ERROR: PatternService is null!");
+                return;
+            }
+
+            Console.WriteLine("Calling PatternService.SaveSearchPatternAsync...");
+
+            // Save the pattern
+            var success = await PatternService.SaveSearchPatternAsync(
+                saveRequest.DocumentType,
+                saveRequest.Format,
+                saveRequest.PatternName,
+                patternToSave);
+
+            Console.WriteLine($"Save result: {success}");
+
+            if (success)
+            {
+                Console.WriteLine("Save successful! Loading back to verify...");
+
+                // Debug: Load it back and see what we get
+                var loadedBack = await PatternService.LoadSearchPatternAsync(
+                    saveRequest.DocumentType,
+                    saveRequest.Format,
+                    saveRequest.PatternName);
+
+                Console.WriteLine($"=== LOADED BACK ===");
+                if (loadedBack != null)
+                {
+                    Console.WriteLine($"Loaded KeyWord: {loadedBack.KeyWord}");
+                    Console.WriteLine($"Loaded Regex Patterns Count: {loadedBack.RegexPatterns?.Count ?? 0}");
+                    if (loadedBack.RegexPatterns != null)
+                    {
+                        for (int i = 0; i < loadedBack.RegexPatterns.Count; i++)
+                        {
+                            Console.WriteLine($"  Loaded Regex {i}: '{loadedBack.RegexPatterns[i]}'");
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("ERROR: Loaded pattern is null!");
+                }
+
+                // Success - pattern was overwritten
+                StateHasChanged();
+            }
+            else
+            {
+                Console.WriteLine("ERROR: Save returned false");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"EXCEPTION saving pattern: {ex.Message}");
+            Console.WriteLine($"Exception type: {ex.GetType().Name}");
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+            }
+        }
+    }
+    // NEW: Handle pattern loading from PatternBrowserComponent
+    private void HandlePatternLoaded(NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core.Components.PatternBrowserComponent.LoadedPatternData loadedPattern)
+    {
+        // Populate the pattern tester with the loaded pattern values
+        State.SelectedPatternType = loadedPattern.PatternType;
+        State.PatternSearchTerm = loadedPattern.KeyWord;
+        State.PatternXTolerance = loadedPattern.ToleranceX;
+        State.PatternYTolerance = loadedPattern.ToleranceY;
+        State.PatternStopWords = loadedPattern.StopWords;
+
+        // Load the regex patterns into our list
+        currentRegexPatterns = loadedPattern.RegexPatterns?.ToList() ?? new List<string>();
+
+        // Update the legacy single pattern for compatibility (use first pattern or empty)
+        currentRegexPattern = currentRegexPatterns.FirstOrDefault() ?? "";
+
+        // Clear any existing pattern results since we changed the configuration
+        State.CurrentPatternResult = null;
+
+        // Trigger UI update
+        StateHasChanged();
     }
 
     private void TestCurrentPattern()
@@ -243,14 +437,14 @@
             if (nextWord == null)
                 break; // No more words found
 
-            // Check if this is a stop word
+            // FIXED: Add word to result FIRST
+            result.GroupedWords.Add(nextWord);
+
+            // Check if this is a stop word - if so, stop AFTER including it
             if (stopWords.Any(stop => nextWord.Text.Contains(stop, StringComparison.OrdinalIgnoreCase)))
             {
-                break; // Stop here, don't include the stop word
+                break; // Stop here, but we've already included the stop word
             }
-
-            // Add word to result
-            result.GroupedWords.Add(nextWord);
 
             // Update current word for next iteration
             currentWord = nextWord;
@@ -482,16 +676,11 @@
     {
         Console.WriteLine($"Received pattern: {pattern.SearchName}");
     }
+
     private SearchPattern? GetCurrentSearchPattern()
     {
         if (string.IsNullOrEmpty(State.PatternSearchTerm))
             return null;
-
-        var regexPatterns = new List<string>();
-        if (!string.IsNullOrEmpty(currentRegexPattern))
-        {
-            regexPatterns.Add(currentRegexPattern);
-        }
 
         return new SearchPattern
             {
@@ -501,8 +690,49 @@
                 ToleranceX = State.PatternXTolerance,
                 ToleranceY = State.PatternYTolerance,
                 StopWords = State.PatternStopWords ?? "",
-                RegexPatterns = regexPatterns  // NOW INCLUDES THE TESTED REGEX!
+                RegexPatterns = currentRegexPatterns.ToList() // Use the full list instead of single pattern
             };
+    }
+
+    // NEW: Methods for managing regex patterns
+    private async Task AddRegexPattern()
+    {
+        if (!string.IsNullOrWhiteSpace(newRegexPattern) && !currentRegexPatterns.Contains(newRegexPattern))
+        {
+            var trimmedPattern = newRegexPattern.Trim();
+            currentRegexPatterns.Add(trimmedPattern);
+
+            // Debug: Log what we're adding
+            Console.WriteLine($"Added regex pattern: '{trimmedPattern}'");
+            Console.WriteLine($"Total patterns now: {currentRegexPatterns.Count}");
+            foreach (var p in currentRegexPatterns)
+            {
+                Console.WriteLine($"  - '{p}'");
+            }
+
+            newRegexPattern = "";
+
+            // Update legacy single pattern for compatibility
+            currentRegexPattern = currentRegexPatterns.FirstOrDefault() ?? "";
+            StateHasChanged();
+        }
+    }
+
+    private void RemoveRegexPattern(int index)
+    {
+        if (index >= 0 && index < currentRegexPatterns.Count)
+        {
+            var removedPattern = currentRegexPatterns[index];
+            currentRegexPatterns.RemoveAt(index);
+
+            // Debug: Log what we're removing
+            Console.WriteLine($"Removed regex pattern: '{removedPattern}'");
+            Console.WriteLine($"Remaining patterns: {currentRegexPatterns.Count}");
+
+            // Update legacy single pattern for compatibility
+            currentRegexPattern = currentRegexPatterns.FirstOrDefault() ?? "";
+            StateHasChanged();
+        }
     }
 
     private void OnPatternSaved()

@@ -1,0 +1,460 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Settings/OcrAnalyzer/Core/Components/PatternBrowserComponent.razor - Streamlined pattern browser *@
+@using NewwaysAdmin.SharedModels.Services.Ocr
+@using NewwaysAdmin.SharedModels.Models.Ocr
+@using System.Text.Json
+@inject PatternManagementService PatternService
+@inject ILogger<PatternBrowserComponent> Logger
+@inject IJSRuntime JSRuntime
+
+<div style="background: #f0f8ff; padding: 15px; margin: 10px; border: 2px solid #007bff; border-radius: 8px;">
+    <h6><i class="bi bi-list-ul"></i> Load Existing Pattern</h6>
+
+    <!-- Step 1: Select Document Type -->
+    <div class="mb-3">
+        <label class="form-label"><strong>Document Type</strong></label>
+        <select @onchange="OnDocumentTypeChanged" class="form-select form-select-sm" value="@selectedDocumentType">
+            <option value="">-- Select Document Type --</option>
+            @foreach (var docType in availableDocumentTypes)
+            {
+                <option value="@docType">@docType</option>
+            }
+        </select>
+    </div>
+
+    <!-- Step 2: Select Format -->
+    @if (!string.IsNullOrEmpty(selectedDocumentType))
+    {
+        <div class="mb-3">
+            <label class="form-label"><strong>Format</strong></label>
+            <select @onchange="OnFormatChanged" class="form-select form-select-sm" value="@selectedFormat">
+                <option value="">-- Select Format --</option>
+                @foreach (var format in availableFormats)
+                {
+                    <option value="@format">@format</option>
+                }
+            </select>
+        </div>
+    }
+
+    <!-- Step 3: Select Pattern to Load -->
+    @if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedFormat))
+    {
+        <div class="mb-3">
+            <label class="form-label"><strong>Available Patterns</strong></label>
+
+            @if (isLoadingPatterns)
+            {
+                <div class="text-muted">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    Loading patterns...
+                </div>
+            }
+            else if (availablePatterns.Any())
+            {
+                <div class="row">
+                    @foreach (var patternName in availablePatterns)
+                    {
+                        <div class="col-md-6 mb-2">
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-outline-primary btn-sm flex-grow-1 d-flex justify-content-between align-items-center"
+                                        @onclick="() => LoadPatternIntoTester(patternName)"
+                                        title="Click to load this pattern into the tester">
+                                    <span>
+                                        <i class="bi bi-download me-1"></i>
+                                        @patternName
+                                    </span>
+                                    <i class="bi bi-arrow-left"></i>
+                                </button>
+                                <button class="btn btn-outline-info btn-sm"
+                                        @onclick="() => ViewPatternJson(patternName)"
+                                        title="View pattern JSON">
+                                    <i class="bi bi-code"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <small class="text-muted">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Click any pattern to load it into the pattern tester on the left
+                </small>
+            }
+            else
+            {
+                <div class="alert alert-info py-2">
+                    <i class="bi bi-info-circle me-2"></i>
+                    No patterns found for @selectedDocumentType → @selectedFormat
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Currently Loaded Pattern Section -->
+    @if (!string.IsNullOrEmpty(currentlyLoadedPattern))
+    {
+        <div class="mt-3" style="background: #fff3cd; padding: 10px; border: 1px solid #ffc107; border-radius: 5px;">
+            <h6 class="mb-2">
+                <i class="bi bi-pencil-square me-1"></i>
+                Currently Editing: <strong>@currentlyLoadedPattern</strong>
+            </h6>
+            <div class="d-flex gap-2">
+                <button class="btn btn-warning btn-sm"
+                        @onclick="SaveCurrentPatternChanges"
+                        disabled="@isSaving"
+                        title="Save changes back to the original pattern">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    <i class="bi bi-floppy me-1"></i>
+                    Overwrite "@currentlyLoadedPattern"
+                </button>
+                <button class="btn btn-outline-secondary btn-sm"
+                        @onclick="ClearCurrentlyEditing"
+                        title="Stop editing this pattern">
+                    <i class="bi bi-x-circle me-1"></i>
+                    Cancel Edit
+                </button>
+            </div>
+            <small class="text-muted d-block mt-1">
+                Make changes in the pattern tester above, then click "Overwrite" to save them back to this pattern.
+            </small>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(statusMessage))
+    {
+        <div class="alert @(statusIsError ? "alert-danger" : "alert-success") py-2 mt-3">
+            <i class="bi @(statusIsError ? "bi-exclamation-triangle" : "bi-check-circle") me-2"></i>
+            @statusMessage
+        </div>
+    }
+
+    <!-- JSON Viewer Modal -->
+    @if (!string.IsNullOrEmpty(jsonViewContent))
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-code me-2"></i>
+                            Pattern JSON: @jsonViewPatternName
+                        </h5>
+                        <button type="button" class="btn-close" @onclick="CloseJsonView"></button>
+                    </div>
+                    <div class="modal-body">
+                        <pre style="background: #f8f9fa; padding: 1rem; border-radius: 4px; max-height: 400px; overflow-y: auto; font-size: 0.875rem;"><code>@jsonViewContent</code></pre>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" @onclick="CopyJsonToClipboard">
+                            <i class="bi bi-clipboard me-1"></i>
+                            Copy to Clipboard
+                        </button>
+                        <button type="button" class="btn btn-primary" @onclick="CloseJsonView">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<LoadedPatternData> OnPatternLoaded { get; set; }
+    [Parameter] public EventCallback<SavePatternRequest> OnPatternSaveRequested { get; set; }
+
+    // Collections and formats
+    private List<string> availableDocumentTypes = new();
+    private List<string> availableFormats = new();
+    private List<string> availablePatterns = new();
+
+    // Selection state
+    private string selectedDocumentType = "";
+    private string selectedFormat = "";
+
+    // UI state
+    private bool isLoadingPatterns = false;
+    private bool isSaving = false;
+    private string statusMessage = "";
+    private bool statusIsError = false;
+
+    // JSON viewer state
+    private string jsonViewContent = "";
+    private string jsonViewPatternName = "";
+
+    // Currently editing pattern
+    private string currentlyLoadedPattern = "";
+    private string currentlyLoadedDocumentType = "";
+    private string currentlyLoadedFormat = "";
+
+    // Data to pass back to parent
+    public class LoadedPatternData
+    {
+        public string PatternName { get; set; } = "";
+        public string PatternType { get; set; } = "";
+        public string KeyWord { get; set; } = "";
+        public int ToleranceX { get; set; }
+        public int ToleranceY { get; set; }
+        public string StopWords { get; set; } = "";
+        public List<string> RegexPatterns { get; set; } = new();
+        public string DocumentType { get; set; } = "";
+        public string Format { get; set; } = "";
+    }
+
+    // Request to save pattern back
+    public class SavePatternRequest
+    {
+        public string PatternName { get; set; } = "";
+        public string DocumentType { get; set; } = "";
+        public string Format { get; set; } = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocumentTypes();
+    }
+
+    private async Task LoadDocumentTypes()
+    {
+        try
+        {
+            availableDocumentTypes = await PatternService.GetCollectionNamesAsync();
+            Logger.LogDebug("Loaded {Count} document types", availableDocumentTypes.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading document types");
+            SetStatus("Error loading document types", true);
+        }
+    }
+
+    private async Task OnDocumentTypeChanged(ChangeEventArgs e)
+    {
+        selectedDocumentType = e.Value?.ToString() ?? "";
+        selectedFormat = "";
+        availableFormats.Clear();
+        availablePatterns.Clear();
+
+        if (!string.IsNullOrEmpty(selectedDocumentType))
+        {
+            try
+            {
+                availableFormats = await PatternService.GetSubCollectionNamesAsync(selectedDocumentType);
+                Logger.LogDebug("Loaded {Count} formats for {DocumentType}", availableFormats.Count, selectedDocumentType);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error loading formats for {DocumentType}", selectedDocumentType);
+                SetStatus("Error loading formats", true);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private async Task OnFormatChanged(ChangeEventArgs e)
+    {
+        selectedFormat = e.Value?.ToString() ?? "";
+        availablePatterns.Clear();
+
+        if (!string.IsNullOrEmpty(selectedDocumentType) && !string.IsNullOrEmpty(selectedFormat))
+        {
+            await LoadPatterns();
+        }
+        StateHasChanged();
+    }
+
+    private async Task LoadPatterns()
+    {
+        try
+        {
+            isLoadingPatterns = true;
+            StateHasChanged();
+
+            availablePatterns = await PatternService.GetSearchPatternNamesAsync(selectedDocumentType, selectedFormat);
+            Logger.LogDebug("Loaded {Count} patterns for {DocumentType}/{Format}",
+                availablePatterns.Count, selectedDocumentType, selectedFormat);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading patterns for {DocumentType}/{Format}", selectedDocumentType, selectedFormat);
+            SetStatus("Error loading patterns", true);
+        }
+        finally
+        {
+            isLoadingPatterns = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadPatternIntoTester(string patternName)
+    {
+        try
+        {
+            var pattern = await PatternService.LoadSearchPatternAsync(selectedDocumentType, selectedFormat, patternName);
+
+            if (pattern != null)
+            {
+                var loadedData = new LoadedPatternData
+                    {
+                        PatternName = patternName,
+                        PatternType = pattern.PatternType ?? "VerticalColumn",
+                        KeyWord = pattern.KeyWord ?? "",
+                        ToleranceX = pattern.ToleranceX,
+                        ToleranceY = pattern.ToleranceY,
+                        StopWords = pattern.StopWords ?? "",
+                        RegexPatterns = pattern.RegexPatterns?.ToList() ?? new List<string>(),
+                        DocumentType = selectedDocumentType,
+                        Format = selectedFormat
+                    };
+
+                await OnPatternLoaded.InvokeAsync(loadedData);
+
+                // Track that we're now editing this pattern
+                currentlyLoadedPattern = patternName;
+                currentlyLoadedDocumentType = selectedDocumentType;
+                currentlyLoadedFormat = selectedFormat;
+
+                SetStatus($"Loaded pattern '{patternName}' into tester", false);
+                Logger.LogInformation("Loaded pattern {PatternName} into tester", patternName);
+            }
+            else
+            {
+                SetStatus($"Could not load pattern '{patternName}'", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading pattern {PatternName}", patternName);
+            SetStatus($"Error loading pattern '{patternName}'", true);
+        }
+    }
+
+    private async Task ViewPatternJson(string patternName)
+    {
+        try
+        {
+            var pattern = await PatternService.LoadSearchPatternAsync(selectedDocumentType, selectedFormat, patternName);
+
+            if (pattern != null)
+            {
+                // Let's get the raw JSON from the storage system instead of re-serializing
+                // This should show us what's actually stored
+                var library = await PatternService.LoadLibraryAsync();
+
+                if (library.Collections.TryGetValue(selectedDocumentType, out var collection) &&
+                    collection.SubCollections.TryGetValue(selectedFormat, out var subCollection) &&
+                    subCollection.SearchPatterns.TryGetValue(patternName, out var storedPattern))
+                {
+                    // Use the system's default JSON serialization (what the IO manager uses)
+                    var options = new JsonSerializerOptions
+                        {
+                            WriteIndented = true,
+                            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                            // Don't override the encoder - let it use the system default
+                        };
+
+                    jsonViewContent = JsonSerializer.Serialize(storedPattern, options);
+                    jsonViewPatternName = patternName;
+
+                    Logger.LogInformation("Opened JSON view for pattern {PatternName}", patternName);
+                }
+                else
+                {
+                    SetStatus($"Could not find pattern '{patternName}' in storage", true);
+                }
+            }
+            else
+            {
+                SetStatus($"Could not load pattern '{patternName}' for JSON view", true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading pattern {PatternName} for JSON view", patternName);
+            SetStatus($"Error loading pattern JSON", true);
+        }
+    }
+
+    private async Task SaveCurrentPatternChanges()
+    {
+        if (string.IsNullOrEmpty(currentlyLoadedPattern) || string.IsNullOrEmpty(currentlyLoadedDocumentType) || string.IsNullOrEmpty(currentlyLoadedFormat))
+        {
+            SetStatus("No pattern currently being edited", true);
+            return;
+        }
+
+        try
+        {
+            isSaving = true;
+            StateHasChanged();
+
+            // Request the parent to provide current pattern data
+            var saveRequest = new SavePatternRequest
+                {
+                    PatternName = currentlyLoadedPattern,
+                    DocumentType = currentlyLoadedDocumentType,
+                    Format = currentlyLoadedFormat
+                };
+
+            await OnPatternSaveRequested.InvokeAsync(saveRequest);
+
+            SetStatus($"Pattern '{currentlyLoadedPattern}' has been updated", false);
+            Logger.LogInformation("Updated pattern {PatternName}", currentlyLoadedPattern);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving pattern {PatternName}", currentlyLoadedPattern);
+            SetStatus($"Error saving pattern changes", true);
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearCurrentlyEditing()
+    {
+        currentlyLoadedPattern = "";
+        currentlyLoadedDocumentType = "";
+        currentlyLoadedFormat = "";
+        SetStatus("Stopped editing pattern", false);
+    }
+
+    private void CloseJsonView()
+    {
+        jsonViewContent = "";
+        jsonViewPatternName = "";
+    }
+
+    private async Task CopyJsonToClipboard()
+    {
+        try
+        {
+            // Use JavaScript interop to copy to clipboard
+            var module = await JSRuntime.InvokeAsync<IJSObjectReference>("import", "./js/clipboard.js");
+            await module.InvokeVoidAsync("copyToClipboard", jsonViewContent);
+            SetStatus("JSON copied to clipboard", false);
+        }
+        catch (Exception)
+        {
+            // Fallback - just show the status message
+            SetStatus("JSON ready to copy manually", false);
+        }
+    }
+
+    private void SetStatus(string message, bool isError)
+    {
+        statusMessage = message;
+        statusIsError = isError;
+
+        // Auto-clear status after 3 seconds
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            statusMessage = "";
+            InvokeAsync(StateHasChanged);
+        });
+    }
+}
