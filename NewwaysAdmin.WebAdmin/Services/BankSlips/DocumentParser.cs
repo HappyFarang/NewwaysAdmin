@@ -1,44 +1,45 @@
 ﻿// NewwaysAdmin.WebAdmin/Services/BankSlips/DocumentParser.cs
-// 🚀 NEW: Clean, focused document parser - no interfaces, no legacy baggage!
+// 🚀 FIXED: Now uses SpatialOcrService like the Settings → OCR Analyzer
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.SharedModels.Services.Ocr;
 using NewwaysAdmin.SharedModels.Models.Ocr;
+using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 using System.Text.RegularExpressions;
 using NewwaysAdmin.SharedModels.Models.Documents;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 {
     /// <summary>
-    /// Modern document parser - transforms OCR text into flexible dictionary data
-    /// Single responsibility: OCR text → Dictionary using pattern-based regex processing
+    /// Modern document parser - transforms spatial OCR data into flexible dictionary data
+    /// 🔧 FIXED: Now uses the same SpatialOcrService as Settings → OCR Analyzer
     /// </summary>
     public class DocumentParser
     {
-        private readonly PatternLoaderService _patternLoader;
+        private readonly ISpatialOcrService _spatialOcrService; // 🔧 CHANGED: From PatternLoaderService to ISpatialOcrService
         private readonly PatternManagementService _patternManagement;
         private readonly ILogger<DocumentParser> _logger;
 
         public DocumentParser(
-            PatternLoaderService patternLoader,
+            ISpatialOcrService spatialOcrService, // 🔧 CHANGED: Use the same service as Settings
             PatternManagementService patternManagement,
             ILogger<DocumentParser> logger)
         {
-            _patternLoader = patternLoader ?? throw new ArgumentNullException(nameof(patternLoader));
+            _spatialOcrService = spatialOcrService ?? throw new ArgumentNullException(nameof(spatialOcrService));
             _patternManagement = patternManagement ?? throw new ArgumentNullException(nameof(patternManagement));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         /// <summary>
-        /// Parse OCR text into flexible dictionary using pattern-based regex processing
+        /// Parse image using spatial OCR processing (same as Settings → OCR Analyzer)
         /// </summary>
-        /// <param name="ocrText">Raw OCR text from document</param>
+        /// <param name="ocrText">Raw OCR text (not used anymore - we extract spatial data instead)</param>
         /// <param name="imagePath">Full path to the source image file</param>
         /// <param name="documentType">Document type (e.g., "BankSlips")</param>
         /// <param name="formatName">Format name (e.g., "KBIZ", "KBank")</param>
         /// <returns>Dictionary with extracted fields + FileName</returns>
         public async Task<Dictionary<string, string>> ParseAsync(
-            string ocrText,
+            string ocrText, // Keep for compatibility but we'll extract our own spatial data
             string imagePath,
             string documentType,
             string formatName)
@@ -50,41 +51,91 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
                 // Always add filename for tracking/debugging
                 result["FileName"] = Path.GetFileName(imagePath);
 
-                _logger.LogDebug("Starting document parsing for {FileName} using {DocumentType}/{FormatName}",
+                _logger.LogDebug("Starting spatial document parsing for {FileName} using {DocumentType}/{FormatName}",
                     result["FileName"], documentType, formatName);
 
-                // Step 1: Extract patterns using OCR service
-                var genericDoc = await _patternLoader.ExtractPatternsAsync(ocrText, imagePath, documentType, formatName);
+                // 🔧 STEP 1: Extract spatial data using the SAME service as Settings → OCR Analyzer
+                _logger.LogDebug("🔍 Extracting spatial OCR data...");
+                var spatialResult = await _spatialOcrService.ExtractSpatialTextAsync(imagePath);
 
-                if (genericDoc.Status == DocumentProcessingStatus.Failed)
+                if (!spatialResult.Success || spatialResult.Document == null)
                 {
-                    _logger.LogWarning("Pattern extraction failed for {FileName}: {Error}",
-                        result["FileName"], genericDoc.ErrorReason);
-                    return result; // Return with just FileName
+                    _logger.LogWarning("Spatial OCR extraction failed for {FileName}: {Error}",
+                        result["FileName"], spatialResult.ErrorMessage);
+
+                    // Add all pattern fields as "Missing" so they show up in UI
+                    await AddMissingFieldsAsync(result, documentType, formatName);
+                    return result;
                 }
 
-                // Step 2: Get the pattern definitions for regex processing
-                var patterns = await GetPatternsForFormat(documentType, formatName);
+                _logger.LogDebug("✅ Spatial OCR extracted {WordCount} words from {FileName}",
+                    spatialResult.Document.Words.Count, result["FileName"]);
 
-                // Step 3: Process each field with regex loops
-                foreach (var fieldName in genericDoc.GetFieldNames())
+                // 🔧 STEP 2: Load patterns for this document type/format
+                var patterns = await LoadPatternsForFormatAsync(documentType, formatName);
+                if (patterns.Count == 0)
                 {
-                    var extractedText = genericDoc.GetFieldText(fieldName);
-                    if (string.IsNullOrWhiteSpace(extractedText))
-                        continue;
+                    _logger.LogWarning("No patterns found for {DocumentType}/{FormatName}", documentType, formatName);
+                    return result;
+                }
 
-                    // Apply regex processing if patterns exist for this field
-                    var processedValue = ProcessFieldWithRegex(fieldName, extractedText, patterns);
+                _logger.LogDebug("Found {PatternCount} patterns for {DocumentType}/{FormatName}",
+                    patterns.Count, documentType, formatName);
 
-                    if (!string.IsNullOrWhiteSpace(processedValue))
+                // 🔧 STEP 3: Process each pattern using spatial matching (same as Settings)
+                var successCount = 0;
+                var extractedFields = new List<string>();
+                var missingFields = new List<string>();
+
+                foreach (var (patternKey, pattern) in patterns)
+                {
+                    try
                     {
-                        result[fieldName] = processedValue;
-                        _logger.LogDebug("Processed field {FieldName}: '{ProcessedValue}' for {FileName}",
-                            fieldName, processedValue, result["FileName"]);
+                        var extractedValue = await ExtractValueUsingSpatialPatternAsync(
+                            spatialResult.Document, pattern, result["FileName"]);
+
+                        if (!string.IsNullOrWhiteSpace(extractedValue))
+                        {
+                            result[patternKey] = extractedValue;
+                            extractedFields.Add(patternKey);
+                            successCount++;
+                            _logger.LogDebug("✅ Pattern '{PatternKey}' extracted: '{Value}'",
+                                patternKey, extractedValue.Length > 50 ? $"{extractedValue[..50]}..." : extractedValue);
+                        }
+                        else
+                        {
+                            result[patternKey] = "Missing"; // 🔧 Mark as Missing for debugging
+                            missingFields.Add(patternKey);
+                            _logger.LogDebug("❌ Pattern '{PatternKey}' marked as Missing", patternKey);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        result[patternKey] = "Missing";
+                        missingFields.Add(patternKey);
+                        _logger.LogWarning(ex, "❌ Pattern '{PatternKey}' error - marked as Missing: {Error}",
+                            patternKey, ex.Message);
                     }
                 }
 
-                _logger.LogDebug("Document parsing completed for {FileName}: {FieldCount} fields extracted",
+                // 🔧 STEP 4: Log results (same format as PatternLoaderService for consistency)
+                if (extractedFields.Any())
+                {
+                    _logger.LogInformation("✅ {FileName}: Extracted {SuccessCount}/{TotalCount} patterns: {ExtractedFields}",
+                        result["FileName"], successCount, patterns.Count, string.Join(", ", extractedFields));
+                }
+
+                if (missingFields.Any())
+                {
+                    _logger.LogWarning("❌ {FileName}: Missing {MissingCount}/{TotalCount} patterns: {MissingFields}",
+                        result["FileName"], missingFields.Count, patterns.Count, string.Join(", ", missingFields));
+                }
+
+                _logger.LogInformation("🎉 Spatial pattern extraction completed for {DocumentType}/{Format}: " +
+                    "{SuccessCount}/{TotalCount} successful, {MissingCount} missing",
+                    documentType, formatName, successCount, patterns.Count, missingFields.Count);
+
+                _logger.LogDebug("Spatial document parsing completed for {FileName}: {FieldCount} fields extracted",
                     result["FileName"], result.Count - 1); // -1 for FileName
 
                 return result;
@@ -92,117 +143,239 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error parsing document {FileName}", result["FileName"]);
-                return result; // Return with just FileName in case of error
+
+                // Add all pattern fields as "Missing" on error
+                await AddMissingFieldsAsync(result, documentType, formatName);
+                return result;
             }
         }
 
         /// <summary>
-        /// Process a field value through regex patterns - first match wins
+        /// Extract value using spatial pattern matching (same logic as Settings → OCR Analyzer)
         /// </summary>
-        /// <param name="fieldName">Name of the field being processed</param>
-        /// <param name="extractedText">Raw text extracted from OCR</param>
-        /// <param name="patterns">Available patterns for this format</param>
-        /// <returns>Processed value or original text if no patterns match</returns>
-        private string ProcessFieldWithRegex(
-            string fieldName,
-            string extractedText,
-            Dictionary<string, List<string>> patterns)
+        private async Task<string> ExtractValueUsingSpatialPatternAsync(
+            SpatialDocument document,
+            SearchPattern pattern,
+            string fileName)
         {
-            // Check if we have regex patterns for this field
-            if (!patterns.ContainsKey(fieldName) || !patterns[fieldName].Any())
+            try
             {
-                // No regex patterns - return cleaned original text
-                return CleanExtractedText(extractedText);
+                _logger.LogDebug("🔍 Starting spatial pattern extraction for '{PatternName}' with keyword '{KeyWord}' on {FileName}",
+                    pattern.SearchName, pattern.KeyWord, fileName);
+
+                // Find the keyword word in the spatial document
+                var keywordWord = document.Words.FirstOrDefault(w =>
+                    w.Text.Contains(pattern.KeyWord, StringComparison.OrdinalIgnoreCase));
+
+                if (keywordWord == null)
+                {
+                    _logger.LogWarning("❌ Keyword '{KeyWord}' not found in spatial document for pattern '{PatternName}' on {FileName}",
+                        pattern.KeyWord, pattern.SearchName, fileName);
+                    return string.Empty;
+                }
+
+                _logger.LogDebug("✅ Keyword '{KeyWord}' found at position ({X},{Y}) for pattern '{PatternName}' on {FileName}",
+                    pattern.KeyWord, keywordWord.NormX1, keywordWord.NormY1, pattern.SearchName, fileName);
+
+                // Extract text based on pattern type using spatial coordinates
+                var candidateWords = pattern.PatternType.ToLower() switch
+                {
+                    "verticalcolumn" => GetWordsInVerticalColumn(document.Words, keywordWord, pattern),
+                    "horizontal" => GetWordsInHorizontalLine(document.Words, keywordWord, pattern),
+                    _ => new List<WordBoundingBox>()
+                };
+
+                if (!candidateWords.Any())
+                {
+                    _logger.LogWarning("❌ No candidate words found using {PatternType} method for pattern '{PatternName}' on {FileName}",
+                        pattern.PatternType, pattern.SearchName, fileName);
+                    return string.Empty;
+                }
+
+                // Combine candidate words into text
+                var extractedText = string.Join(" ", candidateWords.Select(w => w.Text)).Trim();
+
+                _logger.LogDebug("📝 Extracted text for pattern '{PatternName}' on {FileName}: '{ExtractedText}'",
+                    pattern.SearchName, fileName, extractedText);
+
+                // Apply regex patterns if specified
+                var finalValue = ApplyRegexPatterns(extractedText, pattern.RegexPatterns, pattern.SearchName, fileName);
+
+                // Clean up stop words
+                if (!string.IsNullOrWhiteSpace(pattern.StopWords))
+                {
+                    var beforeStopWords = finalValue;
+                    finalValue = RemoveStopWords(finalValue, pattern.StopWords);
+                    if (beforeStopWords != finalValue)
+                    {
+                        _logger.LogDebug("🧹 Stop words removed for pattern '{PatternName}' on {FileName}: '{Before}' → '{After}'",
+                            pattern.SearchName, fileName, beforeStopWords, finalValue);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(finalValue))
+                {
+                    _logger.LogInformation("🎉 Pattern '{PatternName}' successfully extracted from {FileName}: '{FinalValue}'",
+                        pattern.SearchName, fileName, finalValue);
+                }
+
+                return finalValue.Trim();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "💥 Error extracting spatial value for pattern '{PatternName}' on {FileName}: {Error}",
+                    pattern.SearchName, fileName, ex.Message);
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Get words in vertical column below the keyword (with tolerance)
+        /// </summary>
+        private List<WordBoundingBox> GetWordsInVerticalColumn(List<WordBoundingBox> allWords, WordBoundingBox keywordWord, SearchPattern pattern)
+        {
+            var tolerance = pattern.ToleranceY / 1000.0f; // Convert to normalized coordinates
+            var horizontalTolerance = pattern.ToleranceX / 1000.0f;
+
+            return allWords
+                .Where(w => w != keywordWord) // Exclude the keyword itself
+                .Where(w => w.NormY1 > keywordWord.NormY2) // Below the keyword
+                .Where(w => Math.Abs(w.NormX1 - keywordWord.NormX1) <= horizontalTolerance) // Same column
+                .Where(w => w.NormY1 <= keywordWord.NormY2 + tolerance) // Within tolerance
+                .OrderBy(w => w.NormY1) // Top to bottom
+                .Take(3) // Limit results
+                .ToList();
+        }
+
+        /// <summary>
+        /// Get words in horizontal line after the keyword (with tolerance)
+        /// </summary>
+        private List<WordBoundingBox> GetWordsInHorizontalLine(List<WordBoundingBox> allWords, WordBoundingBox keywordWord, SearchPattern pattern)
+        {
+            var tolerance = pattern.ToleranceY / 1000.0f;
+            var horizontalTolerance = pattern.ToleranceX / 1000.0f;
+
+            return allWords
+                .Where(w => w != keywordWord) // Exclude the keyword itself
+                .Where(w => w.NormX1 > keywordWord.NormX2) // To the right of keyword
+                .Where(w => Math.Abs(w.NormY1 - keywordWord.NormY1) <= tolerance) // Same line
+                .Where(w => w.NormX1 <= keywordWord.NormX2 + horizontalTolerance) // Within tolerance
+                .OrderBy(w => w.NormX1) // Left to right
+                .Take(3) // Limit results
+                .ToList();
+        }
+
+        /// <summary>
+        /// Apply regex patterns to extracted text
+        /// </summary>
+        private string ApplyRegexPatterns(string text, List<string> regexPatterns, string patternName, string fileName)
+        {
+            if (regexPatterns == null || regexPatterns.Count == 0)
+            {
+                _logger.LogDebug("No regex patterns defined for '{PatternName}' on {FileName}, returning original text", patternName, fileName);
+                return text;
             }
 
-            // Try each regex pattern until one matches
-            foreach (var regexPattern in patterns[fieldName])
+            _logger.LogDebug("🔄 Applying {Count} regex patterns to text '{Text}' for pattern '{PatternName}' on {FileName}",
+                regexPatterns.Count, text, patternName, fileName);
+
+            foreach (var regexPattern in regexPatterns)
             {
                 try
                 {
-                    var regex = new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Multiline);
-                    var match = regex.Match(extractedText);
+                    var regex = new Regex(regexPattern, RegexOptions.IgnoreCase);
+                    var match = regex.Match(text);
 
                     if (match.Success)
                     {
-                        // Use the first capture group if available, otherwise the full match
-                        var value = match.Groups.Count > 1 ? match.Groups[1].Value : match.Value;
-                        var cleanedValue = CleanExtractedText(value);
-
-                        _logger.LogDebug("Regex pattern matched for {FieldName}: '{Pattern}' → '{Result}'",
-                            fieldName, regexPattern, cleanedValue);
-
-                        return cleanedValue;
+                        var result = match.Value;
+                        _logger.LogInformation("✅ Regex pattern matched for '{PatternName}' on {FileName}: '{Pattern}' → '{Result}'",
+                            patternName, fileName, regexPattern, result);
+                        return result;
+                    }
+                    else
+                    {
+                        _logger.LogDebug("❌ Regex pattern '{Pattern}' did not match text '{Text}' for pattern '{PatternName}' on {FileName}",
+                            regexPattern, text, patternName, fileName);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Invalid regex pattern for {FieldName}: {Pattern}",
-                        fieldName, regexPattern);
-                    // Continue to next pattern
+                    _logger.LogWarning(ex, "💥 Invalid regex pattern for '{PatternName}' on {FileName}: '{Pattern}' - {Error}",
+                        patternName, fileName, regexPattern, ex.Message);
                 }
             }
 
-            // No regex patterns matched - return cleaned original text
-            _logger.LogDebug("No regex patterns matched for {FieldName}, using original text", fieldName);
-            return CleanExtractedText(extractedText);
+            _logger.LogWarning("❌ No regex patterns matched for '{PatternName}' on {FileName}, returning original text", patternName, fileName);
+            return text;
         }
 
         /// <summary>
-        /// Get regex patterns for the specified document format
+        /// Remove stop words from extracted text
         /// </summary>
-        private async Task<Dictionary<string, List<string>>> GetPatternsForFormat(
-            string documentType,
-            string formatName)
+        private string RemoveStopWords(string text, string stopWords)
         {
-            var patterns = new Dictionary<string, List<string>>();
+            if (string.IsNullOrWhiteSpace(stopWords))
+                return text;
 
+            var stopWordList = stopWords.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(w => w.Trim())
+                .Where(w => !string.IsNullOrEmpty(w));
+
+            var result = text;
+            foreach (var stopWord in stopWordList)
+            {
+                result = result.Replace(stopWord, "", StringComparison.OrdinalIgnoreCase);
+            }
+
+            return result.Trim();
+        }
+
+        /// <summary>
+        /// Load patterns for the specified document format
+        /// </summary>
+        private async Task<Dictionary<string, SearchPattern>> LoadPatternsForFormatAsync(string documentType, string format)
+        {
             try
             {
-                _logger.LogDebug("Loading regex patterns for {DocumentType}/{FormatName}",
-                    documentType, formatName);
+                var library = await _patternManagement.LoadLibraryAsync();
 
-                // Load patterns from the existing pattern management system
-                var patternNames = await _patternManagement.GetSearchPatternNamesAsync(documentType, formatName);
-
-                foreach (var patternName in patternNames)
+                if (library.Collections.TryGetValue(documentType, out var collection) &&
+                    collection.SubCollections.TryGetValue(format, out var subCollection))
                 {
-                    var searchPattern = await _patternManagement.LoadSearchPatternAsync(documentType, formatName, patternName);
-
-                    if (searchPattern?.RegexPatterns != null && searchPattern.RegexPatterns.Any())
-                    {
-                        patterns[patternName] = searchPattern.RegexPatterns;
-                        _logger.LogDebug("Loaded {Count} regex patterns for field {FieldName}",
-                            searchPattern.RegexPatterns.Count, patternName);
-                    }
+                    return subCollection.SearchPatterns;
                 }
 
-                _logger.LogDebug("Loaded regex patterns for {FieldCount} fields in {DocumentType}/{FormatName}",
-                    patterns.Count, documentType, formatName);
-
-                return patterns;
+                _logger.LogWarning("No patterns found for {DocumentType}/{Format}", documentType, format);
+                return new Dictionary<string, SearchPattern>();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading regex patterns for {DocumentType}/{FormatName}",
-                    documentType, formatName);
-                return patterns;
+                _logger.LogError(ex, "Error loading patterns for {DocumentType}/{Format}", documentType, format);
+                return new Dictionary<string, SearchPattern>();
             }
         }
 
         /// <summary>
-        /// Clean and normalize extracted text
+        /// Add all pattern fields as "Missing" when extraction fails
         /// </summary>
-        private static string CleanExtractedText(string text)
+        private async Task AddMissingFieldsAsync(Dictionary<string, string> result, string documentType, string formatName)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
-
-            return text.Trim()
-                      .Replace("\r\n", " ")
-                      .Replace("\n", " ")
-                      .Replace("\t", " ")
-                      .Trim();
+            try
+            {
+                var patterns = await LoadPatternsForFormatAsync(documentType, formatName);
+                foreach (var patternKey in patterns.Keys)
+                {
+                    if (!result.ContainsKey(patternKey))
+                    {
+                        result[patternKey] = "Missing";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not add missing fields for {DocumentType}/{FormatName}", documentType, formatName);
+            }
         }
     }
 }

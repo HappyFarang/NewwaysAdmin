@@ -835,6 +835,74 @@
     {
         Logger.LogInformation("🔍 UpdateAvailableResultFields called with {Count} results", results.Count);
 
+        if (!results.Any())
+        {
+            _availableResultFields = new List<string>();
+            Logger.LogWarning("🔍 No results provided to UpdateAvailableResultFields");
+            return;
+        }
+
+        // 🔧 DEBUG: Log all raw fields before filtering
+        var allRawFields = results
+            .Where(r => !r.ContainsKey("Error"))
+            .SelectMany(r => r.Keys)
+            .Distinct()
+            .OrderBy(f => f)
+            .ToList();
+
+        Logger.LogInformation("🔍 RAW FIELDS BEFORE FILTERING ({Count}): {Fields}",
+            allRawFields.Count, string.Join(", ", allRawFields));
+
+        // 🔧 DEBUG: Show which fields get filtered out and why
+        var filteredOut = new List<string>();
+        var fieldReasons = new Dictionary<string, string>();
+
+        foreach (var field in allRawFields)
+        {
+            if (field.StartsWith("_"))
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "starts with underscore";
+            }
+            else if (field == "FileName")
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "is FileName";
+            }
+            else if (field == "ProcessedAt")
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "is ProcessedAt";
+            }
+            else if (field == "ProcessedBy")
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "is ProcessedBy";
+            }
+            else if (field == "CollectionName")
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "is CollectionName";
+            }
+            else if (field == "DocumentType")
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "is DocumentType";
+            }
+            else if (field == "FormatName")
+            {
+                filteredOut.Add(field);
+                fieldReasons[field] = "is FormatName";
+            }
+        }
+
+        if (filteredOut.Any())
+        {
+            Logger.LogInformation("🔍 FILTERED OUT FIELDS ({Count}): {Details}",
+                filteredOut.Count,
+                string.Join(", ", filteredOut.Select(f => $"{f}({fieldReasons[f]})")));
+        }
+
         // Extract all unique field names from successful results (excluding metadata)
         var allFields = results
             .Where(r => !r.ContainsKey("Error"))
@@ -851,7 +919,29 @@
             .OrderBy(f => f)
             .ToList();
 
-        Logger.LogInformation("🔍 Extracted {Count} unique fields: {Fields}", allFields.Count, string.Join(", ", allFields));
+        Logger.LogInformation("🔍 FIELDS AFTER FILTERING ({Count}): {Fields}",
+            allFields.Count, string.Join(", ", allFields));
+
+        // 🔧 DEBUG: Check field population rates
+        var fieldStats = new Dictionary<string, int>();
+        foreach (var field in allFields)
+        {
+            var populatedCount = results
+                .Where(r => !r.ContainsKey("Error"))
+                .Count(r => r.ContainsKey(field) && !string.IsNullOrWhiteSpace(r[field]));
+            fieldStats[field] = populatedCount;
+        }
+
+        Logger.LogInformation("🔍 FIELD POPULATION STATS: {Stats}",
+            string.Join(", ", fieldStats.Select(kvp => $"{kvp.Key}:{kvp.Value}/{results.Count}")));
+
+        // 🔧 DEBUG: Show empty/missing fields
+        var emptyFields = allFields.Where(f => fieldStats[f] == 0).ToList();
+        if (emptyFields.Any())
+        {
+            Logger.LogWarning("🔍 EMPTY FIELDS (no data extracted): {Fields}",
+                string.Join(", ", emptyFields));
+        }
 
         _availableResultFields = allFields;
 

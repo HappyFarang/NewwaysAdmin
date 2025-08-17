@@ -33,10 +33,10 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         /// <param name="format">Format/sub-collection (e.g., "KBIZ")</param>
         /// <returns>Generic document with dynamic fields based on pattern keys</returns>
         public async Task<GenericDocumentData> ExtractPatternsAsync(
-    string ocrText,
-    string filePath,
-    string documentType,
-    string format)
+     string ocrText,
+     string filePath,
+     string documentType,
+     string format)
         {
             var result = new GenericDocumentData
             {
@@ -79,34 +79,57 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 _logger.LogDebug("Found {PatternCount} patterns for {DocumentType}/{Format}",
                     patterns.Count, documentType, format);
 
-                // Process each pattern
+                // 🔧 ENHANCED: Process each pattern and mark missing ones
                 var successCount = 0;
+                var extractedFields = new List<string>();
+                var missingFields = new List<string>();
+
                 foreach (var (patternKey, pattern) in patterns)
                 {
                     try
                     {
                         var extractedValue = ExtractValueForPattern(ocrText, pattern);
 
-                        // Always set the field (even if empty) so we know what patterns were attempted
-                        result.SetField(patternKey, extractedValue, ExtractedDataType.Text);
-
                         if (!string.IsNullOrWhiteSpace(extractedValue))
                         {
+                            // Successfully extracted data
+                            result.SetField(patternKey, extractedValue, ExtractedDataType.Text);
+                            extractedFields.Add(patternKey);
                             successCount++;
-                            _logger.LogDebug("Pattern '{PatternKey}' extracted: '{Value}'",
+                            _logger.LogDebug("✅ Pattern '{PatternKey}' extracted: '{Value}'",
                                 patternKey, extractedValue.Length > 50 ? $"{extractedValue[..50]}..." : extractedValue);
                         }
                         else
                         {
-                            _logger.LogDebug("Pattern '{PatternKey}' found no matches", patternKey);
+                            // 🆕 NEW: Mark failed extractions as "Missing"
+                            result.SetField(patternKey, "Missing", ExtractedDataType.Text);
+                            missingFields.Add(patternKey);
+                            _logger.LogDebug("❌ Pattern '{PatternKey}' found no matches - marked as Missing", patternKey);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Error processing pattern '{PatternKey}': {Error}",
+                        // Pattern processing error - also mark as Missing
+                        result.SetField(patternKey, "Missing", ExtractedDataType.Text);
+                        missingFields.Add(patternKey);
+                        _logger.LogWarning(ex, "❌ Pattern '{PatternKey}' error - marked as Missing: {Error}",
                             patternKey, ex.Message);
-                        result.SetField(patternKey, string.Empty, ExtractedDataType.Text);
                     }
+                }
+
+                // 🔧 ENHANCED: Detailed logging for debugging
+                var fileName = Path.GetFileName(filePath);
+
+                if (extractedFields.Any())
+                {
+                    _logger.LogInformation("✅ {FileName}: Extracted {SuccessCount}/{TotalCount} patterns: {ExtractedFields}",
+                        fileName, successCount, patterns.Count, string.Join(", ", extractedFields));
+                }
+
+                if (missingFields.Any())
+                {
+                    _logger.LogWarning("❌ {FileName}: Missing {MissingCount}/{TotalCount} patterns: {MissingFields}",
+                        fileName, missingFields.Count, patterns.Count, string.Join(", ", missingFields));
                 }
 
                 // Set success status
@@ -115,15 +138,19 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     result.Status = DocumentProcessingStatus.Completed;
                     result.AddNote("ExtractedFields", successCount.ToString());
                     result.AddNote("TotalPatterns", patterns.Count.ToString());
+                    result.AddNote("MissingFields", missingFields.Count.ToString());
+
+                    _logger.LogInformation("🎉 Pattern extraction completed for {DocumentType}/{Format}: " +
+                        "{SuccessCount}/{TotalCount} successful, {MissingCount} missing",
+                        documentType, format, successCount, patterns.Count, missingFields.Count);
                 }
                 else
                 {
                     result.Status = DocumentProcessingStatus.Failed;
                     result.ErrorReason = "No patterns could extract data from the document";
+                    _logger.LogError("💥 Pattern extraction failed for {DocumentType}/{Format}: " +
+                        "All {TotalCount} patterns missing", documentType, format, patterns.Count);
                 }
-
-                _logger.LogInformation("Pattern extraction completed for {DocumentType}/{Format}: {SuccessCount}/{TotalCount} patterns extracted",
-                    documentType, format, successCount, patterns.Count);
 
                 return result;
             }
