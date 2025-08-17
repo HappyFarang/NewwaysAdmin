@@ -1,0 +1,364 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/UI/EnhancedFieldSelector.razor *@
+@inject ILogger<EnhancedFieldSelector> Logger
+
+<div class="enhanced-field-selector">
+    @* Field Selection Header *@
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h6 class="mb-0">
+                <i class="bi bi-sliders me-2"></i>
+                Display Fields
+            </h6>
+            <small class="text-muted">Select up to @MaxFields fields to display</small>
+        </div>
+        <div class="text-end">
+            <span class="badge bg-primary">@SelectedFields.Count/@MaxFields</span>
+            @if (HasSumFields)
+            {
+                <span class="badge bg-success ms-1">
+                    <i class="bi bi-calculator me-1"></i>@SumEnabledFields.Count SUM
+                </span>
+            }
+        </div>
+    </div>
+
+    @* Available Fields Grid *@
+    @if (AvailableFields?.Any() == true)
+    {
+        <div class="fields-grid mb-3">
+            @foreach (var field in AvailableFields.OrderBy(f => f))
+            {
+                var isSelected = SelectedFields.Contains(field);
+                var canSelect = !isSelected && SelectedFields.Count < MaxFields;
+                var isNumeric = IsNumericField(field);
+                var hasSumEnabled = SumEnabledFields.Contains(field);
+                var fieldUsageCount = GetFieldUsageCount(field);
+
+                <div class="field-card @(isSelected ? "selected" : "") @(!canSelect && !isSelected ? "disabled" : "")">
+                    @* Field Selection Button *@
+                    <button class="btn field-btn @(isSelected ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => ToggleField(field)"
+                            disabled="@(!isSelected && !canSelect)"
+                            title="@GetFieldTooltip(field, isSelected, canSelect)">
+
+                        @if (isSelected)
+                        {
+                            <i class="bi bi-check-circle me-1"></i>
+                        }
+                        else if (isNumeric)
+                        {
+                            <i class="bi bi-123 me-1"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-type me-1"></i>
+                        }
+
+                        <div class="field-info">
+                            <div class="field-name">@field</div>
+                            <small class="field-usage">@fieldUsageCount/@TotalResults values</small>
+                        </div>
+                    </button>
+
+                    @* SUM Toggle (only for selected numeric fields) *@
+                    @if (isSelected && isNumeric)
+                    {
+                        <button class="btn btn-sm sum-btn @(hasSumEnabled ? "btn-success" : "btn-outline-success")"
+                                @onclick="() => ToggleSum(field)"
+                                title="@(hasSumEnabled ? "Disable SUM calculation" : "Enable SUM calculation")">
+                            <i class="bi bi-calculator"></i>
+                            @if (hasSumEnabled)
+                            {
+                                <span class="ms-1">SUM</span>
+                            }
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+
+        @* SUM Results Display *@
+        @if (HasSumFields && Results?.Any() == true)
+        {
+            <div class="card border-success">
+                <div class="card-header bg-light-success">
+                    <h6 class="mb-0 text-success">
+                        <i class="bi bi-calculator me-2"></i>
+                        Summary Calculations
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        @foreach (var field in SumEnabledFields.OrderBy(f => f))
+                        {
+                            var sum = CalculateFieldSum(field);
+                            var count = GetSuccessfulFieldCount(field);
+
+                            <div class="col-md-6 mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@field</strong>
+                                        <small class="text-muted d-block">@count successful values</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="h5 mb-0 text-success">@FormatSum(sum, field)</div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @* Period Info *@
+                    <hr>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <small class="text-muted">
+                                <i class="bi bi-calendar me-1"></i>
+                                Period: @GetProcessingPeriod()
+                            </small>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <small class="text-muted">
+                                <i class="bi bi-files me-1"></i>
+                                @SuccessfulResults.Count successful files processed
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            No fields available. Process some files first to see available fields.
+        </div>
+    }
+</div>
+
+<style>
+    .fields-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 10px;
+    }
+
+    .field-card {
+        position: relative;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 8px;
+        background: white;
+        transition: all 0.2s ease;
+    }
+
+    .field-card.selected {
+        border-color: #0d6efd;
+        background: #f8f9ff;
+    }
+
+    .field-card.disabled {
+        opacity: 0.6;
+    }
+
+    .field-btn {
+        width: 100%;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        padding: 8px 12px;
+        border: none;
+        background: transparent;
+    }
+
+    .field-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .field-name {
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .field-usage {
+        opacity: 0.7;
+    }
+
+    .sum-btn {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        padding: 2px 6px;
+        font-size: 0.75rem;
+    }
+
+    .bg-light-success {
+        background-color: #d1e7dd !important;
+    }
+</style>
+
+@code {
+    [Parameter] public List<string>? AvailableFields { get; set; }
+    [Parameter] public List<Dictionary<string, string>>? Results { get; set; }
+    [Parameter] public HashSet<string> SelectedFields { get; set; } = new();
+    [Parameter] public HashSet<string> SumEnabledFields { get; set; } = new();
+    [Parameter] public int MaxFields { get; set; } = 4;
+    [Parameter] public EventCallback<HashSet<string>> OnSelectedFieldsChanged { get; set; }
+    [Parameter] public EventCallback<HashSet<string>> OnSumFieldsChanged { get; set; }
+
+    // Computed properties
+    private bool HasSumFields => SumEnabledFields.Any();
+    private int TotalResults => Results?.Count ?? 0;
+    private List<Dictionary<string, string>> SuccessfulResults =>
+        Results?.Where(r => !r.ContainsKey("Error")).ToList() ?? new();
+
+    private void ToggleField(string fieldName)
+    {
+        if (SelectedFields.Contains(fieldName))
+        {
+            // Remove field and its SUM setting
+            SelectedFields.Remove(fieldName);
+            SumEnabledFields.Remove(fieldName);
+        }
+        else if (SelectedFields.Count < MaxFields)
+        {
+            // Add field
+            SelectedFields.Add(fieldName);
+        }
+
+        Logger.LogInformation("Field selection updated: {Selected}, SUM enabled: {Sum}",
+            string.Join(", ", SelectedFields), string.Join(", ", SumEnabledFields));
+
+        OnSelectedFieldsChanged.InvokeAsync(SelectedFields);
+        OnSumFieldsChanged.InvokeAsync(SumEnabledFields);
+    }
+
+    private void ToggleSum(string fieldName)
+    {
+        if (!SelectedFields.Contains(fieldName) || !IsNumericField(fieldName))
+            return;
+
+        if (SumEnabledFields.Contains(fieldName))
+        {
+            SumEnabledFields.Remove(fieldName);
+        }
+        else
+        {
+            SumEnabledFields.Add(fieldName);
+        }
+
+        Logger.LogInformation("SUM toggled for {Field}: {Enabled}", fieldName, SumEnabledFields.Contains(fieldName));
+        OnSumFieldsChanged.InvokeAsync(SumEnabledFields);
+    }
+
+    private bool IsNumericField(string fieldName)
+    {
+        var numericFields = new[] { "Amount", "Total", "Fee", "Cost", "Balance", "Credit", "Debit", "Sum", "Value", "Price" };
+        return numericFields.Any(nf => fieldName.Contains(nf, StringComparison.OrdinalIgnoreCase)) ||
+               fieldName.EndsWith("Amount", StringComparison.OrdinalIgnoreCase) ||
+               fieldName.EndsWith("Total", StringComparison.OrdinalIgnoreCase) ||
+               fieldName.EndsWith("Fee", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private int GetFieldUsageCount(string fieldName)
+    {
+        return SuccessfulResults.Count(r => r.ContainsKey(fieldName) && !string.IsNullOrWhiteSpace(r[fieldName]));
+    }
+
+    private int GetSuccessfulFieldCount(string fieldName)
+    {
+        return SuccessfulResults.Count(r =>
+            r.ContainsKey(fieldName) &&
+            !string.IsNullOrWhiteSpace(r[fieldName]) &&
+            TryParseNumber(r[fieldName], out _));
+    }
+
+    private decimal CalculateFieldSum(string fieldName)
+    {
+        decimal sum = 0;
+        foreach (var result in SuccessfulResults)
+        {
+            if (result.ContainsKey(fieldName) && TryParseNumber(result[fieldName], out var value))
+            {
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
+    private bool TryParseNumber(string text, out decimal value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        // Clean the text (remove common currency symbols and formatting)
+        var cleanText = text.Trim()
+            .Replace("฿", "")
+            .Replace("THB", "")
+            .Replace("$", "")
+            .Replace("€", "")
+            .Replace("£", "")
+            .Replace(",", "")
+            .Replace(" ", "")
+            .Trim();
+
+        return decimal.TryParse(cleanText, out value);
+    }
+
+    private string FormatSum(decimal sum, string fieldName)
+    {
+        // Format based on field type
+        if (fieldName.ToLower().Contains("amount") || fieldName.ToLower().Contains("total"))
+        {
+            return sum.ToString("N2") + " ฿";
+        }
+        return sum.ToString("N2");
+    }
+
+    private string GetProcessingPeriod()
+    {
+        if (Results?.Any() != true)
+            return "No data";
+
+        // Try to extract dates from results to determine period
+        var dates = new List<DateTime>();
+        foreach (var result in SuccessfulResults)
+        {
+            // Look for date fields
+            foreach (var dateField in new[] { "ProcessedAt", "Date", "TransactionDate" })
+            {
+                if (result.ContainsKey(dateField) && DateTime.TryParse(result[dateField], out var date))
+                {
+                    dates.Add(date);
+                    break;
+                }
+            }
+        }
+
+        if (dates.Any())
+        {
+            var minDate = dates.Min().ToString("dd/MM/yyyy");
+            var maxDate = dates.Max().ToString("dd/MM/yyyy");
+            return minDate == maxDate ? minDate : $"{minDate} - {maxDate}";
+        }
+
+        return "Unknown period";
+    }
+
+    private string GetFieldTooltip(string field, bool isSelected, bool canSelect)
+    {
+        if (isSelected)
+            return "Click to remove from display";
+        if (!canSelect)
+            return $"Maximum {MaxFields} fields allowed";
+
+        var count = GetFieldUsageCount(field);
+        var isNumeric = IsNumericField(field);
+        return $"Click to add to display. {count}/{TotalResults} values{(isNumeric ? " (numeric - can SUM)" : "")}";
+    }
+}
