@@ -379,3 +379,4 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         }
     }
 }
+// all is well
