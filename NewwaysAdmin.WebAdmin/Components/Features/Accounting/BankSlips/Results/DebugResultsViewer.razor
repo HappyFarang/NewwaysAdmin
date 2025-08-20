@@ -1,0 +1,421 @@
+﻿@* NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/Results/DebugResultsViewer.razor *@
+@* 🔧 Debug-focused results viewer for comparing with Settings → OCR Analyzer *@
+
+<div class="debug-results-container">
+    @if (Results == null || !Results.Any())
+    {
+        <div class="text-center text-muted py-4">
+            <i class="bi bi-database display-6"></i>
+            <p class="mt-2">No processing results yet</p>
+            <small>Run processing to see debug results</small>
+        </div>
+    }
+    else
+    {
+        <!-- Summary Stats -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-card success">
+                    <div class="stat-number">@GetSuccessCount()</div>
+                    <div class="stat-label">Successful</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card danger">
+                    <div class="stat-number">@GetFailedCount()</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card primary">
+                    <div class="stat-number">@Results.Count</div>
+                    <div class="stat-label">Total Files</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card info">
+                    <div class="stat-number">@GetUniqueFieldCount()</div>
+                    <div class="stat-label">Unique Fields</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Numeric Field Buttons with SUM functionality -->
+        <div class="mb-4">
+            <h6><i class="bi bi-calculator me-2"></i>Numeric Fields</h6>
+            <div class="field-buttons-container">
+                @foreach (var field in GetNumericFields())
+                {
+                    var sum = CalculateFieldSum(field);
+                    var count = GetFieldUsageCount(field);
+
+                    <button class="btn @(selectedSumField == field ? "btn-primary" : "btn-outline-primary") btn-sm me-2 mb-2 field-sum-btn"
+                            @onclick="() => ToggleSumField(field)">
+                        <strong>@field</strong>
+                        @if (selectedSumField == field && sum > 0)
+                        {
+                            <div class="field-sum">@FormatSum(sum) <small>(@count files)</small></div>
+                        }
+                        else
+                        {
+                            <small>(@count files)</small>
+                        }
+                    </button>
+                }
+
+                @if (!GetNumericFields().Any())
+                {
+                    <small class="text-muted">No numeric fields detected</small>
+                }
+            </div>
+        </div>
+
+        <!-- All Fields Table Button -->
+        <div class="mb-4">
+            <button class="btn btn-success btn-lg w-100" @onclick="ShowFullTableModal">
+                <i class="bi bi-table me-2"></i>
+                View Full Data Table (All @GetUniqueFieldCount() Fields)
+                <small class="d-block">Debug view - See all extracted data</small>
+            </button>
+        </div>
+
+        <!-- Quick Preview (Limited Cards) -->
+        <div class="mb-4">
+            <h6><i class="bi bi-eye me-2"></i>Quick Preview (First 5 Files)</h6>
+            <div class="preview-container" style="max-height: 400px; overflow-y: auto;">
+                @foreach (var result in Results.Take(5))
+                {
+                    <div class="card mb-2 @(result.ContainsKey("Error") ? "border-danger" : "border-success")">
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <strong>@(result.GetValueOrDefault("FileName", "Unknown"))</strong>
+                                @if (result.ContainsKey("Error"))
+                                {
+                                    <span class="badge bg-danger">Error</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">@(result.Count - GetMetadataFieldCount(result)) fields</span>
+                                }
+                            </div>
+
+                            @if (result.ContainsKey("Error"))
+                            {
+                                <div class="text-danger small">
+                                    <i class="bi bi-x-circle me-1"></i>@result["Error"]
+                                </div>
+                            }
+                            else
+                            {
+                                <!-- Show ALL extracted fields (non-metadata) -->
+                                <div class="row small">
+                                    @foreach (var kvp in result.Where(r => !IsMetadataField(r.Key)))
+                                    {
+                                        <div class="col-6 mb-1">
+                                            <strong>@kvp.Key:</strong> @GetTruncatedValue(kvp.Value, 25)
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Full Table Modal -->
+@if (showFullTableModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-table me-2"></i>
+                        Full Data Table - All Extracted Fields (@Results.Count files)
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseFullTableModal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="table-responsive" style="height: calc(100vh - 180px); overflow: auto;">
+                        <table class="table table-sm table-striped table-hover mb-0">
+                            <thead class="table-dark sticky-top">
+                                <tr>
+                                    <th style="min-width: 200px;">File Name</th>
+                                    @foreach (var field in GetAllFields().OrderBy(f => f))
+                                    {
+                                        <th style="min-width: 150px;" class="@GetFieldHeaderClass(field)">
+                                            @field
+                                            @if (IsNumericField(field))
+                                            {
+                                                <i class="bi bi-calculator text-warning ms-1" title="Numeric field"></i>
+                                            }
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in Results)
+                                {
+                                    <tr class="@(result.ContainsKey("Error") ? "table-danger" : "")">
+                                        <td style="font-weight: 600;">
+                                            @result.GetValueOrDefault("FileName", "Unknown")
+                                            @if (result.ContainsKey("Error"))
+                                            {
+                                                <i class="bi bi-x-circle text-danger ms-1" title="@result["Error"]"></i>
+                                            }
+                                        </td>
+                                        @foreach (var field in GetAllFields().OrderBy(f => f))
+                                        {
+                                            <td class="@GetCellClass(result, field)" style="max-width: 200px; word-wrap: break-word;">
+                                                @GetCellValue(result, field)
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <div class="me-auto">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Tip: This view shows all extracted data. Compare with Settings → OCR → Patterns to debug differences.
+                        </small>
+                    </div>
+                    <button type="button" class="btn btn-secondary" @onclick="CloseFullTableModal">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .debug-results-container {
+        padding: 1rem;
+    }
+
+    .stat-card {
+        text-align: center;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 2px solid;
+    }
+
+        .stat-card.success {
+            border-color: #198754;
+            background-color: #d1eddd;
+        }
+
+        .stat-card.danger {
+            border-color: #dc3545;
+            background-color: #f8d7da;
+        }
+
+        .stat-card.primary {
+            border-color: #0d6efd;
+            background-color: #cff4fc;
+        }
+
+        .stat-card.info {
+            border-color: #0dcaf0;
+            background-color: #d1ecf1;
+        }
+
+    .stat-number {
+        font-size: 2rem;
+        font-weight: bold;
+    }
+
+    .stat-label {
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .field-buttons-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .field-sum-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 120px;
+    }
+
+    .field-sum {
+        font-size: 0.75rem;
+        margin-top: 0.25rem;
+        color: #fff;
+    }
+
+    .preview-container .card {
+        transition: box-shadow 0.2s;
+    }
+
+        .preview-container .card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+</style>
+
+@code {
+    [Parameter] public List<Dictionary<string, string>>? Results { get; set; }
+
+    private bool showFullTableModal = false;
+    private string selectedSumField = string.Empty;
+
+    // Helper methods
+    private int GetSuccessCount() => Results?.Count(r => !r.ContainsKey("Error")) ?? 0;
+    private int GetFailedCount() => Results?.Count(r => r.ContainsKey("Error")) ?? 0;
+    private int GetUniqueFieldCount() => GetAllFields().Count();
+
+    private List<string> GetAllFields()
+    {
+        if (Results == null) return new List<string>();
+
+        // Get ALL fields from ALL results, only excluding technical metadata
+        return Results
+            .SelectMany(r => r.Keys)
+            .Distinct()
+            .Where(key => !IsSystemMetadataField(key)) // More specific filtering
+            .OrderBy(f => f)
+            .ToList();
+    }
+
+    private bool IsSystemMetadataField(string fieldName)
+    {
+        // Only exclude purely technical metadata, keep all extracted fields
+        var systemFields = new[] { "ProcessedBy", "ProcessedAt", "CollectionName", "DocumentType", "FormatName", "ProcessedPatterns", "SuccessfulPatterns" };
+        return systemFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private List<string> GetNumericFields()
+    {
+        return GetAllFields()
+            .Where(IsNumericField)
+            .Where(field => GetFieldUsageCount(field) > 0)
+            .OrderBy(f => f)
+            .ToList();
+    }
+
+    private bool IsNumericField(string fieldName)
+    {
+        var numericIndicators = new[] { "Amount", "Total", "Fee", "Cost", "Balance", "Credit", "Debit", "Sum", "Value", "Price", "VAT", "Tax" };
+        return numericIndicators.Any(indicator => fieldName.Contains(indicator, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsKeyField(string fieldName)
+    {
+        var keyFields = new[] { "Total", "Amount", "To", "Date", "Subject", "Fee", "AccountNumber" };
+        return keyFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private bool IsMetadataField(string fieldName)
+    {
+        // Used for counting "extracted pattern fields" - excludes FileName, Error, and system metadata
+        var metadataFields = new[] { "FileName", "ProcessedBy", "ProcessedAt", "CollectionName", "DocumentType", "FormatName", "Error", "ProcessedPatterns", "SuccessfulPatterns" };
+        return metadataFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private int GetMetadataFieldCount(Dictionary<string, string> result)
+    {
+        return result.Keys.Count(IsMetadataField);
+    }
+
+    private int GetFieldUsageCount(string fieldName)
+    {
+        return Results?.Count(r => !r.ContainsKey("Error") && r.ContainsKey(fieldName) &&
+                                   !string.IsNullOrWhiteSpace(r[fieldName]) &&
+                                   !r[fieldName].StartsWith("Missing")) ?? 0;
+    }
+
+    private decimal CalculateFieldSum(string fieldName)
+    {
+        if (Results == null) return 0;
+
+        decimal sum = 0;
+        foreach (var result in Results.Where(r => !r.ContainsKey("Error")))
+        {
+            if (result.ContainsKey(fieldName) && TryParseNumber(result[fieldName], out var value))
+            {
+                sum += value;
+            }
+        }
+        return sum;
+    }
+
+    private bool TryParseNumber(string text, out decimal value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(text) || text.StartsWith("Missing")) return false;
+
+        var cleanText = text.Trim()
+            .Replace("฿", "").Replace("THB", "").Replace("$", "")
+            .Replace(",", "").Replace(" ", "").Trim();
+
+        return decimal.TryParse(cleanText, out value);
+    }
+
+    private string FormatSum(decimal sum)
+    {
+        return sum.ToString("N2") + " ฿";
+    }
+
+    private string GetTruncatedValue(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+            return value ?? string.Empty;
+        return value[..(maxLength - 3)] + "...";
+    }
+
+    private void ToggleSumField(string fieldName)
+    {
+        selectedSumField = selectedSumField == fieldName ? string.Empty : fieldName;
+    }
+
+    private void ShowFullTableModal()
+    {
+        showFullTableModal = true;
+    }
+
+    private void CloseFullTableModal()
+    {
+        showFullTableModal = false;
+    }
+
+    private string GetFieldHeaderClass(string fieldName)
+    {
+        if (IsNumericField(fieldName)) return "bg-warning bg-opacity-25";
+        if (IsKeyField(fieldName)) return "bg-info bg-opacity-25";
+        return "";
+    }
+
+    private string GetCellClass(Dictionary<string, string> result, string fieldName)
+    {
+        if (result.ContainsKey("Error")) return "text-muted";
+
+        var value = GetCellValue(result, fieldName);
+
+        if (value.StartsWith("Missing Pattern")) return "bg-danger bg-opacity-25 text-danger";
+        if (value.StartsWith("Missing Text")) return "bg-warning bg-opacity-25 text-warning-emphasis";
+        if (value.StartsWith("Missing Regex Match")) return "bg-info bg-opacity-25 text-info-emphasis";
+        if (value == "Error") return "bg-danger bg-opacity-50 text-danger";
+        if (!string.IsNullOrWhiteSpace(value)) return "bg-success bg-opacity-10";
+
+        return "text-muted";
+    }
+
+    private string GetCellValue(Dictionary<string, string> result, string fieldName)
+    {
+        if (result.ContainsKey("Error")) return "—";
+        return result.GetValueOrDefault(fieldName, "—");
+    }
+}

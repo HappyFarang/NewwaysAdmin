@@ -1,156 +1,182 @@
-﻿@* ResultsViewer.razor - Display processing results *@
+﻿@* ResultsViewer.razor - Display processing results with new Dictionary results *@
 
 <div class="card h-100">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">
-            <i class="bi bi-list-check me-2"></i>Results
+            <i class="bi bi-bug me-2"></i>Debug Results View
+            <small class="text-muted ms-2">Compare with Settings → OCR → Patterns</small>
         </h5>
 
-        @if (ProcessingResult?.ProcessedSlips?.Any() == true)
+        @if (Results?.Any() == true)
         {
-            <span class="badge bg-primary">@ProcessingResult.ProcessedSlips.Count</span>
+            <div class="d-flex gap-2">
+                <span class="badge bg-primary">@Results.Count files</span>
+                <button class="btn btn-outline-primary btn-sm" @onclick="HandleExportRequested">
+                    <i class="bi bi-download me-1"></i>Export
+                </button>
+            </div>
         }
     </div>
 
-    <div class="card-body">
-        @if (ProcessingResult == null)
+    <div class="card-body p-0">
+        @if (Results == null || !Results.Any())
         {
-            <div class="text-center text-muted">
-                <i class="bi bi-hourglass-split fs-1 mb-3"></i>
-                <h6>No Results Yet</h6>
-                <p>Process a collection to see results here.</p>
+            <div class="text-center text-muted p-4">
+                <i class="bi bi-database display-6 mb-3"></i>
+                <h6>No Processing Results Yet</h6>
+                <p>Run processing to see debug results here.</p>
+                <small class="text-muted">This view will help compare with Settings → OCR → Patterns</small>
             </div>
         }
         else
         {
-            @* Summary Statistics *@
-            <div class="mb-4">
+            <!-- Summary Statistics -->
+            <div class="p-3 border-bottom">
                 <div class="row g-3">
-                    <div class="col-6">
+                    <div class="col-3">
                         <div class="text-center p-2 bg-light rounded">
-                            <div class="fw-bold text-primary">@ProcessingResult.ProcessedSlips.Count</div>
-                            <small class="text-muted">Total Slips</small>
+                            <div class="fw-bold text-primary">@Results.Count</div>
+                            <small class="text-muted">Total Files</small>
                         </div>
                     </div>
-                    <div class="col-6">
+                    <div class="col-3">
                         <div class="text-center p-2 bg-light rounded">
                             <div class="fw-bold text-success">@GetSuccessfulCount()</div>
                             <small class="text-muted">Successful</small>
                         </div>
                     </div>
-                </div>
-
-                @if (GetFailedCount() > 0)
-                {
-                    <div class="row g-3 mt-1">
-                        <div class="col-6">
-                            <div class="text-center p-2 bg-light rounded">
-                                <div class="fw-bold text-danger">@GetFailedCount()</div>
-                                <small class="text-muted">Failed</small>
-                            </div>
-                        </div>
-                        <div class="col-6">
-                            <div class="text-center p-2 bg-light rounded">
-                                <div class="fw-bold text-info">@GetSuccessRate():F1%</div>
-                                <small class="text-muted">Success Rate</small>
-                            </div>
+                    <div class="col-3">
+                        <div class="text-center p-2 bg-light rounded">
+                            <div class="fw-bold text-danger">@GetFailedCount()</div>
+                            <small class="text-muted">Failed</small>
                         </div>
                     </div>
-                }
+                    <div class="col-3">
+                        <div class="text-center p-2 bg-light rounded">
+                            <div class="fw-bold text-info">@GetUniqueFieldCount()</div>
+                            <small class="text-muted">Fields</small>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            @* Results List *@
-            <div class="mb-4" style="max-height: 300px; overflow-y: auto;">
-                @foreach (var slip in ProcessingResult.ProcessedSlips.Take(10))
+            <!-- Numeric Field Buttons with SUM functionality -->
+            <div class="p-3 border-bottom">
+                <h6 class="mb-3"><i class="bi bi-calculator me-2"></i>Numeric Fields (Click to Sum)</h6>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var field in GetNumericFields())
+                    {
+                        var sum = CalculateFieldSum(field);
+                        var count = GetFieldUsageCount(field);
+
+                        <button class="btn @(selectedSumField == field ? "btn-primary" : "btn-outline-primary") btn-sm field-sum-btn"
+                                @onclick="() => ToggleSumField(field)">
+                            <div class="d-flex flex-column align-items-center">
+                                <strong>@field</strong>
+                                @if (selectedSumField == field && sum > 0)
+                                {
+                                    <small class="text-light">@FormatSum(sum) (@count files)</small>
+                                }
+                                else
+                                {
+                                    <small class="@(selectedSumField == field ? "text-light" : "text-muted")">(@count files)</small>
+                                }
+                            </div>
+                        </button>
+                    }
+
+                    @if (!GetNumericFields().Any())
+                    {
+                        <small class="text-muted">No numeric fields detected</small>
+                    }
+                </div>
+            </div>
+
+            <!-- Full Table Button -->
+            <div class="p-3 border-bottom">
+                <button class="btn btn-success w-100" @onclick="ShowFullTableModal">
+                    <i class="bi bi-table me-2"></i>
+                    View Full Data Table (All @GetUniqueFieldCount() Fields)
+                    <div><small>Debug view - See all extracted data for comparison with Settings</small></div>
+                </button>
+            </div>
+
+            <!-- Quick Results Preview -->
+            <div class="p-3" style="max-height: 400px; overflow-y: auto;">
+                <h6 class="mb-3"><i class="bi bi-eye me-2"></i>Quick Preview (First 8 Files)</h6>
+                @foreach (var result in Results.Take(8))
                 {
-                    <div class="border rounded p-2 mb-2 @GetSlipCssClass(slip)">
+                    <div class="border rounded p-2 mb-2 @GetResultCssClass(result)">
                         <div class="d-flex justify-content-between align-items-start">
                             <div class="flex-grow-1">
-                                @* Status Icon & Basic Info *@
+                                @* Status Icon & File Info *@
                                 <div class="d-flex align-items-center mb-1">
-                                    <i class="@GetStatusIcon(slip) me-2"></i>
-                                    <strong>@GetSlipDisplayAmount(slip)</strong>
+                                    <i class="@GetResultStatusIcon(result) me-2"></i>
+                                    <strong>@result.GetValueOrDefault("FileName", "Unknown")</strong>
 
-                                    @if (slip.TransactionDate != default)
+                                    @if (!result.ContainsKey("Error"))
                                     {
-                                        <small class="text-muted ms-2">
-                                            @slip.TransactionDate.ToString("MMM dd")
-                                        </small>
+                                        <span class="badge bg-success ms-2">@(GetExtractedFieldCount(result)) fields</span>
                                     }
                                 </div>
 
-                                @* Recipient Info *@
-                                @if (!string.IsNullOrEmpty(slip.ReceiverName))
+                                @if (result.ContainsKey("Error"))
                                 {
-                                    <div class="small text-muted mb-1">
-                                        <i class="bi bi-person me-1"></i>
-                                        @GetTruncatedText(slip.ReceiverName, 30)
+                                    <div class="text-danger small">
+                                        <i class="bi bi-x-circle me-1"></i>@result["Error"]
                                     </div>
                                 }
-
-                                @* Pattern Info *@
-                                @if (!string.IsNullOrEmpty(slip.FormatName))
+                                else
                                 {
-                                    <div class="d-flex gap-1">
-                                        <span class="badge badge-sm @GetFormatBadgeClass(slip.FormatName)">
-                                            @slip.FormatName
-                                        </span>
-
-                                        @if (slip.Status == BankSlipProcessingStatus.Failed)
+                                    @* Show key extracted fields *@
+                                    <div class="row small">
+                                        @foreach (var kvp in GetKeyFieldsForPreview(result))
                                         {
-                                            <span class="badge badge-sm bg-danger">Failed</span>
-                                        }
-                                        else if (slip.Status == BankSlipProcessingStatus.Completed)
-                                        {
-                                            <span class="badge badge-sm bg-success">OK</span>
+                                            <div class="col-6 mb-1">
+                                                <span class="text-muted">@kvp.Key:</span>
+                                                <span class="@GetFieldValueClass(kvp.Value)">@GetTruncatedText(kvp.Value, 20)</span>
+                                            </div>
                                         }
                                     </div>
                                 }
                             </div>
 
-                            @* File Name *@
+                            @* Format Info *@
                             <div class="text-end">
-                                <small class="text-muted">
-                                    @GetFileDisplayName(slip.OriginalFilePath)
-                                </small>
+                                @if (result.ContainsKey("FormatName"))
+                                {
+                                    <span class="badge @GetFormatBadgeClass(result["FormatName"])">
+                                        @result["FormatName"]
+                                    </span>
+                                }
                             </div>
                         </div>
-
-                        @* Error Message *@
-                        @if (slip.Status == BankSlipProcessingStatus.Failed && !string.IsNullOrEmpty(slip.ErrorReason))
-                        {
-                            <div class="small text-danger mt-1">
-                                <i class="bi bi-exclamation-triangle me-1"></i>
-                                @GetTruncatedText(slip.ErrorReason, 50)
-                            </div>
-                        }
                     </div>
                 }
 
-                @* Show More Indicator *@
-                @if (ProcessingResult?.ProcessedSlips?.Count > 10)
+                @if (Results.Count > 8)
                 {
                     <div class="text-center text-muted small">
-                        ... and @(ProcessingResult.ProcessedSlips.Count - 10) more slips
+                        ... and @(Results.Count - 8) more files
                     </div>
                 }
             </div>
 
             @* Export Actions *@
-            <div class="mt-auto">
+            <div class="card-footer">
                 <div class="d-grid gap-2">
                     <button class="btn btn-success"
                             @onclick="HandleExportRequested"
-                            disabled="@(ProcessingResult?.ProcessedSlips?.Any() != true)">
+                            disabled="@(!Results.Any())">
                         <i class="bi bi-file-earmark-spreadsheet me-2"></i>
-                        Export to Google Sheets
+                        Export to Google Sheets (@GetSuccessfulCount() successful)
                     </button>
 
                     <button class="btn btn-outline-secondary"
                             @onclick="HandleDownloadCsv"
-                            disabled="@(ProcessingResult?.ProcessedSlips?.Any() != true)">
+                            disabled="@(!Results.Any())">
                         <i class="bi bi-download me-2"></i>
-                        Download CSV
+                        Download CSV (All @Results.Count files)
                     </button>
                 </div>
             </div>
@@ -158,9 +184,80 @@
     </div>
 </div>
 
+<!-- Full Table Modal -->
+@if (showFullTableModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-table me-2"></i>
+                        Full Data Table - All Extracted Fields (@Results.Count files)
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseFullTableModal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="table-responsive" style="height: calc(100vh - 180px); overflow: auto;">
+                        <table class="table table-sm table-striped table-hover mb-0">
+                            <thead class="table-dark sticky-top">
+                                <tr>
+                                    @foreach (var field in GetAllFields())
+                                    {
+                                        <th style="min-width: 150px;" class="@GetFieldHeaderClass(field)">
+                                            @field
+                                            @if (IsNumericField(field))
+                                            {
+                                                <i class="bi bi-calculator text-warning ms-1" title="Numeric field"></i>
+                                            }
+                                        </th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in Results)
+                                {
+                                    <tr class="@(result.ContainsKey("Error") ? "table-danger" : "")">
+                                        @foreach (var field in GetAllFields())
+                                        {
+                                            <td class="@GetCellClass(result, field)" style="max-width: 200px; word-wrap: break-word;">
+                                                @GetCellValue(result, field)
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <div class="me-auto">
+                        <small class="text-muted">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Compare these results with Settings → OCR → Patterns to debug differences.
+                        </small>
+                    </div>
+                    <button type="button" class="btn btn-secondary" @onclick="CloseFullTableModal">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .field-sum-btn {
+        min-width: 100px;
+    }
+</style>
+
 @code {
-    [Parameter] public BankSlipProcessingResult? ProcessingResult { get; set; }
+    [Parameter] public List<Dictionary<string, string>>? Results { get; set; }
     [Parameter] public EventCallback OnExportRequested { get; set; }
+
+    private bool showFullTableModal = false;
+    private string selectedSumField = string.Empty;
 
     private async Task HandleExportRequested()
     {
@@ -174,54 +271,125 @@
         await OnExportRequested.InvokeAsync();
     }
 
-    private int GetSuccessfulCount()
+    // Statistics Methods
+    private int GetSuccessfulCount() => Results?.Count(r => !r.ContainsKey("Error")) ?? 0;
+    private int GetFailedCount() => Results?.Count(r => r.ContainsKey("Error")) ?? 0;
+    private int GetUniqueFieldCount() => GetAllFields().Count();
+
+    private List<string> GetAllFields()
     {
-        return ProcessingResult?.ProcessedSlips?
-            .Count(s => s.Status == BankSlipProcessingStatus.Completed) ?? 0;
+        if (Results == null) return new List<string>();
+
+        return Results
+            .SelectMany(r => r.Keys)
+            .Distinct()
+            .Where(key => !IsSystemMetadataField(key))
+            .OrderBy(f => f)
+            .ToList();
     }
 
-    private int GetFailedCount()
+    private List<string> GetNumericFields()
     {
-        return ProcessingResult?.ProcessedSlips?
-            .Count(s => s.Status == BankSlipProcessingStatus.Failed) ?? 0;
+        return GetAllFields()
+            .Where(IsNumericField)
+            .Where(field => GetFieldUsageCount(field) > 0)
+            .OrderBy(f => f)
+            .ToList();
     }
 
-    private double GetSuccessRate()
+    private Dictionary<string, string> GetKeyFieldsForPreview(Dictionary<string, string> result)
     {
-        var total = ProcessingResult?.ProcessedSlips?.Count ?? 0;
-        if (total == 0) return 0;
-
-        var successful = GetSuccessfulCount();
-        return (double)successful / total * 100;
+        var keyFields = new[] { "Total", "Amount", "To", "Date", "Subject", "Fee", "AccountNumber" };
+        return result
+            .Where(kvp => keyFields.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
+            .Where(kvp => !IsSystemMetadataField(kvp.Key))
+            .Take(6) // Show up to 6 key fields
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
     }
 
-    private string GetSlipCssClass(BankSlipData slip)
+    // Field Classification Methods
+    private bool IsNumericField(string fieldName)
     {
-        return slip.Status switch
+        var numericIndicators = new[] { "Amount", "Total", "Fee", "Cost", "Balance", "Credit", "Debit", "Sum", "Value", "Price", "VAT", "Tax" };
+        return numericIndicators.Any(indicator => fieldName.Contains(indicator, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsSystemMetadataField(string fieldName)
+    {
+        // Only exclude purely technical system metadata, keep FileName as a regular field
+        var systemFields = new[] { "ProcessedBy", "ProcessedAt", "CollectionName", "DocumentType", "FormatName", "ProcessedPatterns", "SuccessfulPatterns" };
+        return systemFields.Contains(fieldName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private int GetExtractedFieldCount(Dictionary<string, string> result)
+    {
+        return result.Keys.Count(key => !IsSystemMetadataField(key) && key != "FileName" && key != "Error");
+    }
+
+    // Calculation Methods
+    private int GetFieldUsageCount(string fieldName)
+    {
+        return Results?.Count(r => !r.ContainsKey("Error") && r.ContainsKey(fieldName) &&
+                                   !string.IsNullOrWhiteSpace(r[fieldName]) &&
+                                   !r[fieldName].StartsWith("Missing")) ?? 0;
+    }
+
+    private decimal CalculateFieldSum(string fieldName)
+    {
+        if (Results == null) return 0;
+
+        decimal sum = 0;
+        foreach (var result in Results.Where(r => !r.ContainsKey("Error")))
         {
-            BankSlipProcessingStatus.Failed => "border-danger bg-danger-subtle",
-            BankSlipProcessingStatus.Completed => "border-success bg-success-subtle",
-            _ => "border-secondary"
-        };
-    }
-
-    private string GetStatusIcon(BankSlipData slip)
-    {
-        return slip.Status switch
-        {
-            BankSlipProcessingStatus.Failed => "bi-x-circle text-danger",
-            BankSlipProcessingStatus.Completed => "bi-check-circle text-success",
-            _ => "bi-hourglass text-muted"
-        };
-    }
-
-    private string GetSlipDisplayAmount(BankSlipData slip)
-    {
-        if (slip.Amount > 0)
-        {
-            return slip.Amount.ToString("C2");
+            if (result.ContainsKey(fieldName) && TryParseNumber(result[fieldName], out var value))
+            {
+                sum += value;
+            }
         }
-        return "No amount";
+        return sum;
+    }
+
+    private bool TryParseNumber(string text, out decimal value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(text) || text.StartsWith("Missing")) return false;
+
+        var cleanText = text.Trim()
+            .Replace("฿", "").Replace("THB", "").Replace("$", "")
+            .Replace(",", "").Replace(" ", "").Trim();
+
+        return decimal.TryParse(cleanText, out value);
+    }
+
+    private string FormatSum(decimal sum)
+    {
+        return sum.ToString("N2") + " ฿";
+    }
+
+    // UI Helper Methods
+    private void ToggleSumField(string fieldName)
+    {
+        selectedSumField = selectedSumField == fieldName ? string.Empty : fieldName;
+    }
+
+    private void ShowFullTableModal()
+    {
+        showFullTableModal = true;
+    }
+
+    private void CloseFullTableModal()
+    {
+        showFullTableModal = false;
+    }
+
+    private string GetResultCssClass(Dictionary<string, string> result)
+    {
+        return result.ContainsKey("Error") ? "border-danger bg-danger-subtle" : "border-success bg-success-subtle";
+    }
+
+    private string GetResultStatusIcon(Dictionary<string, string> result)
+    {
+        return result.ContainsKey("Error") ? "bi-x-circle text-danger" : "bi-check-circle text-success";
     }
 
     private string GetFormatBadgeClass(string? formatName)
@@ -235,20 +403,40 @@
         };
     }
 
-    private string GetFileDisplayName(string? filePath)
+    private string GetFieldValueClass(string value)
     {
-        if (string.IsNullOrEmpty(filePath))
-            return "Unknown file";
+        if (value.StartsWith("Missing Pattern")) return "text-danger";
+        if (value.StartsWith("Missing Text")) return "text-warning";
+        if (value.StartsWith("Missing Regex Match")) return "text-info";
+        if (value == "Error") return "text-danger";
+        return "";
+    }
 
-        try
-        {
-            var fileName = Path.GetFileName(filePath);
-            return GetTruncatedText(fileName ?? filePath, 20);
-        }
-        catch
-        {
-            return "Invalid path";
-        }
+    private string GetFieldHeaderClass(string fieldName)
+    {
+        if (IsNumericField(fieldName)) return "bg-warning bg-opacity-25";
+        return "";
+    }
+
+    private string GetCellClass(Dictionary<string, string> result, string fieldName)
+    {
+        if (result.ContainsKey("Error")) return "text-muted";
+
+        var value = GetCellValue(result, fieldName);
+
+        if (value.StartsWith("Missing Pattern")) return "bg-danger bg-opacity-25 text-danger";
+        if (value.StartsWith("Missing Text")) return "bg-warning bg-opacity-25";
+        if (value.StartsWith("Missing Regex Match")) return "bg-info bg-opacity-25";
+        if (value == "Error") return "bg-danger bg-opacity-50 text-danger";
+        if (!string.IsNullOrWhiteSpace(value) && value != "—") return "bg-success bg-opacity-10";
+
+        return "text-muted";
+    }
+
+    private string GetCellValue(Dictionary<string, string> result, string fieldName)
+    {
+        if (result.ContainsKey("Error")) return "—";
+        return result.GetValueOrDefault(fieldName, "—");
     }
 
     private string GetTruncatedText(string text, int maxLength)

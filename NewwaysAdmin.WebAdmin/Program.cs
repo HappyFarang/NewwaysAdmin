@@ -306,6 +306,10 @@ public class Program
             return new PatternLoaderService(patternManagement, logger);
         });
 
+        // 🚀 PHASE 2: NEW Spatial Pattern Engine Services
+        services.AddScoped<SpatialPatternMatcher>();
+        services.AddScoped<SpatialResultParser>();
+
         // Register email storage service (only once!)
         services.AddScoped<SimpleEmailStorageService>();
 
