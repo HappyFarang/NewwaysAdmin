@@ -66,7 +66,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                         break;
 
                     case "horizontal":
-                        result = TestHorizontalPattern_CompleteAlgorithm(document, anchorWord, yTolerance, xTolerance, stopWordsList, patternName);
+                        result = TestHorizontalPattern_ExactSettingsAlgorithm(document, anchorWord, yTolerance, xTolerance, stopWordsList, patternName);
                         break;
 
                     default:
@@ -259,9 +259,10 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         }
 
         /// <summary>
-        /// Complete horizontal pattern algorithm (placeholder for now)
+        /// 🔧 EXACT COPY of TestHorizontalPattern from Settings → PatternView.razor
+        /// Simple horizontal search that works perfectly in Settings
         /// </summary>
-        private SpatialPatternResult TestHorizontalPattern_CompleteAlgorithm(
+        private SpatialPatternResult TestHorizontalPattern_ExactSettingsAlgorithm(
             SpatialDocument document,
             WordBoundingBox anchorWord,
             int yTolerance,
@@ -275,41 +276,61 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             };
             result.GroupedWords.Add(anchorWord);
 
-            // TODO: Implement complete horizontal algorithm from Settings
-            // For now, use simple horizontal search
-            var currentX = anchorWord.RawX2; // Start to the right of anchor
-            var searchY = anchorWord.RawY1;  // Use anchor's top edge for reference
+            _logger.LogDebug("🔄 Starting EXACT Settings horizontal algorithm for pattern '{PatternName}'", patternName);
 
-            while (true)
+            // Parse stop words (required for horizontal search)
+            if (!stopWords.Any())
             {
-                var nextWords = document.Words
-                    .Where(w => w != anchorWord && !result.GroupedWords.Contains(w))
-                    .Where(w => w.RawX1 >= currentX && w.RawX1 <= currentX + xTolerance)
-                    .Where(w => Math.Abs(w.RawY1 - searchY) <= yTolerance)
-                    .OrderBy(w => w.RawX1)
-                    .ThenBy(w => w.RawY1)
-                    .ToList();
-
-                if (!nextWords.Any())
-                    break;
-
-                // Check for stop words
-                if (stopWords.Any() && nextWords.Any(w => stopWords.Any(stop =>
-                    w.Text.Contains(stop, StringComparison.OrdinalIgnoreCase))))
-                {
-                    break;
-                }
-
-                result.GroupedWords.AddRange(nextWords);
-                currentX = nextWords.Max(w => w.RawX2);
+                _logger.LogWarning("❌ Horizontal search requires stop words for pattern '{PatternName}'", patternName);
+                return result; // Horizontal search requires stop words
             }
 
-            result.Success = result.GroupedWords.Count > 1;
+            _logger.LogDebug("📍 Stop words for horizontal search: {StopWords}", string.Join(", ", stopWords));
+
+            // Search horizontally right-only from anchor using bounding box gaps
+            var currentWord = anchorWord;
+            while (true)
+            {
+                // Find next word to the right within Y tolerance
+                // For horizontal search: unlimited X range, just find next word in line
+                var nextWord = document.Words
+                    .Where(w => !result.GroupedWords.Contains(w))
+                    .Where(w => w.RawX1 > currentWord.RawX2) // Must start after current word ends
+                    .Where(w => Math.Abs(w.RawCenterY - currentWord.RawCenterY) <= yTolerance) // Y tolerance for horizontal alignment
+                    .OrderBy(w => w.RawX1) // Closest word to the right
+                    .FirstOrDefault();
+
+                if (nextWord == null)
+                {
+                    _logger.LogDebug("🛑 No more words found to the right in horizontal search");
+                    break; // No more words found
+                }
+
+                _logger.LogDebug("➡️ Found next horizontal word: '{WordText}' at ({X},{Y})",
+                    nextWord.Text, nextWord.RawX1, nextWord.RawY1);
+
+                // FIXED: Add word to result FIRST
+                result.GroupedWords.Add(nextWord);
+
+                // Check if this is a stop word - if so, stop AFTER including it
+                if (stopWords.Any(stop => nextWord.Text.Contains(stop, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _logger.LogDebug("🛑 Found stop word '{WordText}', stopping horizontal search", nextWord.Text);
+                    break; // Stop here, but we've already included the stop word
+                }
+
+                // Update current word for next iteration
+                currentWord = nextWord;
+            }
+
+            result.Success = result.GroupedWords.Count > 1; // Need at least anchor + 1 word
             result.CombinedText = string.Join(" ", result.GroupedWords.Select(w => w.Text));
+
+            _logger.LogInformation("✅ EXACT Settings horizontal algorithm extracted {WordCount} words for pattern '{PatternName}': '{Text}'",
+                result.GroupedWords.Count, patternName, result.CombinedText);
 
             return result;
         }
-
         /// <summary>
         /// Parse stop words string into list - EXACT same logic as Settings
         /// </summary>
