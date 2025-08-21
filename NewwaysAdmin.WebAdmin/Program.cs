@@ -33,6 +33,7 @@ using NewwaysAdmin.SharedModels.Models.Ocr;
 using NewwaysAdmin.WebAdmin.Services.Security;
 using NewwaysAdmin.WebAdmin.Middleware;
 using NewwaysAdmin.SharedModels.Models.Ocr.Core;
+using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates;
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -270,6 +271,7 @@ public class Program
         services.AddScoped<BankSlipExportService>();
         services.AddScoped<SimpleEmailStorageService>();
         services.AddScoped<ISpatialOcrService, SpatialOcrService>();
+        services.AddScoped<OcrFieldAnalyzerService>();
         // ADD THESE BACK (no longer in extension method):
         services.AddScoped<UserSheetConfigService>(sp =>
         {

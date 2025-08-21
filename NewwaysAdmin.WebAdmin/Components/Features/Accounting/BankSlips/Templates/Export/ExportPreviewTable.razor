@@ -1,0 +1,390 @@
+﻿@* Components/Features/Accounting/BankSlips/Templates/Export/ExportPreviewTable.razor *@
+@using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates
+@inject ILogger<ExportPreviewTable> Logger
+
+<div class="export-preview-container">
+
+    @* Field Selection Toggle Buttons *@
+    <div class="card mb-4">
+        <div class="card-header">
+            <h6 class="mb-0">
+                <i class="bi bi-toggles me-2"></i>
+                Select Fields to Export
+                @if (AnalysisResult != null)
+                {
+                    <small class="text-muted ms-2">(@SelectedFieldCount/@AnalysisResult.FieldStatistics.Count fields selected)</small>
+                }
+            </h6>
+        </div>
+        <div class="card-body">
+            @if (AnalysisResult != null && AnalysisResult.FieldStatistics.Any())
+            {
+                <div class="row g-2">
+                    @foreach (var field in AnalysisResult.GetFieldNamesByUsage())
+                    {
+                        var stats = AnalysisResult.FieldStatistics[field];
+                        var isSelected = SelectedFields.Contains(field);
+                        var buttonClass = isSelected ? "btn-primary" : GetFieldButtonClass(stats);
+
+                        <div class="col-md-3 col-sm-4 col-6">
+                            <button class="btn @buttonClass w-100 field-toggle-btn"
+                                    @onclick="() => ToggleField(field)"
+                                    title="@GetFieldTooltip(stats)">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">
+                                        @if (isSelected)
+                                        {
+                                            <i class="bi bi-check-circle me-1"></i>
+                                        }
+                                        @field
+                                    </span>
+                                    <small class="@(isSelected ? "text-light" : stats.GetUsageCssClass())">
+                                        @stats.GetUsageDisplay()
+                                    </small>
+                                </div>
+                            </button>
+                        </div>
+                    }
+                </div>
+
+                @* Quick Selection Buttons *@
+                <div class="mt-3 d-flex gap-2 flex-wrap">
+                    <button class="btn btn-outline-primary btn-sm" @onclick="SelectRecommendedFields">
+                        <i class="bi bi-star me-1"></i>Select Recommended
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="SelectAllFields">
+                        <i class="bi bi-check-all me-1"></i>Select All
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ClearAllFields">
+                        <i class="bi bi-x-circle me-1"></i>Clear All
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-info-circle me-2"></i>
+                    No OCR results to analyze. Process some documents first.
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Custom Tick Box Columns *@
+    @if (CustomTickBoxColumns.Any())
+    {
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-check2-square me-2"></i>
+                    Custom Tick Box Columns
+                    <small class="text-muted ms-2">(@CustomTickBoxColumns.Count columns)</small>
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    @foreach (var tickBox in CustomTickBoxColumns)
+                    {
+                        <div class="col-md-3 col-sm-4 col-6">
+                            <div class="btn btn-success w-100" disabled>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-truncate">
+                                        <i class="bi bi-check-square me-1"></i>
+                                        @tickBox.Name
+                                    </span>
+                                    <small class="text-light">✓</small>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @* Export Preview Table *@
+    <div class="card">
+        <div class="card-header">
+            <h6 class="mb-0">
+                <i class="bi bi-table me-2"></i>
+                Export Preview
+                @if (HasPreviewData)
+                {
+                    <small class="text-muted ms-2">(showing first @MaxPreviewRows rows)</small>
+                }
+            </h6>
+        </div>
+        <div class="card-body">
+            @if (HasPreviewData)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered preview-table">
+
+                        @* Header Row *@
+                        <thead class="table-primary">
+                            <tr>
+                                @foreach (var field in SelectedFields)
+                                {
+                                    <th class="text-nowrap">@field</th>
+                                }
+                                @foreach (var tickBox in CustomTickBoxColumns)
+                                {
+                                    <th class="text-nowrap text-center">@tickBox.Name ✓</th>
+                                }
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            @* Formula Row (if enabled) *@
+                            @if (ShowFormulaRow && CustomTickBoxColumns.Any())
+                            {
+                                <tr class="table-warning">
+                                    @foreach (var field in SelectedFields)
+                                    {
+                                        <td class="text-muted text-center">
+                                            @if (IsNumericField(field))
+                                            {
+                                                <small>=SUM(...)</small>
+                                            }
+                                            else
+                                            {
+                                                <small>—</small>
+                                            }
+                                        </td>
+                                    }
+                                    @foreach (var tickBox in CustomTickBoxColumns)
+                                    {
+                                        <td class="text-center">
+                                            <small class="text-primary">=SUMIF(...)</small>
+                                        </td>
+                                    }
+                                </tr>
+                            }
+
+                            @* Sample Data Rows *@
+                            @foreach (var sampleRow in GetSampleData())
+                            {
+                                <tr>
+                                    @foreach (var field in SelectedFields)
+                                    {
+                                        <td class="@GetCellCssClass(field)">
+                                            @GetSampleValue(sampleRow, field)
+                                        </td>
+                                    }
+                                    @foreach (var tickBox in CustomTickBoxColumns)
+                                    {
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input" disabled />
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+
+                    </table>
+                </div>
+
+                @* Preview Stats *@
+                <div class="mt-3 text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Preview shows @GetSampleData().Count sample rows from @(SessionResults?.Count ?? 0) total documents.
+                    @if (CustomTickBoxColumns.Any())
+                    {
+                        <span class="ms-2">Tick boxes will be interactive in the actual export.</span>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="text-center text-muted py-4">
+                    @if (!SelectedFields.Any())
+                    {
+                        <i class="bi bi-arrow-up me-2"></i>
+                        <span>Select fields above to see export preview</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        <span>No sample data available for preview</span>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+</div>
+
+@code {
+    [Parameter] public FieldAnalysisResult? AnalysisResult { get; set; }
+    [Parameter] public List<Dictionary<string, string>>? SessionResults { get; set; }
+    [Parameter] public List<TickBoxColumnConfig> CustomTickBoxColumns { get; set; } = new();
+    [Parameter] public bool ShowFormulaRow { get; set; } = true;
+    [Parameter] public int MaxPreviewRows { get; set; } = 5;
+    [Parameter] public EventCallback<List<string>> OnSelectedFieldsChanged { get; set; }
+
+    private HashSet<string> SelectedFields { get; set; } = new();
+
+    private int SelectedFieldCount => SelectedFields.Count;
+    private bool HasPreviewData => SelectedFields.Any() && SessionResults?.Any() == true;
+
+    protected override void OnParametersSet()
+    {
+        // Auto-select recommended fields on first load
+        if (AnalysisResult != null && !SelectedFields.Any())
+        {
+            SelectRecommendedFields();
+        }
+    }
+
+    private void ToggleField(string fieldName)
+    {
+        if (SelectedFields.Contains(fieldName))
+        {
+            SelectedFields.Remove(fieldName);
+        }
+        else
+        {
+            SelectedFields.Add(fieldName);
+        }
+
+        NotifySelectedFieldsChanged();
+        StateHasChanged();
+    }
+
+    private void SelectRecommendedFields()
+    {
+        if (AnalysisResult == null) return;
+
+        SelectedFields.Clear();
+        foreach (var field in AnalysisResult.FieldStatistics.Where(kvp => kvp.Value.IsRecommended))
+        {
+            SelectedFields.Add(field.Key);
+        }
+
+        NotifySelectedFieldsChanged();
+        StateHasChanged();
+    }
+
+    private void SelectAllFields()
+    {
+        if (AnalysisResult == null) return;
+
+        SelectedFields.Clear();
+        foreach (var field in AnalysisResult.FieldStatistics.Keys)
+        {
+            SelectedFields.Add(field);
+        }
+
+        NotifySelectedFieldsChanged();
+        StateHasChanged();
+    }
+
+    private void ClearAllFields()
+    {
+        SelectedFields.Clear();
+        NotifySelectedFieldsChanged();
+        StateHasChanged();
+    }
+
+    private async Task NotifySelectedFieldsChanged()
+    {
+        if (OnSelectedFieldsChanged.HasDelegate)
+        {
+            await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
+        }
+    }
+
+    private string GetFieldButtonClass(FieldUsageStatistics stats)
+    {
+        return stats.UsagePercentage switch
+        {
+            >= 90 => "btn-outline-success",     // Green outline for excellent availability
+            >= 70 => "btn-outline-primary",     // Blue outline for good availability
+            >= 50 => "btn-outline-warning",     // Yellow outline for moderate availability
+            _ => "btn-outline-secondary"         // Gray outline for poor availability
+        };
+    }
+
+    private string GetFieldTooltip(FieldUsageStatistics stats)
+    {
+        return $"{stats.FieldName}: Found in {stats.FoundInDocuments}/{stats.TotalDocuments} documents ({stats.UsagePercentage:F1}%), " +
+               $"{stats.DataQualityPercentage:F1}% have data";
+    }
+
+    private List<Dictionary<string, string>> GetSampleData()
+    {
+        if (SessionResults == null || !SessionResults.Any())
+            return new List<Dictionary<string, string>>();
+
+        // Filter out error documents and take first few for preview
+        return SessionResults
+            .Where(doc => !doc.ContainsKey("Error"))
+            .Take(MaxPreviewRows)
+            .ToList();
+    }
+
+    private string GetSampleValue(Dictionary<string, string> sampleRow, string fieldName)
+    {
+        if (sampleRow.TryGetValue(fieldName, out var value))
+        {
+            // Truncate long values for preview
+            return value.Length > 20 ? value.Substring(0, 17) + "..." : value;
+        }
+        return "—"; // Em dash for missing values
+    }
+
+    private string GetCellCssClass(string fieldName)
+    {
+        // Add styling based on field type
+        if (IsNumericField(fieldName))
+            return "text-end"; // Right-align numbers
+
+        return "";
+    }
+
+    private bool IsNumericField(string fieldName)
+    {
+        var numericFields = new[] { "Amount", "Total", "Fee", "Cost", "Balance", "Price" };
+        return numericFields.Any(nf => fieldName.Contains(nf, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Temporary class for tick box columns - will be replaced with actual model later
+    public class TickBoxColumnConfig
+    {
+        public string Name { get; set; } = string.Empty;
+        public string SumFieldName { get; set; } = string.Empty;
+    }
+}
+
+<style>
+    .field-toggle-btn {
+        transition: all 0.2s ease-in-out;
+        font-size: 0.875rem;
+    }
+
+    .field-toggle-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .preview-table {
+        font-size: 0.875rem;
+    }
+
+    .preview-table th {
+        background-color: var(--bs-primary) !important;
+        color: white;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .preview-table .table-warning td {
+        background-color: #fff3cd !important;
+        font-style: italic;
+    }
+
+    .export-preview-container .card {
+        border: 1px solid #dee2e6;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+</style>

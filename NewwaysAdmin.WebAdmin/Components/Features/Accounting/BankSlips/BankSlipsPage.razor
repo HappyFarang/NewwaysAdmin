@@ -10,6 +10,10 @@
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Export
 @using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Shared
 @using NewwaysAdmin.SharedModels.Services.Ocr
+@using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Templates.Export
+
+@inject OcrFieldAnalyzerService FieldAnalyzer
 
 @* 🚀 UPDATED: Direct concrete class injection + PatternManagementService *@
 @inject BankSlipOcrService BankSlipService
@@ -337,6 +341,15 @@
                 </div>
                 <div class="modal-body">
                     <p>Export @_lastResults.Count processing results to Google Sheets?</p>
+
+                    @if (_fieldAnalysisResult != null)
+                    {
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle me-2"></i>
+                            @_fieldAnalysisResult.GetSummary()
+                        </div>
+                    }
+
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle me-2"></i>
                         Results will be exported as flexible dictionary data with all extracted fields.
@@ -352,6 +365,21 @@
         </div>
     </div>
     <div class="modal-backdrop fade show"></div>
+}
+@* Export Preview Section - Show after processing results *@
+@if (_lastResults != null && _lastResults.Any() && _fieldAnalysisResult != null)
+{
+    <div class="row mt-4">
+        <div class="col-12">
+            <ExportPreviewTable 
+                AnalysisResult="_fieldAnalysisResult"
+                SessionResults="_lastResults"
+                CustomTickBoxColumns="@(new List<ExportPreviewTable.TickBoxColumnConfig>())"
+                ShowFormulaRow="true"
+                MaxPreviewRows="5"
+                OnSelectedFieldsChanged="OnSelectedFieldsChanged" />
+        </div>
+    </div>
 }
 
 @code {
@@ -382,6 +410,7 @@
 
     // Export
     private bool _showExportModal = false;
+    private FieldAnalysisResult? _fieldAnalysisResult;
 
     // Status management
     private string _statusMessage = string.Empty;
@@ -392,6 +421,15 @@
     private HashSet<string> _sumEnabledFields = new(); // Track which fields have SUM enabled
     private List<string> _availableResultFields = new(); // All available fields from last processing
     private const int MAX_DISPLAY_FIELDS = 4;
+
+    private async Task OnSelectedFieldsChanged(List<string> selectedFields)
+    {
+        Logger.LogInformation("📋 Selected fields changed: {FieldCount} fields selected", selectedFields.Count);
+        Logger.LogDebug("Selected fields: {Fields}", string.Join(", ", selectedFields));
+
+        // TODO: Store selected fields for actual export
+        // This will be used when we implement the export services
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -888,7 +926,19 @@
                 successCount == totalCount ? "success" : "warning");
 
             Logger.LogInformation("✅ Modern processing completed: {SuccessCount}/{TotalCount} successful", successCount, totalCount);
+            try
+            {
+                var collectionName = _selectedCollection?.Name ?? "Unknown";
+                _fieldAnalysisResult = FieldAnalyzer.AnalyzeSessionFields(_lastResults, collectionName);
+                Logger.LogInformation("📊 Field analysis completed: {Summary}", _fieldAnalysisResult.GetSummary());
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error analyzing fields for export preview");
+            }
+
         }
+
         catch (Exception ex)
         {
             Logger.LogError(ex, "💥 Error during modern processing");
