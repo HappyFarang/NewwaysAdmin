@@ -1,0 +1,142 @@
+@* /Shared/Tables/DictionaryTable.razor *@
+@* Generic reusable table component for Dictionary<string, List<string>> data *@
+@using NewwaysAdmin.Shared.Tables
+
+<div class="dictionary-table-container @(EnableScroll ? "table-scroll" : "")">
+    <div class="table-responsive">
+        <table class="@CssClass">
+            @if (Layout == TableLayout.Vertical)
+            {
+                @* Traditional Column Layout (Vertical) *@
+                <thead class="table-primary">
+                    <tr>
+                        @foreach (var column in Data.Keys)
+                        {
+                            <th class="text-nowrap">@column</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int rowIndex = 0; rowIndex < MaxRowCount; rowIndex++)
+                    {
+                        <tr>
+                            @foreach (var column in Data)
+                            {
+                                <td class="@GetCellCssClass(column.Key, rowIndex)">
+                                    @GetCellValue(column.Value, rowIndex)
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            }
+            else
+            {
+                @* Transposed Row Layout (Horizontal) *@
+                <tbody>
+                    @foreach (var column in Data)
+                    {
+                        <tr>
+                            <th class="table-primary text-nowrap">@column.Key</th>
+                            @for (int valueIndex = 0; valueIndex < column.Value.Count; valueIndex++)
+                            {
+                                <td class="@GetCellCssClass(column.Key, valueIndex)">
+                                    @GetCellValue(column.Value, valueIndex)
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            }
+        </table>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, List<string>> Data { get; set; } = new();
+    [Parameter] public TableLayout Layout { get; set; } = TableLayout.Vertical;
+    [Parameter] public string CssClass { get; set; } = "table table-sm table-bordered";
+    [Parameter] public bool EnableScroll { get; set; } = true;
+
+    // Calculate maximum number of rows for vertical layout
+    private int MaxRowCount => Data.Values.Any() ? Data.Values.Max(list => list.Count) : 0;
+
+    private string GetCellValue(List<string> columnData, int index)
+    {
+        if (index < columnData.Count)
+        {
+            var value = columnData[index];
+            return string.IsNullOrEmpty(value) ? "—" : value;
+        }
+        return "—"; // Em dash for missing values
+    }
+
+    private string GetCellCssClass(string columnName, int rowIndex)
+    {
+        var cssClasses = new List<string>();
+
+        // Check if this is a formula row (starts with =)
+        if (Data.TryGetValue(columnName, out var columnData) &&
+            rowIndex < columnData.Count &&
+            columnData[rowIndex].StartsWith("="))
+        {
+            cssClasses.Add("table-warning");
+            cssClasses.Add("text-center");
+            cssClasses.Add("font-italic");
+        }
+        // Check if this looks like a numeric field
+        else if (IsNumericColumn(columnName))
+        {
+            cssClasses.Add("text-end");
+        }
+
+        return string.Join(" ", cssClasses);
+    }
+
+    private bool IsNumericColumn(string columnName)
+    {
+        var numericKeywords = new[] { "Amount", "Total", "Fee", "Cost", "Balance", "Price", "Sum" };
+        return numericKeywords.Any(keyword =>
+            columnName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+}
+
+// TableLayout enum is now defined in TableModels.cs
+
+<style>
+    .dictionary-table-container {
+        font-size: 0.875rem;
+    }
+
+        .dictionary-table-container.table-scroll {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .dictionary-table-container th {
+            background-color: var(--bs-primary) !important;
+            color: white;
+            font-weight: 600;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .dictionary-table-container .table-warning td {
+            background-color: #fff3cd !important;
+            font-style: italic;
+        }
+
+        .dictionary-table-container .font-italic {
+            font-style: italic;
+        }
+
+        /* Horizontal layout specific styling */
+        .dictionary-table-container tbody th {
+            background-color: var(--bs-primary) !important;
+            color: white;
+            font-weight: 600;
+            min-width: 120px;
+        }
+</style>

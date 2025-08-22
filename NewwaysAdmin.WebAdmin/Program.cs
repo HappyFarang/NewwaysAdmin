@@ -272,6 +272,9 @@ public class Program
         services.AddScoped<SimpleEmailStorageService>();
         services.AddScoped<ISpatialOcrService, SpatialOcrService>();
         services.AddScoped<OcrFieldAnalyzerService>();
+        services.AddScoped<NewwaysAdmin.Shared.Tables.DictionaryTableParser>();
+        // ✅ NEW: Dictionary Table Parser for generic table rendering
+        services.AddScoped<NewwaysAdmin.Shared.Tables.DictionaryTableParser>();
         // ADD THESE BACK (no longer in extension method):
         services.AddScoped<UserSheetConfigService>(sp =>
         {
