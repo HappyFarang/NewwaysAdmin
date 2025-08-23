@@ -84,7 +84,13 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
         private readonly int _authMaxPerHour = 3600;
 
         // Suspicious patterns
-        private readonly string[] _publicPages = { "/", "/login", "/register", "/forgot-password", "/error", "/access-denied" };
+        private readonly string[] _publicPages = {
+            "/", "/login", "/register", "/forgot-password", "/error", "/access-denied",
+            "/_blazor", "/_framework", "/css", "/js", "/lib", "/favicon.ico" // Added Blazor/static resources
+};
+        private readonly string[] _loginPages = {
+            "/login", "/register", "/forgot-password" // ONLY these pages get strict protection
+};
         private readonly string[] _suspiciousUserAgents = {
             "bot", "crawler", "spider", "scan", "curl", "wget", "python",
             "go-http", "java", "perl", "ruby", "nmap", "masscan", "zmap",
@@ -125,107 +131,219 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
 
         public async Task<DoSCheckResult> CheckRequestAsync(IPAddress ipAddress, string userAgent, string path, bool isAuthenticated)
         {
+            var now = DateTime.UtcNow;
             var ipString = ipAddress.ToString();
 
-            // Check if already blocked
-            if (_blockedCache.TryGetValue(ipString, out var blocked))
+            _logger.LogInformation("DoS Check for {IpAddress}: Path={Path}, IsPublicPage={IsPublic}, IsLoginPage={IsLogin}, IsAuthenticated={IsAuth}, UseStrictLimits={UseStrict}",
+                ipString, path, IsPublicPage(path), IsLoginPage(path), isAuthenticated, ShouldUseStrictLimits(path, isAuthenticated));
+
+            // Check if currently blocked
+            if (_blockedCache.TryGetValue(ipString, out var blockedClient))
             {
-                if (DateTime.UtcNow < blocked.ExpiresAt)
+                if (blockedClient.ExpiresAt > now) // Fixed: was BlockedUntil, now ExpiresAt
                 {
                     return new DoSCheckResult
                     {
                         IsBlocked = true,
-                        Reason = blocked.Reason,
-                        RemainingBlockTime = blocked.ExpiresAt - DateTime.UtcNow
+                        Reason = blockedClient.Reason,
+                        RemainingBlockTime = blockedClient.ExpiresAt - now, // Fixed: ExpiresAt
+                        RequestsInWindow = blockedClient.TotalRequests // Fixed: was RequestCount, now TotalRequests
                     };
                 }
-                else if (!blocked.IsPermanent)
+                else
                 {
+                    // Block expired, remove from cache
                     _blockedCache.TryRemove(ipString, out _);
                 }
             }
 
-            await _lock.WaitAsync();
-            try
+            // Get request history
+            var requestHistory = GetRequestHistory(ipString);
+
+            // Add current request
+            requestHistory.Add(new RequestRecord
             {
-                // Get request history for this IP
-                if (!_requestCache.ContainsKey(ipString))
-                    _requestCache[ipString] = new List<RequestRecord>();
+                Timestamp = now,
+                IpAddress = ipString, // Fixed: added missing IpAddress
+                Path = path,
+                UserAgent = userAgent,
+                IsAuthenticated = isAuthenticated
+            });
 
-                var history = _requestCache[ipString];
-                var now = DateTime.UtcNow;
+            // Clean old requests (older than 1 hour)
+            var cutoffTime = now.AddHours(-1);
+            requestHistory.RemoveAll(r => r.Timestamp < cutoffTime);
 
-                // Clean old requests (older than 24 hours)
-                history.RemoveAll(r => r.Timestamp < now.AddHours(-24));
+            // Update cache
+            _requestCache[ipString] = requestHistory;
 
-                // Determine if this is a public page or login attempt
-                var isPublicPage = IsPublicPage(path);
-                var isLoginPage = path.ToLower().Contains("/login");
+            // **KEY CHANGE: Only apply strict limits to login pages OR unauthenticated users**
+            bool shouldApplyStrictLimits = ShouldUseStrictLimits(path, isAuthenticated);
 
-                // Be very lenient with login pages and authenticated users
-                var useStrictLimits = isPublicPage && !isLoginPage && !isAuthenticated;
+            if (shouldApplyStrictLimits)
+            {
+                // Apply strict rate limiting (login attempts, unauthenticated requests)
+                var recentRequests = requestHistory.Where(r => r.Timestamp > now.AddMinutes(-1)).Count();
+                var hourlyRequests = requestHistory.Count;
 
-                // Log for debugging
-                _logger.LogInformation("DoS Check for {IpAddress}: Path={Path}, IsPublicPage={IsPublicPage}, IsLoginPage={IsLoginPage}, IsAuthenticated={IsAuthenticated}, UseStrictLimits={UseStrictLimits}",
-                    ipString, path, isPublicPage, isLoginPage, isAuthenticated, useStrictLimits);
+                int maxPerMinute = isAuthenticated ? _authMaxPerMinute : _publicMaxPerMinute;
+                int maxPerHour = isAuthenticated ? _authMaxPerHour : _publicMaxPerHour;
 
-                // Check rate limits
-                var lastMinute = history.Where(r => r.Timestamp > now.AddMinutes(-1)).Count();
-                var lastHour = history.Where(r => r.Timestamp > now.AddHours(-1)).Count();
+                // Check for suspicious patterns
+                bool isSuspicious = IsSuspiciousActivity(requestHistory, userAgent);
 
-                var maxPerMinute = useStrictLimits ? _publicMaxPerMinute : _authMaxPerMinute;
-                var maxPerHour = useStrictLimits ? _publicMaxPerHour : _authMaxPerHour;
-
-                var result = new DoSCheckResult
+                if (recentRequests > maxPerMinute || hourlyRequests > maxPerHour || isSuspicious)
                 {
-                    RequestsInWindow = lastMinute,
-                    IsHighRisk = lastMinute >= maxPerMinute * 0.7
+                    var blockDuration = CalculateBlockDuration(requestHistory, ipString);
+                    var blockUntil = now.Add(blockDuration);
+
+                    var reason = isSuspicious
+                        ? $"Suspicious activity detected"
+                        : $"Rate limit exceeded: {recentRequests}/{maxPerMinute} per minute";
+
+                    var blockedUser = new BlockedClient
+                    {
+                        IpAddress = ipString,
+                        BlockedAt = now,
+                        ExpiresAt = blockUntil, // Fixed: using ExpiresAt instead of BlockedUntil
+                        Reason = reason,
+                        TotalRequests = recentRequests // Fixed: using TotalRequests instead of RequestCount
+                    };
+
+                    _blockedCache[ipString] = blockedUser;
+
+                    return new DoSCheckResult
+                    {
+                        IsBlocked = true,
+                        Reason = reason,
+                        RemainingBlockTime = blockDuration,
+                        RequestsInWindow = recentRequests
+                    };
+                }
+
+                return new DoSCheckResult
+                {
+                    IsBlocked = false,
+                    IsHighRisk = recentRequests > (maxPerMinute * 0.8), // Warn at 80% of limit
+                    RequestsInWindow = recentRequests
                 };
-
-                // Check minute limit
-                if (lastMinute >= maxPerMinute)
-                {
-                    _logger.LogWarning("BLOCKING {IpAddress}: {LastMinute}/{MaxPerMinute} requests in last minute. Path: {Path}, UseStrictLimits: {UseStrictLimits}",
-                        ipString, lastMinute, maxPerMinute, path, useStrictLimits);
-
-                    await BlockClientAsync(ipString, TimeSpan.FromMinutes(30),
-                        $"Rate limit exceeded: {lastMinute}/{maxPerMinute} per minute");
-                    result.IsBlocked = true;
-                    result.Reason = "Rate limit exceeded";
-                    return result;
-                }
-
-                // Check hour limit
-                if (lastHour >= maxPerHour)
-                {
-                    _logger.LogWarning("BLOCKING {IpAddress}: {LastHour}/{MaxPerHour} requests in last hour. Path: {Path}",
-                        ipString, lastHour, maxPerHour, path);
-
-                    await BlockClientAsync(ipString, TimeSpan.FromHours(2),
-                        $"Hourly limit exceeded: {lastHour}/{maxPerHour} per hour");
-                    result.IsBlocked = true;
-                    result.Reason = "Hourly limit exceeded";
-                    return result;
-                }
-
-                // Check for suspicious user agents (only for public pages)
-                if (useStrictLimits && IsSuspiciousUserAgent(userAgent))
-                {
-                    await BlockClientAsync(ipString, TimeSpan.FromHours(8),
-                        $"Suspicious user agent: {userAgent}");
-                    result.IsBlocked = true;
-                    result.Reason = "Suspicious user agent";
-                    return result;
-                }
-
-                return result;
             }
-            finally
+            else
             {
-                _lock.Release();
+                // **LENIENT MODE**: For authenticated users on non-login pages
+                // Only block if EXTREMELY suspicious (like 1000+ requests per minute)
+                var recentRequests = requestHistory.Where(r => r.Timestamp > now.AddMinutes(-1)).Count();
+
+                // Only block authenticated users if they're doing something really crazy
+                if (recentRequests > 1000) // 1000 requests per minute is clearly a bot
+                {
+                    var reason = $"Extreme rate abuse: {recentRequests} requests per minute";
+                    var blockedUser = new BlockedClient
+                    {
+                        IpAddress = ipString,
+                        BlockedAt = now,
+                        ExpiresAt = now.AddMinutes(5), // Short block for authenticated users
+                        Reason = reason,
+                        TotalRequests = recentRequests // Fixed: using TotalRequests
+                    };
+
+                    _blockedCache[ipString] = blockedUser;
+
+                    return new DoSCheckResult
+                    {
+                        IsBlocked = true,
+                        Reason = reason,
+                        RemainingBlockTime = TimeSpan.FromMinutes(5),
+                        RequestsInWindow = recentRequests
+                    };
+                }
+
+                // Just log high activity but don't block
+                return new DoSCheckResult
+                {
+                    IsBlocked = false,
+                    IsHighRisk = recentRequests > 200, // Log if over 200/minute but don't block
+                    RequestsInWindow = recentRequests
+                };
             }
         }
 
+        private List<RequestRecord> GetRequestHistory(string ipAddress)
+        {
+            return _requestCache.GetOrAdd(ipAddress, _ => new List<RequestRecord>());
+        }
+
+        private bool IsSuspiciousActivity(List<RequestRecord> requestHistory, string userAgent)
+        {
+            // Check for suspicious user agent
+            if (IsSuspiciousUserAgent(userAgent))
+                return true;
+
+            // Check for too many different paths (scanning behavior)
+            var uniquePaths = requestHistory.Where(r => r.Timestamp > DateTime.UtcNow.AddMinutes(-5))
+                                          .Select(r => r.Path)
+                                          .Distinct()
+                                          .Count();
+            if (uniquePaths > 20) // More than 20 different paths in 5 minutes
+                return true;
+
+            // Check for high error rate
+            var recentRequests = requestHistory.Where(r => r.Timestamp > DateTime.UtcNow.AddMinutes(-2)).ToList();
+            if (recentRequests.Count > 10)
+            {
+                var errorRate = recentRequests.Count(r => r.ResponseCode >= 400) / (double)recentRequests.Count;
+                if (errorRate > 0.7) // More than 70% errors
+                    return true;
+            }
+
+            return false;
+        }
+
+        private TimeSpan CalculateBlockDuration(List<RequestRecord> requestHistory, string ipAddress)
+        {
+            // Check if this IP has been blocked before (escalating penalties)
+            var priorBlocks = _blockedCache.Values.Count(b => b.IpAddress == ipAddress);
+
+            return priorBlocks switch
+            {
+                0 => TimeSpan.FromMinutes(5),    // First offense: 5 minutes
+                1 => TimeSpan.FromMinutes(30),   // Second offense: 30 minutes  
+                2 => TimeSpan.FromHours(2),      // Third offense: 2 hours
+                _ => TimeSpan.FromHours(24)      // Repeat offender: 24 hours
+            };
+        }
+        private bool ShouldUseStrictLimits(string path, bool isAuthenticated)
+        {
+            // Always protect login pages strictly
+            if (IsLoginPage(path))
+            {
+                return true;
+            }
+
+            // Don't apply strict limits to authenticated users on non-login pages
+            if (isAuthenticated)
+            {
+                return false;
+            }
+
+            // Apply moderate limits to unauthenticated users on public pages
+            if (IsPublicPage(path))
+            {
+                return true;
+            }
+
+            // Unauthenticated users trying to access protected pages - block more aggressively
+            return true;
+        }
+
+        // <summary>
+        /// Check if this is a login-related page that needs strict protection
+        /// </summary>
+        private bool IsLoginPage(string path)
+        {
+            return _loginPages.Any(loginPage =>
+                path.Equals(loginPage, StringComparison.OrdinalIgnoreCase));
+        }
         public async Task LogRequestAsync(IPAddress ipAddress, string userAgent, string path, int responseCode, bool isAuthenticated)
         {
             var ipString = ipAddress.ToString();
@@ -364,11 +482,13 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
             await BlockClientAsync(ipAddress.ToString(), duration, $"Manual block: {reason}");
         }
 
+        /// <summary>
+        /// Check if this is a public page (including Blazor resources)
+        /// </summary>
         private bool IsPublicPage(string path)
         {
-            if (string.IsNullOrEmpty(path)) return true;
-            var lowerPath = path.ToLower();
-            return _publicPages.Any(publicPage => lowerPath.StartsWith(publicPage.ToLower()));
+            return _publicPages.Any(publicPage =>
+                path.StartsWith(publicPage, StringComparison.OrdinalIgnoreCase));
         }
 
         private bool IsSuspiciousUserAgent(string userAgent)

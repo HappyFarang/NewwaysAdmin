@@ -104,7 +104,7 @@
         </div>
     }
 
-    @* SIMPLE DEBUG INFO *@
+    @* DEBUG INFO *@
     <div class="alert alert-info mb-3">
         <strong>🔍 DEBUG:</strong>
         SessionResults: @(SessionResults?.Count ?? 0),
@@ -112,7 +112,7 @@
         HasPreviewData: @HasPreviewData
         @if (DebugInfo != null)
         {
-            <br/>
+            <br />
             <small>@DebugInfo</small>
         }
     </div>
@@ -132,75 +132,36 @@
         <div class="card-body">
             @if (HasPreviewData)
             {
-                <div class="alert alert-success mb-2">
-                    <strong>🔥 TEST:</strong> GetTableData() called. Returned @GetTableData().Count columns.
-                </div>
+                var tableData = GetTableData();
 
-                @* DIRECT TABLE TEST - Remove DictionaryTable temporarily *@
-                <div class="alert alert-warning mb-2">
-                    <strong>🔧 DIRECT TABLE TEST:</strong>
-                    @{
-                        var tableData = GetTableData();
-                        var firstThreeColumns = tableData.Take(3).ToList();
-                    }
-                    <table class="table table-sm table-bordered">
-                        <thead>
+                @* Improved Inline Table *@
+                <div class="export-preview-table-container">
+                    <table class="table table-sm table-bordered export-preview-table">
+                        <thead class="table-primary">
                             <tr>
-                                @foreach (var column in firstThreeColumns)
+                                @foreach (var columnName in tableData.Keys)
                                 {
-                                    <th>@column.Key</th>
+                                    <th class="@GetColumnCssClass(columnName)">@columnName</th>
                                 }
                             </tr>
                         </thead>
                         <tbody>
-                            @for (int i = 0; i < firstThreeColumns.First().Value.Count && i < 2; i++)
+                            @{
+                                int maxRows = tableData.Values.Any() ? tableData.Values.Max(list => list.Count) : 0;
+                            }
+                            @for (int rowIndex = 0; rowIndex < maxRows; rowIndex++)
                             {
-                                <tr>
-                                    @foreach (var column in firstThreeColumns)
+                                <tr class="@GetRowCssClass(rowIndex, tableData)">
+                                    @foreach (var column in tableData)
                                     {
-                                        <td>@(i < column.Value.Count ? column.Value[i] : "")</td>
+                                        <td class="@GetColumnCssClass(column.Key)">
+                                            @GetCellValue(column.Value, rowIndex)
+                                        </td>
                                     }
                                 </tr>
                             }
                         </tbody>
                     </table>
-                    <small>Showing first 3 columns, first 2 rows out of @tableData.Count total columns</small>
-                </div>
-
-                @* INLINE SIMPLE TABLE - NO COMPONENTS *@
-                
-                <div style="border: 2px solid green; padding: 10px;">
-                    <h5>🚀 INLINE TABLE (No Custom Components)</h5>
-                    @if (tableData?.Any() == true)
-                    {
-                        <p>✅ Data exists: @tableData.Count columns</p>
-                        <table class="table table-sm table-bordered">
-                            <thead>
-                                <tr>
-                                    @foreach (var header in tableData.Keys.Take(5))
-                                    {
-                                        <th>@header</th>
-                                    }
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @for (int row = 0; row < 3 && tableData.Values.Any() && row < tableData.Values.First().Count; row++)
-                                {
-                                    <tr>
-                                        @foreach (var column in tableData.Take(5))
-                                        {
-                                            <td>@(row < column.Value.Count ? column.Value[row] : "")</td>
-                                        }
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                        <p><small>First 5 columns, first 3 rows of @tableData.Count total columns</small></p>
-                    }
-                    else
-                    {
-                        <p>❌ No table data</p>
-                    }
                 </div>
 
                 @* Preview Stats *@
@@ -280,21 +241,13 @@
     }
 
     /// <summary>
-    /// NEW: Use the parser to transform data for the table component (DEBUG VERSION)
+    /// Transform data using the parser for the table component
     /// </summary>
     private Dictionary<string, List<string>> GetTableData()
     {
         Console.WriteLine("🔍 GetTableData() CALLED");
         Console.WriteLine($"   SessionResults: {SessionResults?.Count ?? 0} documents");
         Console.WriteLine($"   SelectedFields: {SelectedFields.Count} fields");
-
-        if (SessionResults?.Any() == true)
-        {
-            var firstDoc = SessionResults.First();
-            Console.WriteLine($"   First document fields: [{string.Join(", ", firstDoc.Keys.Take(5))}]");
-        }
-
-        Console.WriteLine($"   Selected: [{string.Join(", ", SelectedFields.Take(5))}]");
 
         if (SessionResults == null || !SelectedFields.Any())
         {
@@ -303,17 +256,17 @@
         }
 
         var options = new TableParseOptions
-        {
-            IncludeFormulaRow = ShowFormulaRow && CustomTickBoxColumns.Any(),
-            MaxRows = MaxPreviewRows,
-            MaxValueLength = 20,
-            CustomColumns = CustomTickBoxColumns.Select(tb => new TableCustomColumn
             {
-                Name = tb.Name,
-                Type = TableCustomColumnType.Checkbox,
-                SumFieldName = tb.SumFieldName
-            }).ToList()
-        };
+                IncludeFormulaRow = ShowFormulaRow,
+                MaxRows = MaxPreviewRows,
+                MaxValueLength = 50, // Allow longer text for preview
+                CustomColumns = CustomTickBoxColumns.Select(tb => new TableCustomColumn
+                {
+                    Name = tb.Name,
+                    Type = TableCustomColumnType.Checkbox,
+                    SumFieldName = tb.SumFieldName
+                }).ToList()
+            };
 
         Console.WriteLine($"   Options: FormulaRow={options.IncludeFormulaRow}, MaxRows={options.MaxRows}");
 
@@ -323,29 +276,94 @@
             var result = TableParser.ParseToColumns(SessionResults, SelectedFields.ToList(), options);
 
             Console.WriteLine($"✅ Parser returned: {result.Count} columns");
-
-            foreach (var kvp in result.Take(3))
-            {
-                Console.WriteLine($"   Column '{kvp.Key}': {kvp.Value.Count} values");
-                if (kvp.Value.Any())
-                {
-                    Console.WriteLine($"      First value: '{kvp.Value[0]}'");
-                }
-            }
-
             return result;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"💥 PARSER ERROR: {ex.Message}");
-            Console.WriteLine($"   Stack: {ex.StackTrace}");
-            DebugInfo = $"PARSER ERROR: {ex.Message}";
-            StateHasChanged();
+            Console.WriteLine($"❌ Parser error: {ex.Message}");
             return new Dictionary<string, List<string>>();
         }
     }
 
-    private void ToggleField(string fieldName)
+    /// <summary>
+    /// Get CSS class for column based on field type
+    /// </summary>
+    private string GetColumnCssClass(string columnName)
+    {
+        // Check if it's a custom checkbox column
+        if (CustomTickBoxColumns.Any(cb => cb.Name == columnName))
+        {
+            return "col-checkbox";
+        }
+
+        // Determine column type by field name patterns
+        if (IsDateField(columnName))
+        {
+            return "col-date";
+        }
+
+        if (IsAmountField(columnName))
+        {
+            return "col-amount";
+        }
+
+        // Default to text column
+        return "col-text";
+    }
+
+    /// <summary>
+    /// Get CSS class for row based on content
+    /// </summary>
+    private string GetRowCssClass(int rowIndex, Dictionary<string, List<string>> tableData)
+    {
+        // Check if this is a formula row (first row contains formulas)
+        if (ShowFormulaRow && rowIndex == 0 && tableData.Values.Any())
+        {
+            var firstColumn = tableData.Values.First();
+            if (rowIndex < firstColumn.Count && firstColumn[rowIndex].StartsWith("="))
+            {
+                return "formula-row";
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Get cell value with proper formatting
+    /// </summary>
+    private string GetCellValue(List<string> columnData, int index)
+    {
+        if (index < columnData.Count)
+        {
+            var value = columnData[index];
+            return string.IsNullOrEmpty(value) ? "—" : value;
+        }
+        return "—"; // Em dash for missing values
+    }
+
+    /// <summary>
+    /// Check if field is a date field
+    /// </summary>
+    private bool IsDateField(string fieldName)
+    {
+        var dateKeywords = new[] { "Date", "Time", "Created", "Updated", "Processed" };
+        return dateKeywords.Any(keyword =>
+            fieldName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Check if field is an amount/numeric field
+    /// </summary>
+    private bool IsAmountField(string fieldName)
+    {
+        var amountKeywords = new[] { "Amount", "Total", "Sum", "Fee", "Cost", "Balance", "Price" };
+        return amountKeywords.Any(keyword =>
+            fieldName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Field selection methods
+    private async Task ToggleField(string fieldName)
     {
         if (SelectedFields.Contains(fieldName))
         {
@@ -356,27 +374,32 @@
             SelectedFields.Add(fieldName);
         }
 
-        NotifySelectedFieldsChanged();
+        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
         UpdateDebugInfo();
-        StateHasChanged();
     }
 
-    private void SelectRecommendedFields()
+    private async Task SelectRecommendedFields()
     {
         if (AnalysisResult == null) return;
 
         SelectedFields.Clear();
-        foreach (var field in AnalysisResult.FieldStatistics.Where(kvp => kvp.Value.IsRecommended))
+
+        // Select fields with >= 70% usage rate
+        var recommendedFields = AnalysisResult.FieldStatistics.Values
+            .Where(stats => stats.UsagePercentage >= 70)
+            .Select(stats => stats.FieldName)
+            .ToList();
+
+        foreach (var field in recommendedFields)
         {
-            SelectedFields.Add(field.Key);
+            SelectedFields.Add(field);
         }
 
-        NotifySelectedFieldsChanged();
+        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
         UpdateDebugInfo();
-        StateHasChanged();
     }
 
-    private void SelectAllFields()
+    private async Task SelectAllFields()
     {
         if (AnalysisResult == null) return;
 
@@ -386,25 +409,15 @@
             SelectedFields.Add(field);
         }
 
-        NotifySelectedFieldsChanged();
+        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
         UpdateDebugInfo();
-        StateHasChanged();
     }
 
-    private void ClearAllFields()
+    private async Task ClearAllFields()
     {
         SelectedFields.Clear();
-        NotifySelectedFieldsChanged();
+        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
         UpdateDebugInfo();
-        StateHasChanged();
-    }
-
-    private async Task NotifySelectedFieldsChanged()
-    {
-        if (OnSelectedFieldsChanged.HasDelegate)
-        {
-            await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
-        }
     }
 
     private string GetFieldButtonClass(FieldUsageStatistics stats)
@@ -436,8 +449,6 @@
             .ToList();
     }
 
-    // Note: GetSampleValue() and IsNumericField() methods are now handled by DictionaryTableParser
-
     // Temporary class for tick box columns - will be replaced with actual model later
     public class TickBoxColumnConfig
     {
@@ -447,6 +458,92 @@
 }
 
 <style>
+    /* Export Preview Table Styles */
+    .export-preview-table-container {
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    .export-preview-table {
+        width: 100%;
+        table-layout: fixed; /* This is key for controlling column widths */
+        margin-bottom: 0;
+    }
+
+        /* Column width management */
+        .export-preview-table .col-date {
+            width: 90px;
+            min-width: 90px;
+        }
+
+        .export-preview-table .col-amount {
+            width: 100px;
+            min-width: 100px;
+            text-align: right;
+        }
+
+        .export-preview-table .col-checkbox {
+            width: 60px;
+            min-width: 60px;
+            text-align: center;
+            padding: 0.375rem 0.25rem;
+        }
+
+        .export-preview-table .col-text {
+            /* Text columns take up remaining space and adapt */
+            width: auto;
+            min-width: 120px;
+            word-wrap: break-word;
+            white-space: normal;
+            vertical-align: top;
+            max-width: 200px; /* Prevent extremely wide columns */
+        }
+
+        /* Header styling */
+        .export-preview-table thead th {
+            background-color: var(--bs-primary) !important;
+            color: white;
+            font-weight: 600;
+            padding: 0.5rem 0.375rem;
+            vertical-align: middle;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        /* Cell styling */
+        .export-preview-table td {
+            padding: 0.375rem 0.375rem;
+            vertical-align: top;
+            border: 1px solid #dee2e6;
+            line-height: 1.4;
+        }
+
+        /* Formula row styling */
+        .export-preview-table .formula-row {
+            background-color: #fff3cd;
+            font-style: italic;
+        }
+
+            .export-preview-table .formula-row td {
+                background-color: #fff3cd !important;
+                font-weight: 500;
+                text-align: center;
+            }
+
+        /* Text column specific styling */
+        .export-preview-table .col-text {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+        }
+
+        /* Checkbox column specific styling */
+        .export-preview-table .col-checkbox input[type="checkbox"] {
+            margin: 0;
+            transform: scale(1.1);
+        }
+
+    /* Field toggle button styles */
     .field-toggle-btn {
         transition: all 0.2s ease-in-out;
         font-size: 0.875rem;
@@ -462,5 +559,12 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 
-    /* Remove the old .preview-table styles since they're now in DictionaryTable */
+    /* Hover effects */
+    .export-preview-table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+
+    .export-preview-table .formula-row:hover td {
+        background-color: #f0e68c !important;
+    }
 </style>
