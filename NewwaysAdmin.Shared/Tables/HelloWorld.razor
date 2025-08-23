@@ -1,0 +1,14 @@
+﻿@* NewwaysAdmin.Shared/Tables/HelloWorld.razor *@
+@* If this doesn't work, Blazor is broken *@
+@namespace NewwaysAdmin.Shared.Tables
+@using NewwaysAdmin.Shared.Tables
+
+<div style="background: red; color: white; padding: 20px; font-size: 20px; border: 5px solid blue;">
+    🎯 HELLO WORLD - IF YOU SEE THIS, BLAZOR WORKS!
+    <br />
+    Parameter value: @TestMessage
+</div>
+
+@code {
+    [Parameter] public string TestMessage { get; set; } = "Default Message";
+}

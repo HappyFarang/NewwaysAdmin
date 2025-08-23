@@ -1,74 +1,85 @@
-@* /Shared/Tables/DictionaryTable.razor *@
+﻿@* /Shared/Tables/DictionaryTable.razor *@
 @* Generic reusable table component for Dictionary<string, List<string>> data *@
+@namespace NewwaysAdmin.Shared.Tables
 @using NewwaysAdmin.Shared.Tables
 
-<div class="dictionary-table-container @(EnableScroll ? "table-scroll" : "")">
-    <div class="table-responsive">
-        <table class="@CssClass">
-            @if (Layout == TableLayout.Vertical)
-            {
-                @* Traditional Column Layout (Vertical) *@
-                <thead class="table-primary">
-                    <tr>
-                        @foreach (var column in Data.Keys)
+@if (Data?.Any() == true)
+{
+    <div class="dictionary-table-container @(EnableScroll ? "table-scroll" : "")">
+        <div class="table-responsive">
+            <table class="@CssClass">
+                @if (Layout == TableLayout.Vertical)
+                {
+                    @* Traditional Column Layout (Vertical) *@
+                    <thead class="table-primary">
+                        <tr>
+                            @foreach (var column in Data.Keys)
+                            {
+                                <th class="text-nowrap">@column</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int rowIndex = 0; rowIndex < MaxRowCount; rowIndex++)
                         {
-                            <th class="text-nowrap">@column</th>
+                            <tr>
+                                @foreach (var column in Data)
+                                {
+                                    <td class="@GetCellCssClass(column.Key, rowIndex)">
+                                        @GetCellValue(column.Value, rowIndex)
+                                    </td>
+                                }
+                            </tr>
                         }
-                    </tr>
-                </thead>
-                <tbody>
-                    @for (int rowIndex = 0; rowIndex < MaxRowCount; rowIndex++)
-                    {
-                        <tr>
-                            @foreach (var column in Data)
-                            {
-                                <td class="@GetCellCssClass(column.Key, rowIndex)">
-                                    @GetCellValue(column.Value, rowIndex)
-                                </td>
-                            }
-                        </tr>
-                    }
-                </tbody>
-            }
-            else
-            {
-                @* Transposed Row Layout (Horizontal) *@
-                <tbody>
-                    @foreach (var column in Data)
-                    {
-                        <tr>
-                            <th class="table-primary text-nowrap">@column.Key</th>
-                            @for (int valueIndex = 0; valueIndex < column.Value.Count; valueIndex++)
-                            {
-                                <td class="@GetCellCssClass(column.Key, valueIndex)">
-                                    @GetCellValue(column.Value, valueIndex)
-                                </td>
-                            }
-                        </tr>
-                    }
-                </tbody>
-            }
-        </table>
+                    </tbody>
+                }
+                else
+                {
+                    @* Transposed Row Layout (Horizontal) *@
+                    <tbody>
+                        @foreach (var column in Data)
+                        {
+                            <tr>
+                                <th class="table-primary text-nowrap">@column.Key</th>
+                                @for (int valueIndex = 0; valueIndex < column.Value.Count; valueIndex++)
+                                {
+                                    <td class="@GetCellCssClass(column.Key, valueIndex)">
+                                        @GetCellValue(column.Value, valueIndex)
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                }
+            </table>
+        </div>
     </div>
-</div>
+}
+else
+{
+    <div class="text-center text-muted py-3">
+        <i class="bi bi-table me-2"></i>
+        No data to display
+    </div>
+}
 
 @code {
-    [Parameter] public Dictionary<string, List<string>> Data { get; set; } = new();
+    [Parameter] public Dictionary<string, List<string>>? Data { get; set; }  // ✅ FIXED: Now nullable
     [Parameter] public TableLayout Layout { get; set; } = TableLayout.Vertical;
     [Parameter] public string CssClass { get; set; } = "table table-sm table-bordered";
     [Parameter] public bool EnableScroll { get; set; } = true;
 
     // Calculate maximum number of rows for vertical layout
-    private int MaxRowCount => Data.Values.Any() ? Data.Values.Max(list => list.Count) : 0;
+    private int MaxRowCount => Data?.Values.Any() == true ? Data.Values.Max(list => list.Count) : 0;  // ✅ FIXED: Null check
 
     private string GetCellValue(List<string> columnData, int index)
     {
         if (index < columnData.Count)
         {
             var value = columnData[index];
-            return string.IsNullOrEmpty(value) ? "�" : value;
+            return string.IsNullOrEmpty(value) ? "—" : value;
         }
-        return "�"; // Em dash for missing values
+        return "—"; // Em dash for missing values
     }
 
     private string GetCellCssClass(string columnName, int rowIndex)
@@ -76,7 +87,7 @@
         var cssClasses = new List<string>();
 
         // Check if this is a formula row (starts with =)
-        if (Data.TryGetValue(columnName, out var columnData) &&
+        if (Data?.TryGetValue(columnName, out var columnData) == true &&  // ✅ FIXED: Null check
             rowIndex < columnData.Count &&
             columnData[rowIndex].StartsWith("="))
         {
@@ -100,8 +111,6 @@
             columnName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 }
-
-// TableLayout enum is now defined in TableModels.cs
 
 <style>
     .dictionary-table-container {

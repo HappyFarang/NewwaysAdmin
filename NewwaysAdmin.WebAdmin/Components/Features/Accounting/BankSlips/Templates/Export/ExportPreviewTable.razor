@@ -104,7 +104,20 @@
         </div>
     }
 
-    @* Export Preview Table - NOW USING GENERIC COMPONENT! *@
+    @* SIMPLE DEBUG INFO *@
+    <div class="alert alert-info mb-3">
+        <strong>🔍 DEBUG:</strong>
+        SessionResults: @(SessionResults?.Count ?? 0),
+        SelectedFields: @SelectedFields.Count,
+        HasPreviewData: @HasPreviewData
+        @if (DebugInfo != null)
+        {
+            <br/>
+            <small>@DebugInfo</small>
+        }
+    </div>
+
+    @* Export Preview Table *@
     <div class="card">
         <div class="card-header">
             <h6 class="mb-0">
@@ -119,11 +132,76 @@
         <div class="card-body">
             @if (HasPreviewData)
             {
-                @* Use our new generic DictionaryTable component *@
-                <DictionaryTable Data="GetTableData()"
-                                 Layout="TableLayout.Vertical"
-                                 EnableScroll="true"
-                                 CssClass="table table-sm table-bordered preview-table" />
+                <div class="alert alert-success mb-2">
+                    <strong>🔥 TEST:</strong> GetTableData() called. Returned @GetTableData().Count columns.
+                </div>
+
+                @* DIRECT TABLE TEST - Remove DictionaryTable temporarily *@
+                <div class="alert alert-warning mb-2">
+                    <strong>🔧 DIRECT TABLE TEST:</strong>
+                    @{
+                        var tableData = GetTableData();
+                        var firstThreeColumns = tableData.Take(3).ToList();
+                    }
+                    <table class="table table-sm table-bordered">
+                        <thead>
+                            <tr>
+                                @foreach (var column in firstThreeColumns)
+                                {
+                                    <th>@column.Key</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < firstThreeColumns.First().Value.Count && i < 2; i++)
+                            {
+                                <tr>
+                                    @foreach (var column in firstThreeColumns)
+                                    {
+                                        <td>@(i < column.Value.Count ? column.Value[i] : "")</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <small>Showing first 3 columns, first 2 rows out of @tableData.Count total columns</small>
+                </div>
+
+                @* INLINE SIMPLE TABLE - NO COMPONENTS *@
+                
+                <div style="border: 2px solid green; padding: 10px;">
+                    <h5>🚀 INLINE TABLE (No Custom Components)</h5>
+                    @if (tableData?.Any() == true)
+                    {
+                        <p>✅ Data exists: @tableData.Count columns</p>
+                        <table class="table table-sm table-bordered">
+                            <thead>
+                                <tr>
+                                    @foreach (var header in tableData.Keys.Take(5))
+                                    {
+                                        <th>@header</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int row = 0; row < 3 && tableData.Values.Any() && row < tableData.Values.First().Count; row++)
+                                {
+                                    <tr>
+                                        @foreach (var column in tableData.Take(5))
+                                        {
+                                            <td>@(row < column.Value.Count ? column.Value[row] : "")</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        <p><small>First 5 columns, first 3 rows of @tableData.Count total columns</small></p>
+                    }
+                    else
+                    {
+                        <p>❌ No table data</p>
+                    }
+                </div>
 
                 @* Preview Stats *@
                 <div class="mt-3 text-muted small">
@@ -164,6 +242,7 @@
     [Parameter] public EventCallback<List<string>> OnSelectedFieldsChanged { get; set; }
 
     private HashSet<string> SelectedFields { get; set; } = new();
+    private string? DebugInfo { get; set; }
 
     private int SelectedFieldCount => SelectedFields.Count;
     private bool HasPreviewData => SelectedFields.Any() && SessionResults?.Any() == true;
@@ -175,30 +254,95 @@
         {
             SelectRecommendedFields();
         }
+
+        // Update debug info
+        UpdateDebugInfo();
+    }
+
+    private void UpdateDebugInfo()
+    {
+        if (SessionResults?.Any() == true)
+        {
+            var firstDoc = SessionResults.First();
+            DebugInfo = $"First doc has {firstDoc.Count} fields: {string.Join(", ", firstDoc.Keys.Take(3))}";
+            if (firstDoc.Count > 3) DebugInfo += $" ... (+{firstDoc.Count - 3} more)";
+        }
+        else
+        {
+            DebugInfo = "No session results available";
+        }
+
+        if (SelectedFields.Any())
+        {
+            DebugInfo += $" | Selected: {string.Join(", ", SelectedFields.Take(3))}";
+            if (SelectedFields.Count > 3) DebugInfo += $" ... (+{SelectedFields.Count - 3} more)";
+        }
     }
 
     /// <summary>
-    /// NEW: Use the parser to transform data for the table component
+    /// NEW: Use the parser to transform data for the table component (DEBUG VERSION)
     /// </summary>
     private Dictionary<string, List<string>> GetTableData()
     {
+        Console.WriteLine("🔍 GetTableData() CALLED");
+        Console.WriteLine($"   SessionResults: {SessionResults?.Count ?? 0} documents");
+        Console.WriteLine($"   SelectedFields: {SelectedFields.Count} fields");
+
+        if (SessionResults?.Any() == true)
+        {
+            var firstDoc = SessionResults.First();
+            Console.WriteLine($"   First document fields: [{string.Join(", ", firstDoc.Keys.Take(5))}]");
+        }
+
+        Console.WriteLine($"   Selected: [{string.Join(", ", SelectedFields.Take(5))}]");
+
         if (SessionResults == null || !SelectedFields.Any())
+        {
+            Console.WriteLine("❌ Returning empty - no data or no fields selected");
             return new Dictionary<string, List<string>>();
+        }
 
         var options = new TableParseOptions
+        {
+            IncludeFormulaRow = ShowFormulaRow && CustomTickBoxColumns.Any(),
+            MaxRows = MaxPreviewRows,
+            MaxValueLength = 20,
+            CustomColumns = CustomTickBoxColumns.Select(tb => new TableCustomColumn
             {
-                IncludeFormulaRow = ShowFormulaRow && CustomTickBoxColumns.Any(),
-                MaxRows = MaxPreviewRows,
-                MaxValueLength = 20,
-                CustomColumns = CustomTickBoxColumns.Select(tb => new TableCustomColumn
-                {
-                    Name = tb.Name,
-                    Type = TableCustomColumnType.Checkbox,
-                    SumFieldName = tb.SumFieldName
-                }).ToList()
-            };
+                Name = tb.Name,
+                Type = TableCustomColumnType.Checkbox,
+                SumFieldName = tb.SumFieldName
+            }).ToList()
+        };
 
-        return TableParser.ParseToColumns(SessionResults, SelectedFields.ToList(), options);
+        Console.WriteLine($"   Options: FormulaRow={options.IncludeFormulaRow}, MaxRows={options.MaxRows}");
+
+        try
+        {
+            Console.WriteLine("🚀 Calling TableParser.ParseToColumns...");
+            var result = TableParser.ParseToColumns(SessionResults, SelectedFields.ToList(), options);
+
+            Console.WriteLine($"✅ Parser returned: {result.Count} columns");
+
+            foreach (var kvp in result.Take(3))
+            {
+                Console.WriteLine($"   Column '{kvp.Key}': {kvp.Value.Count} values");
+                if (kvp.Value.Any())
+                {
+                    Console.WriteLine($"      First value: '{kvp.Value[0]}'");
+                }
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"💥 PARSER ERROR: {ex.Message}");
+            Console.WriteLine($"   Stack: {ex.StackTrace}");
+            DebugInfo = $"PARSER ERROR: {ex.Message}";
+            StateHasChanged();
+            return new Dictionary<string, List<string>>();
+        }
     }
 
     private void ToggleField(string fieldName)
@@ -213,6 +357,7 @@
         }
 
         NotifySelectedFieldsChanged();
+        UpdateDebugInfo();
         StateHasChanged();
     }
 
@@ -227,6 +372,7 @@
         }
 
         NotifySelectedFieldsChanged();
+        UpdateDebugInfo();
         StateHasChanged();
     }
 
@@ -241,6 +387,7 @@
         }
 
         NotifySelectedFieldsChanged();
+        UpdateDebugInfo();
         StateHasChanged();
     }
 
@@ -248,6 +395,7 @@
     {
         SelectedFields.Clear();
         NotifySelectedFieldsChanged();
+        UpdateDebugInfo();
         StateHasChanged();
     }
 

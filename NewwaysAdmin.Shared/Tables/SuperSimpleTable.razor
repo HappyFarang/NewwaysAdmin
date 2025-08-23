@@ -1,0 +1,44 @@
+﻿@* NewwaysAdmin.Shared/Tables/SuperSimpleTable.razor *@
+@* The simplest table that could possibly work *@
+
+<div style="border: 2px solid red; padding: 10px; margin: 10px;">
+    <h5>🚀 SUPER SIMPLE TABLE TEST</h5>
+    @if (TableData == null)
+    {
+        <p>❌ TableData is NULL</p>
+    }
+    else if (!TableData.Any())
+    {
+        <p>❌ TableData is EMPTY (Count: @TableData.Count)</p>
+    }
+    else
+    {
+        <p>✅ TableData has @TableData.Count columns</p>
+
+        <table border="1" style="border-collapse: collapse;">
+            <tr style="background: lightblue;">
+                @foreach (var header in TableData.Keys.Take(5))
+                {
+                    <th style="padding: 5px; border: 1px solid black;">@header</th>
+                }
+            </tr>
+            @for (int row = 0; row < 3 && TableData.Values.Any() && row < TableData.Values.First().Count; row++)
+            {
+                <tr>
+                    @foreach (var column in TableData.Take(5))
+                    {
+                        <td style="padding: 5px; border: 1px solid black;">
+                            @(row < column.Value.Count ? column.Value[row] : "")
+                        </td>
+                    }
+                </tr>
+            }
+        </table>
+
+        <p><small>Showing first 5 columns, first 3 rows</small></p>
+    }
+</div>
+
+@code {
+    [Parameter] public Dictionary<string, List<string>>? TableData { get; set; }
+}
