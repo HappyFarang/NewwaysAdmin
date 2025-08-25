@@ -1,0 +1,537 @@
+﻿@*
+    NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/Templates/Export/CustomColumnArranger.razor
+    📋 Component for arranging column order in bank slip export tables
+
+    Features:
+    ✅ Left/Right arrow buttons to move columns horizontally
+    ✅ Move to First/Last buttons for quick positioning
+    ✅ Works with both regular fields and custom checkbox columns
+    ✅ Visual preview of column order (left to right)
+    ✅ Validation to prevent invalid moves
+    ✅ Clean, compact UI design
+
+    Column Movement:
+    - Left ⬅️: Move column one position to the left
+    - Right ➡️: Move column one position to the right
+    - First: Move column to leftmost position
+    - Last: Move column to rightmost position
+*@
+
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="custom-column-arranger">
+    <div class="card">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="bi bi-arrows-move me-2"></i>
+                    Arrange Column Order
+                    @if (ColumnOrder.Any())
+                    {
+                        <span class="badge bg-secondary ms-2">@ColumnOrder.Count</span>
+                    }
+                </h6>
+                <small class="text-muted">Drag columns left ⬅️ or right ➡️</small>
+            </div>
+        </div>
+        <div class="card-body">
+
+            @if (ColumnOrder.Any())
+            {
+                @* Column Order Preview *@
+                <div class="column-order-preview mb-4">
+                    <div class="preview-header mb-2">
+                        <small class="text-muted">Current order (left to right):</small>
+                    </div>
+                    <div class="column-items-container">
+                        @for (int i = 0; i < ColumnOrder.Count; i++)
+                        {
+                            var column = ColumnOrder[i];
+                            var isFirst = i == 0;
+                            var isLast = i == ColumnOrder.Count - 1;
+                            var columnType = GetColumnType(column);
+
+                            <div class="column-item @GetColumnItemCssClass(columnType)">
+                                <div class="column-info">
+                                    <div class="column-name">
+                                        <i class="@GetColumnIcon(columnType) me-1"></i>
+                                        <strong>@column</strong>
+                                    </div>
+                                    <div class="column-position">
+                                        <small class="text-muted">Position @(i + 1)</small>
+                                    </div>
+                                </div>
+
+                                <div class="column-controls">
+                                    @* Move to First *@
+                                    <button type="button"
+                                            class="btn btn-outline-secondary btn-sm"
+                                            @onclick="() => MoveToFirst(column)"
+                                            disabled="@isFirst"
+                                            title="Move to first position">
+                                        <i class="bi bi-chevron-bar-left"></i>
+                                    </button>
+
+                                    @* Move Left *@
+                                    <button type="button"
+                                            class="btn btn-outline-primary btn-sm"
+                                            @onclick="() => MoveLeft(column)"
+                                            disabled="@isFirst"
+                                            title="Move left">
+                                        <i class="bi bi-chevron-left"></i>
+                                    </button>
+
+                                    @* Move Right *@
+                                    <button type="button"
+                                            class="btn btn-outline-primary btn-sm"
+                                            @onclick="() => MoveRight(column)"
+                                            disabled="@isLast"
+                                            title="Move right">
+                                        <i class="bi bi-chevron-right"></i>
+                                    </button>
+
+                                    @* Move to Last *@
+                                    <button type="button"
+                                            class="btn btn-outline-secondary btn-sm"
+                                            @onclick="() => MoveToLast(column)"
+                                            disabled="@isLast"
+                                            title="Move to last position">
+                                        <i class="bi bi-chevron-bar-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @* Quick Actions *@
+                <div class="quick-actions mb-3">
+                    <div class="text-muted small mb-2">Quick Actions:</div>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button"
+                                class="btn btn-outline-info"
+                                @onclick="ResetToDefault"
+                                title="Reset to recommended order">
+                            <i class="bi bi-arrow-clockwise me-1"></i>
+                            Reset Default
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-success"
+                                @onclick="OptimizeOrder"
+                                title="Optimize order (Date, Amount, Text, Checkboxes)">
+                            <i class="bi bi-lightning me-1"></i>
+                            Auto-Optimize
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-warning"
+                                @onclick="ReverseOrder"
+                                title="Reverse current order">
+                            <i class="bi bi-arrow-left-right me-1"></i>
+                            Reverse
+                        </button>
+                    </div>
+                </div>
+
+                @* Column Type Legend *@
+                <div class="column-legend">
+                    <div class="text-muted small mb-1">Column Types:</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <span class="legend-item date-column">
+                            <i class="bi bi-calendar-date me-1"></i>Date
+                        </span>
+                        <span class="legend-item amount-column">
+                            <i class="bi bi-currency-dollar me-1"></i>Amount
+                        </span>
+                        <span class="legend-item text-column">
+                            <i class="bi bi-text-left me-1"></i>Text
+                        </span>
+                        <span class="legend-item checkbox-column">
+                            <i class="bi bi-check-square me-1"></i>Checkbox
+                        </span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="no-columns-message text-center text-muted py-4">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <span>No columns to arrange. Select fields and add custom columns first.</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<string> ColumnOrder { get; set; } = new();
+    [Parameter] public List<string> CustomCheckboxColumns { get; set; } = new();
+    [Parameter] public EventCallback<List<string>> OnColumnOrderChanged { get; set; }
+
+    /// <summary>
+    /// Move column one position to the left
+    /// </summary>
+    private async Task MoveLeft(string columnName)
+    {
+        var currentIndex = ColumnOrder.IndexOf(columnName);
+        if (currentIndex > 0)
+        {
+            ColumnOrder.RemoveAt(currentIndex);
+            ColumnOrder.Insert(currentIndex - 1, columnName);
+            await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Move column one position to the right (UPDATED to respect custom column boundary)
+    /// </summary>
+    private async Task MoveRight(string columnName)
+    {
+        var currentIndex = ColumnOrder.IndexOf(columnName);
+        if (currentIndex >= 0 && currentIndex < ColumnOrder.Count - 1)
+        {
+            var isCustomColumn = CustomCheckboxColumns.Contains(columnName);
+            var nextIndex = currentIndex + 1;
+
+            // If this is a regular field, don't let it move past the first custom column
+            if (!isCustomColumn)
+            {
+                // Find the first custom column position
+                var firstCustomIndex = ColumnOrder.FindIndex(col => CustomCheckboxColumns.Contains(col));
+                if (firstCustomIndex > 0 && nextIndex >= firstCustomIndex)
+                {
+                    // Don't move - would cross into custom column territory
+                    return;
+                }
+            }
+
+            ColumnOrder.RemoveAt(currentIndex);
+            ColumnOrder.Insert(nextIndex, columnName);
+            await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Move column to first position (leftmost)
+    /// </summary>
+    private async Task MoveToFirst(string columnName)
+    {
+        var currentIndex = ColumnOrder.IndexOf(columnName);
+        if (currentIndex > 0)
+        {
+            ColumnOrder.RemoveAt(currentIndex);
+            ColumnOrder.Insert(0, columnName);
+            await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Move column to last position (UPDATED to respect custom column boundary)
+    /// </summary>
+    private async Task MoveToLast(string columnName)
+    {
+        var currentIndex = ColumnOrder.IndexOf(columnName);
+        if (currentIndex >= 0)
+        {
+            var isCustomColumn = CustomCheckboxColumns.Contains(columnName);
+
+            ColumnOrder.RemoveAt(currentIndex);
+
+            if (isCustomColumn)
+            {
+                // Custom column: move to very end
+                ColumnOrder.Add(columnName);
+            }
+            else
+            {
+                // Regular field: move to end of regular fields (before custom columns)
+                var firstCustomIndex = ColumnOrder.FindIndex(col => CustomCheckboxColumns.Contains(col));
+                if (firstCustomIndex >= 0)
+                {
+                    ColumnOrder.Insert(firstCustomIndex, columnName);
+                }
+                else
+                {
+                    ColumnOrder.Add(columnName);
+                }
+            }
+
+            await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Reset to default recommended order
+    /// </summary>
+    private async Task ResetToDefault()
+    {
+        // Default order: Date fields first, then Amount fields, then Text fields, then Checkboxes
+        var orderedColumns = ColumnOrder
+            .OrderBy(col => GetColumnTypePriority(col))
+            .ThenBy(col => col)
+            .ToList();
+
+        ColumnOrder.Clear();
+        ColumnOrder.AddRange(orderedColumns);
+        await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Auto-optimize column order for best user experience
+    /// </summary>
+    private async Task OptimizeOrder()
+    {
+        var optimizedOrder = new List<string>();
+
+        // 1. Date columns first (most important for chronological data)
+        optimizedOrder.AddRange(ColumnOrder.Where(col => IsDateField(col)).OrderBy(col => col));
+
+        // 2. Amount columns next (financial data)
+        optimizedOrder.AddRange(ColumnOrder.Where(col => IsAmountField(col)).OrderBy(col => col));
+
+        // 3. Text columns (descriptions, names, etc.)
+        optimizedOrder.AddRange(ColumnOrder.Where(col => IsTextField(col)).OrderBy(col => col));
+
+        // 4. Custom checkbox columns last (categorization)
+        optimizedOrder.AddRange(ColumnOrder.Where(col => IsCheckboxField(col)).OrderBy(col => col));
+
+        ColumnOrder.Clear();
+        ColumnOrder.AddRange(optimizedOrder);
+        await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Reverse the current column order
+    /// </summary>
+    private async Task ReverseOrder()
+    {
+        ColumnOrder.Reverse();
+        await OnColumnOrderChanged.InvokeAsync(ColumnOrder);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Get column type for styling and logic
+    /// </summary>
+    private string GetColumnType(string columnName)
+    {
+        if (IsDateField(columnName)) return "date";
+        if (IsAmountField(columnName)) return "amount";
+        if (IsCheckboxField(columnName)) return "checkbox";
+        return "text";
+    }
+
+    /// <summary>
+    /// Get CSS class for column item based on type
+    /// </summary>
+    private string GetColumnItemCssClass(string columnType)
+    {
+        return columnType switch
+        {
+            "date" => "column-item-date",
+            "amount" => "column-item-amount",
+            "checkbox" => "column-item-checkbox",
+            _ => "column-item-text"
+        };
+    }
+
+    /// <summary>
+    /// Get icon for column type
+    /// </summary>
+    private string GetColumnIcon(string columnType)
+    {
+        return columnType switch
+        {
+            "date" => "bi bi-calendar-date",
+            "amount" => "bi bi-currency-dollar",
+            "checkbox" => "bi bi-check-square",
+            _ => "bi bi-text-left"
+        };
+    }
+
+    /// <summary>
+    /// Get priority for default ordering (lower = comes first)
+    /// </summary>
+    private int GetColumnTypePriority(string columnName)
+    {
+        if (IsDateField(columnName)) return 1;
+        if (IsAmountField(columnName)) return 2;
+        if (IsTextField(columnName)) return 3;
+        if (IsCheckboxField(columnName)) return 4;
+        return 5;
+    }
+
+    /// <summary>
+    /// Check if field is a date field
+    /// </summary>
+    private bool IsDateField(string fieldName)
+    {
+        var dateKeywords = new[] { "date", "time", "created", "updated", "timestamp" };
+        var lowerField = fieldName.ToLowerInvariant();
+        return dateKeywords.Any(keyword => lowerField.Contains(keyword));
+    }
+
+    /// <summary>
+    /// Check if field is an amount/numeric field
+    /// </summary>
+    private bool IsAmountField(string fieldName)
+    {
+        var amountKeywords = new[] { "total", "amount", "sum", "balance", "value", "price", "cost", "fee", "charge", "payment" };
+        var lowerField = fieldName.ToLowerInvariant();
+        return amountKeywords.Any(keyword => lowerField.Contains(keyword)) ||
+               lowerField.Contains("baht") ||
+               lowerField.Contains("thb") ||
+               lowerField.EndsWith("amt") ||
+               lowerField.EndsWith("val");
+    }
+
+    /// <summary>
+    /// Check if field is a custom checkbox field
+    /// </summary>
+    private bool IsCheckboxField(string fieldName)
+    {
+        return CustomCheckboxColumns.Contains(fieldName);
+    }
+
+    /// <summary>
+    /// Check if field is a text field (default)
+    /// </summary>
+    private bool IsTextField(string fieldName)
+    {
+        return !IsDateField(fieldName) && !IsAmountField(fieldName) && !IsCheckboxField(fieldName);
+    }
+}
+
+<style>
+    /* Custom Column Arranger Styles */
+    .custom-column-arranger .card {
+        border: 1px solid #dee2e6;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .column-order-preview {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.375rem;
+        border: 1px solid #e9ecef;
+    }
+
+    .column-items-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .column-item {
+        display: flex;
+        justify-content: between;
+        align-items: center;
+        padding: 0.75rem;
+        border-radius: 0.375rem;
+        border: 1px solid #dee2e6;
+        background-color: white;
+        transition: all 0.2s ease-in-out;
+    }
+
+        .column-item:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+        }
+
+    /* Column type specific styling */
+    .column-item-date {
+        border-left: 4px solid #0dcaf0;
+    }
+
+    .column-item-amount {
+        border-left: 4px solid #198754;
+    }
+
+    .column-item-text {
+        border-left: 4px solid #6c757d;
+    }
+
+    .column-item-checkbox {
+        border-left: 4px solid #fd7e14;
+    }
+
+    .column-info {
+        flex-grow: 1;
+    }
+
+    .column-name {
+        font-size: 0.95rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .column-position {
+        font-size: 0.8rem;
+    }
+
+    .column-controls {
+        display: flex;
+        gap: 0.25rem;
+    }
+
+        .column-controls .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+        }
+
+            .column-controls .btn:disabled {
+                opacity: 0.3;
+            }
+
+    /* Quick actions */
+    .quick-actions .btn-group .btn {
+        font-size: 0.875rem;
+    }
+
+    /* Legend */
+    .column-legend {
+        padding-top: 0.75rem;
+        border-top: 1px solid #e9ecef;
+    }
+
+    .legend-item {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.8rem;
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+    }
+
+        .legend-item.date-column {
+            color: #0dcaf0;
+            border-color: #0dcaf0;
+        }
+
+        .legend-item.amount-column {
+            color: #198754;
+            border-color: #198754;
+        }
+
+        .legend-item.text-column {
+            color: #6c757d;
+            border-color: #6c757d;
+        }
+
+        .legend-item.checkbox-column {
+            color: #fd7e14;
+            border-color: #fd7e14;
+        }
+
+    /* No columns message */
+    .no-columns-message {
+        border: 2px dashed #dee2e6;
+        border-radius: 0.375rem;
+        padding: 2rem;
+    }
+</style>

@@ -1,8 +1,11 @@
 ﻿@* Components/Features/Accounting/BankSlips/Templates/Export/ExportPreviewTable.razor *@
 @using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates
 @using NewwaysAdmin.Shared.Tables
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
 @inject ILogger<ExportPreviewTable> Logger
 @inject DictionaryTableParser TableParser
+@inject CustomColumnStorageService CustomColumnStorage
+
 
 <div class="export-preview-container">
 
@@ -72,35 +75,23 @@
         </div>
     </div>
 
-    @* Custom Tick Box Columns *@
-    @if (CustomTickBoxColumns.Any())
+    @* NEW: Custom Column Manager *@
+    <div class="mb-4">
+        <CustomColumnManager TemplateColumns="@CustomTickBoxColumns"
+                             SavedColumns="@SavedCustomColumns"
+                             AvailableFields="@GetAvailableFieldsForFormulas()"
+                             OnTemplateColumnsChanged="@OnCustomColumnsUpdated"
+                             OnSavedColumnsChanged="@OnSavedColumnsUpdated" />
+    </div>
+
+    @* NEW: Column Order Arranger *@
+    @if (SelectedFields.Any() || CustomTickBoxColumns.Any())
     {
-        <div class="card mb-4">
-            <div class="card-header">
-                <h6 class="mb-0">
-                    <i class="bi bi-check2-square me-2"></i>
-                    Custom Tick Box Columns
-                    <small class="text-muted ms-2">(@CustomTickBoxColumns.Count columns)</small>
-                </h6>
-            </div>
-            <div class="card-body">
-                <div class="row g-2">
-                    @foreach (var tickBox in CustomTickBoxColumns)
-                    {
-                        <div class="col-md-3 col-sm-4 col-6">
-                            <div class="btn btn-success w-100" disabled>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <span class="text-truncate">
-                                        <i class="bi bi-check-square me-1"></i>
-                                        @tickBox.Name
-                                    </span>
-                                    <small class="text-light">✓</small>
-                                </div>
-                            </div>
-                        </div>
-                    }
-                </div>
-            </div>
+        <div class="mb-4">
+            <CustomColumnArranger 
+                ColumnOrder="@GetCurrentColumnOrder()"
+                CustomCheckboxColumns="@GetCustomCheckboxColumnNames()"
+                OnColumnOrderChanged="@OnColumnOrderUpdated" />
         </div>
     }
 
@@ -205,11 +196,18 @@
     private HashSet<string> SelectedFields { get; set; } = new();
     private string? DebugInfo { get; set; }
 
+    // NEW: Custom column management state
+    private List<TickBoxColumnConfig> SavedCustomColumns { get; set; } = new();
+    private List<string> ColumnOrder { get; set; } = new();
+
     private int SelectedFieldCount => SelectedFields.Count;
     private bool HasPreviewData => SelectedFields.Any() && SessionResults?.Any() == true;
 
-    protected override void OnParametersSet()
+    protected override async void OnParametersSet()
     {
+        // Load saved custom columns first
+        await LoadSavedCustomColumnsAsync();
+
         // Auto-select recommended fields on first load
         if (AnalysisResult != null && !SelectedFields.Any())
         {
@@ -241,13 +239,175 @@
     }
 
     /// <summary>
-    /// Transform data using the parser for the table component
+    /// NEW: Get available numeric fields for formula references
+    /// </summary>
+    private List<string> GetAvailableFieldsForFormulas()
+    {
+        if (AnalysisResult?.FieldStatistics == null)
+            return new List<string>();
+
+        return AnalysisResult.FieldStatistics.Keys
+            .Where(field => IsNumericFieldForFormula(field))
+            .OrderBy(field => field)
+            .ToList();
+    }
+
+    /// <summary>
+    /// NEW: Check if field is numeric for formula purposes
+    /// </summary>
+    private bool IsNumericFieldForFormula(string fieldName)
+    {
+        var numericKeywords = new[] { "total", "amount", "sum", "balance", "value", "price", "cost", "fee", "charge", "payment" };
+        var lowerField = fieldName.ToLowerInvariant();
+
+        return numericKeywords.Any(keyword => lowerField.Contains(keyword)) ||
+               lowerField.Contains("baht") ||
+               lowerField.Contains("thb") ||
+               lowerField.EndsWith("amt") ||
+               lowerField.EndsWith("val");
+    }
+
+    /// <summary>
+    /// NEW: Handle custom columns being updated in the template
+    /// </summary>
+    private async Task OnCustomColumnsUpdated(List<TickBoxColumnConfig> updatedColumns)
+    {
+        Console.WriteLine($"🔄 OnCustomColumnsUpdated called with {updatedColumns.Count} columns");
+
+        CustomTickBoxColumns = updatedColumns; // Direct assignment instead of Clear/AddRange
+
+        UpdateColumnOrderForCustomColumns();
+
+        Console.WriteLine($"✅ CustomTickBoxColumns now has {CustomTickBoxColumns.Count} columns");
+        foreach (var col in CustomTickBoxColumns)
+        {
+            Console.WriteLine($"   - {col.Name} (SumField: {col.SumFieldName})");
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Handle saved custom columns being updated - NOW WITH PERSISTENCE
+    /// </summary>
+    private async Task OnSavedColumnsUpdated(List<TickBoxColumnConfig> updatedSavedColumns)
+    {
+        SavedCustomColumns = updatedSavedColumns;
+
+        // Save to persistent storage
+        await SaveCustomColumnsToStorageAsync();
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Save custom columns to persistent storage
+    /// </summary>
+    private async Task SaveCustomColumnsToStorageAsync()
+    {
+        try
+        {
+            var storageColumns = SavedCustomColumns.Select(tc => new SavedCustomColumn
+                {
+                    Name = tc.Name,
+                    SumFieldName = tc.SumFieldName,
+                    Id = Guid.NewGuid().ToString(), // Generate ID for new columns
+                    CreatedAt = DateTime.UtcNow,
+                    LastModified = DateTime.UtcNow
+                }).ToList();
+
+            await CustomColumnStorage.SaveUserCustomColumnsAsync(storageColumns);
+            Console.WriteLine($"✅ Saved {storageColumns.Count} custom columns to storage");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Failed to save custom columns to storage: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Get current column order for the arranger component
+    /// </summary>
+    private List<string> GetCurrentColumnOrder()
+    {
+        if (!ColumnOrder.Any())
+        {
+            // Initialize with current order: selected fields FIRST, then custom columns LAST
+            var currentOrder = new List<string>();
+            currentOrder.AddRange(SelectedFields.OrderBy(f => f));
+            // Custom columns go at the end (matching preview behavior)
+            currentOrder.AddRange(CustomTickBoxColumns.Select(c => c.Name));
+
+            ColumnOrder = currentOrder;
+        }
+
+        return ColumnOrder;
+    }
+
+    /// <summary>
+    /// NEW: Get custom checkbox column names for the arranger
+    /// </summary>
+    private List<string> GetCustomCheckboxColumnNames()
+    {
+        return CustomTickBoxColumns.Select(c => c.Name).ToList();
+    }
+
+    /// <summary>
+    /// NEW: Handle column order being updated
+    /// </summary>
+    private async Task OnColumnOrderUpdated(List<string> newOrder)
+    {
+        ColumnOrder = newOrder.ToList();
+
+        // Update the GetTableData method to respect this order
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// NEW: Update column order when custom columns are added/removed
+    /// </summary>
+    private void UpdateColumnOrderForCustomColumns()
+    {
+        Console.WriteLine($"🔧 UpdateColumnOrderForCustomColumns: Current order has {ColumnOrder.Count} items");
+
+        // Get all available columns
+        var allRegularFields = SelectedFields.ToHashSet();
+        var customColumnNames = CustomTickBoxColumns.Select(c => c.Name).ToHashSet();
+
+        // Clean up column order - remove columns that no longer exist
+        ColumnOrder = ColumnOrder.Where(col =>
+            allRegularFields.Contains(col) || customColumnNames.Contains(col)).ToList();
+
+        // Add any new regular fields that aren't in the order yet (add them at the beginning)
+        var missingRegularFields = allRegularFields.Where(field => !ColumnOrder.Contains(field)).ToList();
+        foreach (var field in missingRegularFields.OrderBy(f => f))
+        {
+            ColumnOrder.Insert(0, field);
+            Console.WriteLine($"➕ Added regular field '{field}' to beginning of column order");
+        }
+
+        // Add any new custom columns that aren't in the order yet (add them at the END)
+        foreach (var customCol in CustomTickBoxColumns)
+        {
+            if (!ColumnOrder.Contains(customCol.Name))
+            {
+                ColumnOrder.Add(customCol.Name);
+                Console.WriteLine($"➕ Added custom column '{customCol.Name}' to end of column order");
+            }
+        }
+
+        Console.WriteLine($"✅ Column order now has {ColumnOrder.Count} items: {string.Join(", ", ColumnOrder)}");
+    }
+
+    /// <summary>
+    /// Transform data using the parser for the table component (UPDATED to respect custom column order)
     /// </summary>
     private Dictionary<string, List<string>> GetTableData()
     {
         Console.WriteLine("🔍 GetTableData() CALLED");
         Console.WriteLine($"   SessionResults: {SessionResults?.Count ?? 0} documents");
         Console.WriteLine($"   SelectedFields: {SelectedFields.Count} fields");
+        Console.WriteLine($"   CustomColumns: {CustomTickBoxColumns.Count} custom columns");
 
         if (SessionResults == null || !SelectedFields.Any())
         {
@@ -259,13 +419,9 @@
             {
                 IncludeFormulaRow = ShowFormulaRow,
                 MaxRows = MaxPreviewRows,
-                MaxValueLength = 50, // Allow longer text for preview
-                CustomColumns = CustomTickBoxColumns.Select(tb => new TableCustomColumn
-                {
-                    Name = tb.Name,
-                    Type = TableCustomColumnType.Checkbox,
-                    SumFieldName = tb.SumFieldName
-                }).ToList()
+                MaxValueLength = 50,
+                // UPDATED: Order custom columns according to ColumnOrder
+                CustomColumns = GetOrderedCustomColumns()
             };
 
         Console.WriteLine($"   Options: FormulaRow={options.IncludeFormulaRow}, MaxRows={options.MaxRows}");
@@ -273,16 +429,92 @@
         try
         {
             Console.WriteLine("🚀 Calling TableParser.ParseToColumns...");
-            var result = TableParser.ParseToColumns(SessionResults, SelectedFields.ToList(), options);
+            var rawResult = TableParser.ParseToColumns(SessionResults, SelectedFields.ToList(), options);
 
-            Console.WriteLine($"✅ Parser returned: {result.Count} columns");
-            return result;
+            // Apply column ordering if specified
+            if (ColumnOrder.Any())
+            {
+                var orderedResult = new Dictionary<string, List<string>>();
+
+                // Add regular fields in specified order
+                foreach (var columnName in ColumnOrder.Where(col => !CustomTickBoxColumns.Any(c => c.Name == col)))
+                {
+                    if (rawResult.ContainsKey(columnName))
+                    {
+                        orderedResult[columnName] = rawResult[columnName];
+                    }
+                }
+
+                // Add custom columns in specified order (they should be at the end of ColumnOrder)
+                foreach (var columnName in ColumnOrder.Where(col => CustomTickBoxColumns.Any(c => c.Name == col)))
+                {
+                    if (rawResult.ContainsKey(columnName))
+                    {
+                        orderedResult[columnName] = rawResult[columnName];
+                    }
+                }
+
+                // Add any remaining columns that weren't in the order
+                foreach (var kvp in rawResult)
+                {
+                    if (!orderedResult.ContainsKey(kvp.Key))
+                    {
+                        orderedResult[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                Console.WriteLine($"✅ Parser returned: {orderedResult.Count} columns (custom-ordered)");
+                return orderedResult;
+            }
+
+            Console.WriteLine($"✅ Parser returned: {rawResult.Count} columns");
+            return rawResult;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"❌ Parser error: {ex.Message}");
             return new Dictionary<string, List<string>>();
         }
+    }
+
+
+    /// <summary>
+    /// NEW: Get custom columns ordered according to ColumnOrder
+    /// </summary>
+    private List<TableCustomColumn> GetOrderedCustomColumns()
+    {
+        var orderedCustomColumns = new List<TableCustomColumn>();
+
+        // Get custom columns in the order specified by ColumnOrder
+        foreach (var columnName in ColumnOrder.Where(col => CustomTickBoxColumns.Any(c => c.Name == col)))
+        {
+            var customCol = CustomTickBoxColumns.FirstOrDefault(c => c.Name == columnName);
+            if (customCol != null)
+            {
+                orderedCustomColumns.Add(new TableCustomColumn
+                    {
+                        Name = customCol.Name,
+                        Type = TableCustomColumnType.Checkbox,
+                        SumFieldName = customCol.SumFieldName
+                    });
+            }
+        }
+
+        // Add any custom columns not in ColumnOrder (shouldn't happen, but safety)
+        foreach (var customCol in CustomTickBoxColumns)
+        {
+            if (!orderedCustomColumns.Any(oc => oc.Name == customCol.Name))
+            {
+                orderedCustomColumns.Add(new TableCustomColumn
+                    {
+                        Name = customCol.Name,
+                        Type = TableCustomColumnType.Checkbox,
+                        SumFieldName = customCol.SumFieldName
+                    });
+            }
+        }
+
+        return orderedCustomColumns;
     }
 
     /// <summary>
@@ -368,16 +600,50 @@
         if (SelectedFields.Contains(fieldName))
         {
             SelectedFields.Remove(fieldName);
+            // Remove from column order too
+            ColumnOrder.Remove(fieldName);
         }
         else
         {
             SelectedFields.Add(fieldName);
+            // Add to column order if not already there
+            if (!ColumnOrder.Contains(fieldName))
+            {
+                ColumnOrder.Add(fieldName);
+            }
         }
 
         await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
         UpdateDebugInfo();
     }
+    /// <summary>
+    /// Load saved custom columns from storage
+    /// </summary>
+    private async Task LoadSavedCustomColumnsAsync()
+    {
+        try
+        {
+            var savedColumns = await CustomColumnStorage.LoadUserCustomColumnsAsync();
+            SavedCustomColumns = savedColumns.Select(sc => new TickBoxColumnConfig
+                {
+                    Name = sc.Name,
+                    SumFieldName = sc.SumFieldName
+                }).ToList();
 
+            Console.WriteLine($"✅ Loaded {SavedCustomColumns.Count} saved custom columns from storage");
+
+            if (SavedCustomColumns.Count == 0)
+            {
+                Console.WriteLine("ℹ️ No saved custom columns found - starting with empty collection");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Failed to load saved custom columns: {ex.Message}");
+            SavedCustomColumns = new List<TickBoxColumnConfig>();
+            Console.WriteLine("ℹ️ Starting with empty custom columns collection");
+        }
+    }
     private async Task SelectRecommendedFields()
     {
         if (AnalysisResult == null) return;

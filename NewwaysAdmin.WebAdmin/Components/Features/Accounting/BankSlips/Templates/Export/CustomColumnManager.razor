@@ -1,0 +1,736 @@
+﻿@*
+    NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlips/Templates/Export/CustomColumnManager.razor
+    📋 Component for managing custom checkbox columns in bank slip export tables
+
+    Features:
+    ✅ Add custom checkbox columns (Gas, Payroll, Rent, etc.)
+    ✅ Save columns to user's reusable collection for future templates
+    ✅ Load from existing saved columns when creating new templates
+    ✅ Configure SUMIF formulas for each column using field NAMES (not positions)
+    ✅ Reference selection from available numeric columns
+    ✅ Remove/edit existing columns
+    ✅ Validation and error handling
+    ✅ Clean, compact UI design
+
+    Two Collections:
+    - TemplateColumns: Currently selected columns for this template
+    - SavedColumns: User's reusable collection of checkbox columns
+*@
+
+@using Microsoft.AspNetCore.Components.Web
+@using System.ComponentModel.DataAnnotations
+@using static NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlips.Templates.Export.ExportPreviewTable
+
+<div class="custom-column-manager">
+    <div class="card">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    <i class="bi bi-check2-square me-2"></i>
+                    Custom Checkbox Columns
+                    @if (TemplateColumns.Any())
+                    {
+                        <span class="badge bg-secondary ms-2">@TemplateColumns.Count</span>
+                    }
+                </h6>
+                @if (SavedColumns.Any())
+                {
+                    <small class="text-muted">@SavedColumns.Count saved columns available</small>
+                }
+            </div>
+        </div>
+        <div class="card-body">
+
+            @* Currently Selected Template Columns *@
+            @if (TemplateColumns.Any())
+            {
+                <div class="current-template-columns mb-4">
+                    <h6 class="text-primary mb-2">
+                        <i class="bi bi-table me-1"></i>
+                        Template Columns
+                    </h6>
+                    <div class="row g-2">
+                        @foreach (var column in TemplateColumns)
+                        {
+                            <div class="col-md-6">
+                                <div class="template-column-item">
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <div class="flex-grow-1">
+                                            <strong class="text-primary">@column.Name</strong>
+                                            @if (!string.IsNullOrEmpty(column.SumFieldName))
+                                            {
+                                                <div class="small text-muted">
+                                                    Formula: SUMIF(@column.Name, TRUE, @column.SumFieldName)
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="small text-warning">
+                                                    <i class="bi bi-exclamation-triangle me-1"></i>No formula configured
+                                                </div>
+                                            }
+                                        </div>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button"
+                                                    class="btn btn-outline-primary btn-sm"
+                                                    @onclick="() => EditColumn(column)"
+                                                    title="Edit column">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button type="button"
+                                                    class="btn btn-outline-danger btn-sm"
+                                                    @onclick="() => RemoveFromTemplate(column)"
+                                                    title="Remove from template">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* Load from Saved Columns *@
+            @if (SavedColumns.Any())
+            {
+                <div class="saved-columns-section mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="text-success mb-0">
+                            <i class="bi bi-bookmark me-1"></i>
+                            Your Saved Columns
+                        </h6>
+                        <button type="button"
+                                class="btn btn-outline-success btn-sm"
+                                @onclick="() => ShowSavedColumns = !ShowSavedColumns">
+                            <i class="bi bi-@(ShowSavedColumns ? "eye-slash" : "eye") me-1"></i>
+                            @(ShowSavedColumns ? "Hide" : "Show") Saved
+                        </button>
+                    </div>
+
+                    @if (ShowSavedColumns)
+                    {
+                        <div class="row g-2">
+                            @foreach (var savedColumn in SavedColumns.Where(c => !TemplateColumns.Any(tc => tc.Name == c.Name)))
+                            {
+                                <div class="col-md-6">
+                                    <div class="saved-column-item">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div class="flex-grow-1">
+                                                <strong class="text-success">@savedColumn.Name</strong>
+                                                @if (!string.IsNullOrEmpty(savedColumn.SumFieldName))
+                                                {
+                                                    <div class="small text-muted">
+                                                        Formula: SUMIF(@savedColumn.Name, TRUE, @savedColumn.SumFieldName)
+                                                    </div>
+                                                }
+                                            </div>
+                                            <div class="btn-group btn-group-sm">
+                                                <button type="button"
+                                                        class="btn btn-outline-success btn-sm"
+                                                        @onclick="() => AddToTemplate(savedColumn)"
+                                                        title="Add to template">
+                                                    <i class="bi bi-plus"></i>
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-outline-secondary btn-sm"
+                                                        @onclick="() => EditSavedColumn(savedColumn)"
+                                                        title="Edit saved column">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button type="button"
+                                                        class="btn btn-outline-danger btn-sm"
+                                                        @onclick="() => DeleteSavedColumn(savedColumn)"
+                                                        title="Delete permanently">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+
+            @* Add New Column Form *@
+            <div class="add-column-form">
+                @if (ShowAddForm || (!TemplateColumns.Any() && !SavedColumns.Any()))
+                {
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Column Name</label>
+                                    <input type="text"
+                                           class="form-control @(ValidationErrors.ContainsKey("name") ? "is-invalid" : "")"
+                                           @bind="NewColumnName"
+                                           @onkeypress="OnColumnNameKeyPress"
+                                           placeholder="e.g. Gas, Payroll, Rent"
+                                           maxlength="50">
+                                    @if (ValidationErrors.ContainsKey("name"))
+                                    {
+                                        <div class="invalid-feedback">@ValidationErrors["name"]</div>
+                                    }
+                                </div>
+
+                                <div class="col-md-3">
+                                    <label class="form-label">
+                                        Sum Reference
+                                        <small class="text-muted">(optional)</small>
+                                    </label>
+                                    <select class="form-select @(ValidationErrors.ContainsKey("reference") ? "is-invalid" : "")"
+                                            @bind="NewColumnSumReference">
+                                        <option value="">-- No Formula --</option>
+                                        @foreach (var numericField in GetNumericFields())
+                                        {
+                                            <option value="@numericField">@numericField</option>
+                                        }
+                                    </select>
+                                    @if (ValidationErrors.ContainsKey("reference"))
+                                    {
+                                        <div class="invalid-feedback">@ValidationErrors["reference"]</div>
+                                    }
+                                </div>
+
+                                <div class="col-md-3">
+                                    <label class="form-label">Save Option</label>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               @bind="SaveToCollection" id="saveToCollection">
+                                        <label class="form-check-label" for="saveToCollection">
+                                            Save for future use
+                                        </label>
+                                    </div>
+                                    <div class="form-text">
+                                        Saved columns can be reused in other templates
+                                    </div>
+                                </div>
+
+                                <div class="col-md-3 d-flex align-items-end">
+                                    <div class="btn-group w-100">
+                                        <button type="button"
+                                                class="btn btn-primary"
+                                                @onclick="AddColumn"
+                                                disabled="@IsAddingColumn">
+                                            @if (IsAddingColumn)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-plus-circle me-2"></i>
+                                            }
+                                            @(EditingColumn != null ? "Update" : "Add") Column
+                                        </button>
+                                        @if (ShowAddForm && (TemplateColumns.Any() || SavedColumns.Any()))
+                                        {
+                                            <button type="button"
+                                                    class="btn btn-outline-secondary"
+                                                    @onclick="CancelAddForm">
+                                                <i class="bi bi-x"></i>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(NewColumnSumReference) && !string.IsNullOrWhiteSpace(NewColumnName))
+                            {
+                                <div class="mt-2 p-2 bg-info bg-opacity-10 rounded">
+                                    <small class="text-info">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        Preview Formula: =SUMIF(@(NewColumnName.Trim()), TRUE, @NewColumnSumReference)
+                                    </small>
+                                </div>
+                            }
+
+                            @if (EditingColumn != null)
+                            {
+                                <div class="mt-2">
+                                    <small class="text-info">
+                                        <i class="bi bi-pencil me-1"></i>
+                                        Editing: <strong>@EditingColumn.Name</strong>
+                                    </small>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center">
+                        <button type="button"
+                                class="btn btn-outline-primary"
+                                @onclick="() => ShowAddForm = true">
+                            <i class="bi bi-plus-circle me-2"></i>
+                            Create New Column
+                        </button>
+                    </div>
+                }
+            </div>
+
+            @* Quick Add Presets *@
+            @if (!ShowAddForm && TemplateColumns.Count < 3 && SavedColumns.Count < 8)
+            {
+                <div class="quick-presets mt-3">
+                    <div class="text-muted small mb-2">Quick Add Common Columns:</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var preset in GetColumnPresets())
+                        {
+                            @if (!TemplateColumns.Any(c => c.Name.Equals(preset.Name, StringComparison.OrdinalIgnoreCase)) &&
+                           !SavedColumns.Any(c => c.Name.Equals(preset.Name, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                <button type="button"
+                                        class="btn btn-outline-secondary btn-sm"
+                                        @onclick="() => AddPresetColumn(preset)">
+                                    <i class="bi bi-plus me-1"></i>@preset.Name
+                                </button>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+
+            @* Info/Help Section *@
+            @if (!TemplateColumns.Any() && !SavedColumns.Any())
+            {
+                <div class="help-info mt-3 p-3 bg-info bg-opacity-10 rounded">
+                    <div class="small">
+                        <i class="bi bi-info-circle me-2 text-info"></i>
+                        <strong>Custom Checkbox Columns</strong> let you add categories like "Gas", "Payroll", or "Rent"
+                        to your export. Each column can have a formula that sums amounts where the checkbox is checked.
+                        Columns can be saved to your collection for reuse in future templates.
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    // Use the shared TickBoxColumnConfig class - remove duplicate definition
+    // The class should be defined in ExportPreviewTable only
+
+    [Parameter] public List<ExportPreviewTable.TickBoxColumnConfig> TemplateColumns { get; set; } = new();
+    [Parameter] public List<ExportPreviewTable.TickBoxColumnConfig> SavedColumns { get; set; } = new();
+    [Parameter] public List<string> AvailableFields { get; set; } = new();
+    [Parameter] public EventCallback<List<ExportPreviewTable.TickBoxColumnConfig>> OnTemplateColumnsChanged { get; set; }
+    [Parameter] public EventCallback<List<ExportPreviewTable.TickBoxColumnConfig>> OnSavedColumnsChanged { get; set; }
+
+    // Form state
+    private bool ShowAddForm { get; set; } = false;
+    private bool ShowSavedColumns { get; set; } = true;
+    private bool IsAddingColumn { get; set; } = false;
+    private bool SaveToCollection { get; set; } = true; // Default to saving
+    private string NewColumnName { get; set; } = string.Empty;
+    private string NewColumnSumReference { get; set; } = string.Empty;
+    private TickBoxColumnConfig? EditingColumn { get; set; }
+    private bool EditingSavedColumn { get; set; } = false;
+    private Dictionary<string, string> ValidationErrors { get; set; } = new();
+
+    // Column presets for quick adding
+    private readonly List<TickBoxColumnConfig> _columnPresets = new()
+    {
+        new() { Name = "Gas", SumFieldName = "" },
+        new() { Name = "Payroll", SumFieldName = "" },
+        new() { Name = "Rent", SumFieldName = "" },
+        new() { Name = "Utilities", SumFieldName = "" },
+        new() { Name = "Office Supplies", SumFieldName = "" },
+        new() { Name = "Travel", SumFieldName = "" },
+        new() { Name = "Marketing", SumFieldName = "" },
+        new() { Name = "Equipment", SumFieldName = "" }
+    };
+
+    protected override void OnParametersSet()
+    {
+        // Auto-show add form if no columns exist anywhere
+        if (!TemplateColumns.Any() && !SavedColumns.Any())
+        {
+            ShowAddForm = true;
+        }
+    }
+
+    /// <summary>
+    /// Get numeric fields available for formula references
+    /// Uses field NAMES, not positions - table parser handles ordering later
+    /// </summary>
+    private List<string> GetNumericFields()
+    {
+        return AvailableFields
+            .Where(field => IsNumericField(field))
+            .OrderBy(field => field)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Check if field appears to contain numeric data
+    /// </summary>
+    private bool IsNumericField(string fieldName)
+    {
+        var numericKeywords = new[] { "total", "amount", "sum", "balance", "value", "price", "cost", "fee", "charge", "payment" };
+        var lowerField = fieldName.ToLowerInvariant();
+
+        return numericKeywords.Any(keyword => lowerField.Contains(keyword)) ||
+               lowerField.Contains("baht") ||
+               lowerField.Contains("thb") ||
+               lowerField.EndsWith("amt") ||
+               lowerField.EndsWith("val");
+    }
+
+    /// <summary>
+    /// Get column presets for quick adding
+    /// </summary>
+    private List<TickBoxColumnConfig> GetColumnPresets()
+    {
+        return _columnPresets.Take(6).ToList();
+    }
+
+    /// <summary>
+    /// Add a new custom column - saves to collection if requested, adds to template
+    /// </summary>
+    private async Task AddColumn()
+    {
+        if (!ValidateColumnInput()) return;
+
+        IsAddingColumn = true;
+        StateHasChanged();
+
+        try
+        {
+            var newColumn = new TickBoxColumnConfig
+                {
+                    Name = NewColumnName.Trim(),
+                    SumFieldName = string.IsNullOrWhiteSpace(NewColumnSumReference) ? string.Empty : NewColumnSumReference
+                };
+
+            if (EditingColumn != null)
+            {
+                // Update existing column
+                if (EditingSavedColumn)
+                {
+                    var savedIndex = SavedColumns.IndexOf(EditingColumn);
+                    if (savedIndex >= 0)
+                    {
+                        SavedColumns[savedIndex] = newColumn;
+                        await OnSavedColumnsChanged.InvokeAsync(SavedColumns);
+
+                        // Also update in template if it exists there
+                        var templateIndex = TemplateColumns.FindIndex(c => c.Name == EditingColumn.Name);
+                        if (templateIndex >= 0)
+                        {
+                            TemplateColumns[templateIndex] = new TickBoxColumnConfig
+                                {
+                                    Name = newColumn.Name,
+                                    SumFieldName = newColumn.SumFieldName
+                                };
+                            await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+                        }
+                    }
+                }
+                else
+                {
+                    // Update template column
+                    var templateIndex = TemplateColumns.IndexOf(EditingColumn);
+                    if (templateIndex >= 0)
+                    {
+                        TemplateColumns[templateIndex] = newColumn;
+                        await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+                    }
+                }
+            }
+            else
+            {
+                // Add new column
+                if (SaveToCollection && !SavedColumns.Any(c => c.Name.Equals(newColumn.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    SavedColumns.Add(new TickBoxColumnConfig { Name = newColumn.Name, SumFieldName = newColumn.SumFieldName });
+                    await OnSavedColumnsChanged.InvokeAsync(SavedColumns);
+                }
+
+                // Add to template (always)
+                if (!TemplateColumns.Any(c => c.Name.Equals(newColumn.Name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    TemplateColumns.Add(newColumn);
+                    await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+                }
+            }
+
+            // Reset form
+            ResetForm();
+        }
+        finally
+        {
+            IsAddingColumn = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Add a preset column quickly
+    /// </summary>
+    private async Task AddPresetColumn(TickBoxColumnConfig preset)
+    {
+        // Auto-assign sum reference if there's a clear match
+        var suggestedReference = GetNumericFields().FirstOrDefault();
+
+        var newColumn = new TickBoxColumnConfig
+            {
+                Name = preset.Name,
+                SumFieldName = suggestedReference ?? string.Empty
+            };
+
+        // Add to saved collection
+        SavedColumns.Add(new TickBoxColumnConfig { Name = newColumn.Name, SumFieldName = newColumn.SumFieldName });
+        await OnSavedColumnsChanged.InvokeAsync(SavedColumns);
+
+        // Add to template
+        TemplateColumns.Add(newColumn);
+        await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Add saved column to current template
+    /// </summary>
+    private async Task AddToTemplate(ExportPreviewTable.TickBoxColumnConfig savedColumn)
+    {
+        if (!TemplateColumns.Any(c => c.Name.Equals(savedColumn.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            var newTemplateColumn = new ExportPreviewTable.TickBoxColumnConfig
+                {
+                    Name = savedColumn.Name,
+                    SumFieldName = savedColumn.SumFieldName
+                };
+
+            TemplateColumns.Add(newTemplateColumn);
+            await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+
+            Console.WriteLine($"✅ Added '{savedColumn.Name}' to template. Template now has {TemplateColumns.Count} columns.");
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Edit template column
+    /// </summary>
+    private void EditColumn(TickBoxColumnConfig column)
+    {
+        EditingColumn = column;
+        EditingSavedColumn = false;
+        NewColumnName = column.Name;
+        NewColumnSumReference = column.SumFieldName;
+        SaveToCollection = false; // Don't auto-save when editing template column
+        ShowAddForm = true;
+        ValidationErrors.Clear();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Edit saved column
+    /// </summary>
+    private void EditSavedColumn(TickBoxColumnConfig column)
+    {
+        EditingColumn = column;
+        EditingSavedColumn = true;
+        NewColumnName = column.Name;
+        NewColumnSumReference = column.SumFieldName;
+        SaveToCollection = true;
+        ShowAddForm = true;
+        ValidationErrors.Clear();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Remove column from template (but keep in saved collection)
+    /// </summary>
+    private async Task RemoveFromTemplate(TickBoxColumnConfig column)
+    {
+        TemplateColumns.Remove(column);
+        await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+
+        // If we were editing this column, reset the form
+        if (EditingColumn == column)
+        {
+            ResetForm();
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Delete saved column permanently
+    /// </summary>
+    private async Task DeleteSavedColumn(TickBoxColumnConfig column)
+    {
+        SavedColumns.Remove(column);
+        await OnSavedColumnsChanged.InvokeAsync(SavedColumns);
+
+        // Also remove from template if it exists there
+        var templateColumn = TemplateColumns.FirstOrDefault(c => c.Name.Equals(column.Name, StringComparison.OrdinalIgnoreCase));
+        if (templateColumn != null)
+        {
+            TemplateColumns.Remove(templateColumn);
+            await OnTemplateColumnsChanged.InvokeAsync(TemplateColumns);
+        }
+
+        // If we were editing this column, reset the form
+        if (EditingColumn == column)
+        {
+            ResetForm();
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Validate column input
+    /// </summary>
+    private bool ValidateColumnInput()
+    {
+        ValidationErrors.Clear();
+
+        // Validate name
+        if (string.IsNullOrWhiteSpace(NewColumnName))
+        {
+            ValidationErrors["name"] = "Column name is required";
+        }
+        else if (NewColumnName.Trim().Length < 2)
+        {
+            ValidationErrors["name"] = "Column name must be at least 2 characters";
+        }
+        else if (EditingColumn == null || EditingColumn.Name != NewColumnName.Trim())
+        {
+            // Check for duplicates only if this is a new column or name changed
+            if (TemplateColumns.Any(c => c.Name.Equals(NewColumnName.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                SavedColumns.Any(c => c.Name.Equals(NewColumnName.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                ValidationErrors["name"] = "Column name already exists";
+            }
+        }
+
+        if (AvailableFields.Any(f => f.Equals(NewColumnName.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            ValidationErrors["name"] = "Column name conflicts with existing field";
+        }
+
+        // Validate reference field (must be from available fields if specified)
+        if (!string.IsNullOrWhiteSpace(NewColumnSumReference) && !GetNumericFields().Contains(NewColumnSumReference))
+        {
+            ValidationErrors["reference"] = "Invalid reference field selected";
+        }
+
+        return !ValidationErrors.Any();
+    }
+
+    /// <summary>
+    /// Handle Enter key press in column name input
+    /// </summary>
+    private async Task OnColumnNameKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !IsAddingColumn)
+        {
+            await AddColumn();
+        }
+    }
+
+    /// <summary>
+    /// Cancel add form
+    /// </summary>
+    private void CancelAddForm()
+    {
+        ShowAddForm = false;
+        ResetForm();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Reset the form to initial state
+    /// </summary>
+    private void ResetForm()
+    {
+        NewColumnName = string.Empty;
+        NewColumnSumReference = string.Empty;
+        EditingColumn = null;
+        EditingSavedColumn = false;
+        SaveToCollection = true;
+        ValidationErrors.Clear();
+        ShowAddForm = !TemplateColumns.Any() && !SavedColumns.Any(); // Keep form open if no columns exist anywhere
+    }
+}
+
+<style>
+    /* Custom Column Manager Styles */
+    .custom-column-manager .card {
+        border: 1px solid #dee2e6;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .template-column-item,
+    .saved-column-item {
+        padding: 0.75rem;
+        border: 1px solid #e9ecef;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease-in-out;
+    }
+
+    .template-column-item {
+        background-color: #f8f9fa;
+    }
+
+        .template-column-item:hover {
+            border-color: #0d6efd;
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+    .saved-column-item {
+        background-color: #f0f8f0;
+        border-color: #d4edda;
+    }
+
+        .saved-column-item:hover {
+            border-color: #198754;
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(25, 135, 84, 0.15);
+        }
+
+    .add-column-form .form-control:focus,
+    .add-column-form .form-select:focus {
+        border-color: #0d6efd;
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+    }
+
+    .quick-presets .btn {
+        font-size: 0.875rem;
+    }
+
+    .help-info {
+        border-left: 4px solid #0dcaf0;
+    }
+
+    /* Section dividers */
+    .current-template-columns {
+        border-bottom: 1px solid #e9ecef;
+        padding-bottom: 1rem;
+    }
+
+    .saved-columns-section {
+        border-bottom: 1px solid #e9ecef;
+        padding-bottom: 1rem;
+    }
+
+    /* Animation for adding/removing items */
+    .current-template-columns,
+    .saved-columns-section {
+        transition: all 0.3s ease-in-out;
+    }
+
+    .template-column-item,
+    .saved-column-item {
+        animation: slideIn 0.3s ease-out;
+    }
+</style>

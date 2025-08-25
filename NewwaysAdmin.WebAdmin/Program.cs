@@ -220,6 +220,8 @@ public class Program
             options.AddPolicy("AdminOnly", policy =>
                 policy.RequireRole("Admin"));
         });
+        // Bank Slip Custom Column Storage
+        services.AddScoped<CustomColumnStorageService>();
 
         // Register authorization handlers
         services.AddScoped<IAuthorizationHandler, ModuleAccessHandler>();

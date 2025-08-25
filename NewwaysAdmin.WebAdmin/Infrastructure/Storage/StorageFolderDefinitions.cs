@@ -190,6 +190,17 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                      CreateBackups = true,
                      MaxBackupCount = 20 // Keep processing history
                  },
+                // Bank Slip Custom Columns (per-user custom checkbox columns)
+                new StorageFolder
+                {
+                    Name = "BankSlip_CustomColumns",
+                    Description = "User-created custom checkbox columns for bank slip exports",
+                    Type = StorageType.Json, // JSON for human-readable custom column data
+                    Path = "BankSlips",
+                    IsShared = false, // Per-user storage
+                    CreateBackups = true,
+                    MaxBackupCount = 10 // Keep more backups for user-created content
+                },
                 // Ocr Patterns
                 new StorageFolder
                 {
