@@ -629,7 +629,7 @@
         Logger.LogInformation("Display fields updated: {Fields}", string.Join(", ", _selectedDisplayFields));
         StateHasChanged();
     }
-
+    // make export to googlesheet work
     private void ToggleSumField(string fieldName)
     {
         if (!_selectedDisplayFields.Contains(fieldName) || !IsNumericFieldName(fieldName))
