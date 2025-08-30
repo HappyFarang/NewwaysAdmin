@@ -518,7 +518,21 @@
 
         Console.WriteLine($"🔄 Converting {columnNames.Count} columns × {maxRows} rows");
 
-        // Create rows
+        // ADD HEADER ROW FIRST
+        var headerRow = new SheetRow { IsHeader = true };
+        foreach (var columnName in columnNames)
+        {
+            var headerCell = new SheetCell
+                {
+                    Value = columnName,
+                    IsBold = true,
+                    Type = CellType.Header
+                };
+            headerRow.Cells.Add(headerCell);
+        }
+        sheetData.Rows.Add(headerRow);
+
+        // Create data rows (your existing logic)
         for (int rowIndex = 0; rowIndex < maxRows; rowIndex++)
         {
             var sheetRow = new SheetRow();
@@ -536,14 +550,14 @@
                 {
                     if (cellValue.StartsWith("=SUM("))
                     {
-                        // Convert =SUM(...) to actual column range
+                        // Convert =SUM(...) to actual column range - adjust for header row
                         var columnLetter = GetColumnLetter(colIndex);
-                        cell.Value = $"=SUM({columnLetter}2:{columnLetter})"; // Sum from row 2 to end
+                        cell.Value = $"=SUM({columnLetter}3:{columnLetter})"; // Sum from row 3 to end (2 is header, 3 is first data)
                         Console.WriteLine($"📊 Formula: {columnName} -> {cell.Value}");
                     }
                     else if (cellValue.StartsWith("=SUMIF(") || cellValue.Contains("SUMIF"))
                     {
-                        // 🔧 FIXED: Better column matching logic
+                        // Better column matching logic
                         var customColumn = FindCustomColumnByName(columnName);
                         if (customColumn != null && !string.IsNullOrEmpty(customColumn.SumFieldName))
                         {
@@ -553,7 +567,8 @@
                             {
                                 var checkboxColumnLetter = GetColumnLetter(colIndex);
                                 var refColumnLetter = GetColumnLetter(refColumnIndex);
-                                cell.Value = $"=SUMIF({checkboxColumnLetter}2:{checkboxColumnLetter}, TRUE, {refColumnLetter}2:{refColumnLetter})";
+                                // Adjust for header row - data starts at row 3
+                                cell.Value = $"=SUMIF({checkboxColumnLetter}3:{checkboxColumnLetter}, TRUE, {refColumnLetter}3:{refColumnLetter})";
                                 Console.WriteLine($"📊 SUMIF Formula: {columnName} -> {cell.Value} (checkbox col: {checkboxColumnLetter}, ref col: {refColumnLetter})");
                             }
                             else
@@ -610,7 +625,7 @@
             sheetData.Rows.Add(sheetRow);
         }
 
-        Console.WriteLine($"✅ Converted to {sheetData.Rows.Count} rows with proper formulas and checkboxes");
+        Console.WriteLine($"✅ Converted to {sheetData.Rows.Count} rows with headers, formulas and checkboxes");
         return sheetData;
     }
 
