@@ -541,7 +541,7 @@
                         cell.Value = $"=SUM({columnLetter}2:{columnLetter})"; // Sum from row 2 to end
                         Console.WriteLine($"📊 Formula: {columnName} -> {cell.Value}");
                     }
-                    else if (cellValue.StartsWith("=SUMIF("))
+                    else if (cellValue.StartsWith("=SUMIF(") || cellValue.Contains("SUMIF"))
                     {
                         // Handle custom checkbox column formulas
                         var customColumn = CustomTickBoxColumns.FirstOrDefault(c => FormatCustomColumnHeader(c) == columnName);
@@ -554,16 +554,18 @@
                                 var checkboxColumnLetter = GetColumnLetter(colIndex);
                                 var refColumnLetter = GetColumnLetter(refColumnIndex);
                                 cell.Value = $"=SUMIF({checkboxColumnLetter}2:{checkboxColumnLetter}, TRUE, {refColumnLetter}2:{refColumnLetter})";
-                                Console.WriteLine($"📊 SUMIF Formula: {columnName} -> {cell.Value}");
+                                Console.WriteLine($"📊 SUMIF Formula: {columnName} -> {cell.Value} (checkbox col: {checkboxColumnLetter}, ref col: {refColumnLetter})");
                             }
                             else
                             {
+                                Console.WriteLine($"⚠️ Reference column '{customColumn.SumFieldName}' not found for custom column '{columnName}'");
                                 cell.Value = "=0"; // Fallback if reference column not found
                             }
                         }
                         else
                         {
-                            cell.Value = cellValue; // Keep original if can't process
+                            Console.WriteLine($"⚠️ Custom column definition not found for '{columnName}'");
+                            cell.Value = "=0"; // Fallback if custom column not found
                         }
                     }
                     else
@@ -576,12 +578,12 @@
                     // Handle data rows
                     if (IsCheckboxColumn(columnName))
                     {
-                        // Convert checkbox symbols to boolean values
-                        if (cellValue == "☐" || string.IsNullOrEmpty(cellValue))
+                        // Convert ALL checkbox symbols to boolean values for Google Sheets
+                        if (cellValue == "☐" || string.IsNullOrEmpty(cellValue) || cellValue.Trim() == "")
                         {
                             cell.Value = false; // Default unchecked
                         }
-                        else if (cellValue == "☑" || cellValue == "✓")
+                        else if (cellValue == "☑" || cellValue == "✓" || cellValue.ToUpper() == "TRUE")
                         {
                             cell.Value = true; // Checked
                         }
@@ -590,6 +592,7 @@
                             cell.Value = false; // Default for any other value
                         }
                         cell.IsCheckbox = true;
+                        Console.WriteLine($"📋 Checkbox cell: '{cellValue}' -> {cell.Value} (IsCheckbox: true)");
                     }
                     else
                     {
@@ -629,8 +632,14 @@
     // NEW: Check if column is a checkbox column
     private bool IsCheckboxColumn(string columnName)
     {
-        return CustomTickBoxColumns.Any(c => c.Name == columnName ||
-                                           FormatCustomColumnHeader(c) == columnName);
+        // Check both the raw name and formatted name
+        var isCustomColumn = CustomTickBoxColumns.Any(c =>
+            c.Name == columnName ||
+            FormatCustomColumnHeader(c) == columnName ||
+            columnName.Contains(c.Name));
+
+        Console.WriteLine($"🔍 IsCheckboxColumn('{columnName}'): {isCustomColumn}");
+        return isCustomColumn;
     }
 
     // NEW: Convert TickBoxColumnConfig to TableCustomColumn for the parser
