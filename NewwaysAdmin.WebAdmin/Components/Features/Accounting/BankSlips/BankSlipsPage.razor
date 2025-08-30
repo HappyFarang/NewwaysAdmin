@@ -371,13 +371,13 @@
 {
     <div class="row mt-4">
         <div class="col-12">
-            <ExportPreviewTable 
-                AnalysisResult="_fieldAnalysisResult"
-                SessionResults="_lastResults"
-                CustomTickBoxColumns="@(new List<ExportPreviewTable.TickBoxColumnConfig>())"
-                ShowFormulaRow="true"
-                MaxPreviewRows="5"
-                OnSelectedFieldsChanged="OnSelectedFieldsChanged" />
+            <ExportPreviewTable AnalysisResult="_fieldAnalysisResult"
+                                SessionResults="_lastResults"
+                                CustomTickBoxColumns="@(new List<ExportPreviewTable.TickBoxColumnConfig>())"
+                                ShowFormulaRow="true"
+                                MaxPreviewRows="5"
+                                CollectionName="@(_selectedCollection?.Name ?? "BankSlips")"
+                                OnSelectedFieldsChanged="OnSelectedFieldsChanged" />
         </div>
     </div>
 }

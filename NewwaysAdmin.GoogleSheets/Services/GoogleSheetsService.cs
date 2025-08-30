@@ -246,10 +246,10 @@ namespace NewwaysAdmin.GoogleSheets.Services
         /// No service account, no sharing complications!
         /// </summary>
         public async Task<(bool success, string? spreadsheetId, string? url, string? error)> CreateWithOAuth2OnlyAsync(
-            string title,
-            SheetData sheetData,
-            string finalOwnerEmail,
-            string? worksheetName = null)
+    string title,
+    SheetData sheetData,
+    string finalOwnerEmail,
+    string? worksheetName = null)
         {
             DriveService? oauthDriveService = null;
             SheetsService? oauthSheetsService = null;
@@ -259,33 +259,47 @@ namespace NewwaysAdmin.GoogleSheets.Services
             {
                 _logger.LogInformation("🚀 Creating spreadsheet '{Title}' using OAuth2-only approach (SIMPLE!)", title);
 
-                // 1. Check OAuth2 credentials
+                // 1. Check OAuth2 credentials file exists
                 if (string.IsNullOrEmpty(_config.PersonalAccountOAuthPath) || !File.Exists(_config.PersonalAccountOAuthPath))
                 {
                     return (false, null, null, "Personal account OAuth credentials not found. Please set PersonalAccountOAuthPath in config.");
                 }
 
-                // 2. Create OAuth2 services
-                GoogleCredential oauthCredential;
+                // 2. Load OAuth2 client secrets (CORRECTED: Use GoogleClientSecrets, not GoogleCredential)
+                GoogleClientSecrets clientSecrets;
                 using (var stream = new FileStream(_config.PersonalAccountOAuthPath, FileMode.Open, FileAccess.Read))
                 {
-                    oauthCredential = GoogleCredential.FromStream(stream)
-                        .CreateScoped(SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive);
+                    clientSecrets = GoogleClientSecrets.FromStream(stream);
                 }
 
+                _logger.LogInformation("✅ Loaded OAuth2 client secrets");
+
+                // 3. Create UserCredential (handles OAuth2 flow - CORRECTED METHOD)
+                var scopes = new[] { SheetsService.Scope.Spreadsheets, DriveService.Scope.Drive };
+
+                UserCredential credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    clientSecrets.Secrets,
+                    scopes,
+                    "NewwaysAdmin_User", // User identifier for token storage
+                    CancellationToken.None,
+                    new FileDataStore("NewwaysAdmin_OAuth2_Tokens", true)); // Stores refresh tokens locally
+
+                _logger.LogInformation("✅ OAuth2 authentication successful!");
+
+                // 4. Create Google API services with UserCredential
                 oauthDriveService = new DriveService(new BaseClientService.Initializer()
                 {
-                    HttpClientInitializer = oauthCredential,
+                    HttpClientInitializer = credential,
                     ApplicationName = _config.ApplicationName,
                 });
 
                 oauthSheetsService = new SheetsService(new BaseClientService.Initializer()
                 {
-                    HttpClientInitializer = oauthCredential,
+                    HttpClientInitializer = credential,
                     ApplicationName = _config.ApplicationName,
                 });
 
-                // 3. Create spreadsheet with OAuth2
+                // 5. Create spreadsheet with OAuth2
                 _logger.LogInformation("📄 Creating spreadsheet...");
 
                 var spreadsheet = new Spreadsheet
@@ -302,10 +316,10 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 _logger.LogInformation("✅ Created spreadsheet: {SpreadsheetId}", spreadsheetId);
 
-                // 4. Write data using SAME OAuth2 account (no permission issues!)
+                // 6. Write data using SAME OAuth2 account (no permission issues!)
                 _logger.LogInformation("📝 Writing data to spreadsheet...");
 
-                worksheetName ??= "Bank Slips";
+                worksheetName ??= "Sheet1";
 
                 // Prepare the data
                 var values = new List<IList<object>>();
@@ -332,7 +346,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
 
                 _logger.LogInformation("✅ Successfully wrote {RowCount} rows to spreadsheet", values.Count);
 
-                // 5. Transfer ownership to final user (if different from OAuth2 account)
+                // 7. Transfer ownership to final user (if different from OAuth2 account)
                 if (!string.IsNullOrEmpty(finalOwnerEmail) && finalOwnerEmail != "superfox75@gmail.com")
                 {
                     _logger.LogInformation("🔄 Transferring ownership to {Email}...", finalOwnerEmail);
@@ -916,7 +930,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 // 9. Write data to spreadsheet
                 _logger.LogInformation("📝 Writing data to spreadsheet...");
 
-                worksheetName ??= "Bank Slips";
+                worksheetName ??= "BankSlips";
 
                 // First, rename the default "Sheet1" to our desired name
                 _logger.LogInformation("📋 Renaming default sheet to '{WorksheetName}'...", worksheetName);

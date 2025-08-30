@@ -2,10 +2,13 @@
 @using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates
 @using NewwaysAdmin.Shared.Tables
 @using NewwaysAdmin.WebAdmin.Services.BankSlips
+@using NewwaysAdmin.GoogleSheets.Services
+@using NewwaysAdmin.GoogleSheets.Models
 @inject ILogger<ExportPreviewTable> Logger
 @inject DictionaryTableParser TableParser
 @inject CustomColumnStorageService CustomColumnStorage
-
+@inject GoogleSheetsService GoogleSheetsService
+@inject IJSRuntime JSRuntime
 
 <div class="export-preview-container">
 
@@ -52,52 +55,84 @@
                     }
                 </div>
 
-                @* Quick Action Buttons *@
-                <div class="mt-3">
-                    <button class="btn btn-outline-success btn-sm me-2" @onclick="SelectRecommendedFields">
-                        <i class="bi bi-stars me-1"></i>Recommended
-                    </button>
-                    <button class="btn btn-outline-primary btn-sm me-2" @onclick="SelectAllFields">
-                        <i class="bi bi-check-all me-1"></i>All Fields
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" @onclick="ClearAllFields">
-                        <i class="bi bi-x-circle me-1"></i>Clear
-                    </button>
+                <div class="mt-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        <button class="btn btn-outline-secondary btn-sm me-2" @onclick="SelectAllFields">
+                            <i class="bi bi-check-all me-1"></i>Select All
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm me-2" @onclick="SelectNoneFields">
+                            <i class="bi bi-x-square me-1"></i>Clear All
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="SelectHighQualityFields">
+                            <i class="bi bi-star me-1"></i>High Quality Only
+                        </button>
+                    </div>
+                    <div class="text-muted">
+                        <small>@SelectedFields.Count of @AnalysisResult.FieldStatistics.Count fields selected</small>
+                    </div>
                 </div>
             }
             else
             {
                 <div class="text-center text-muted py-3">
-                    <i class="bi bi-inbox me-2"></i>
-                    Process some documents first.
+                    <i class="bi bi-info-circle me-2"></i>
+                    No fields available for selection
                 </div>
             }
         </div>
     </div>
 
-    @* NEW: Custom Column Manager *@
-    <div class="mb-4">
-        <CustomColumnManager TemplateColumns="@CustomTickBoxColumns"
-                             SavedColumns="@SavedCustomColumns"
-                             AvailableFields="@GetAvailableFieldsForFormulas()"
-                             OnTemplateColumnsChanged="@OnCustomColumnsUpdated"
-                             OnSavedColumnsChanged="@OnSavedColumnsUpdated" />
+    @* Custom Tick Box Columns Management *@
+    <div class="card mb-4">
+        <div class="card-header">
+            <h6 class="mb-0">
+                <i class="bi bi-check2-square me-2"></i>
+                Custom Checkbox Columns
+                @if (CustomTickBoxColumns.Any())
+                {
+                    <small class="text-muted ms-2">(@CustomTickBoxColumns.Count custom columns)</small>
+                }
+            </h6>
+        </div>
+        <div class="card-body">
+            <CustomColumnManager TemplateColumns="CustomTickBoxColumns"
+                                 SavedColumns="@(new List<TickBoxColumnConfig>())"
+                                 AvailableFields="SelectedFields.ToList()"
+                                 OnTemplateColumnsChanged="OnCustomColumnsChanged" />
+        </div>
     </div>
 
-    @* NEW: Column Order Arranger *@
+    @* Column Ordering - SIMPLIFIED FOR NOW *@
     @if (SelectedFields.Any() || CustomTickBoxColumns.Any())
     {
-        <div class="mb-4">
-            <CustomColumnArranger 
-                ColumnOrder="@GetCurrentColumnOrder()"
-                CustomCheckboxColumns="@GetCustomCheckboxColumnNames()"
-                OnColumnOrderChanged="@OnColumnOrderUpdated" />
+        <div class="card mb-4">
+            <div class="card-header">
+                <h6 class="mb-0">
+                    <i class="bi bi-list-ol me-2"></i>
+                    Column Order
+                    <small class="text-muted">(@GetAllAvailableColumns().Count columns)</small>
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <strong>Current Order:</strong> @string.Join(" → ", GetAllAvailableColumns())
+                </div>
+                <div class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    Column ordering temporarily simplified. Fields will appear in the order shown above.
+                </div>
+                @* TODO: Re-enable CustomColumnArranger once issues are resolved
+            <CustomColumnArranger
+            ColumnOrder="ColumnOrder"
+            CustomCheckboxColumns="@(CustomTickBoxColumns.Select(c => c.Name).ToList())"
+            OnColumnOrderChanged="OnColumnOrderChanged" />
+            *@
+            </div>
         </div>
     }
 
-    @* DEBUG INFO *@
-    <div class="alert alert-info mb-3">
-        <strong>🔍 DEBUG:</strong>
+    @* Debug Info *@
+    <div class="small text-muted mb-3">
         SessionResults: @(SessionResults?.Count ?? 0),
         SelectedFields: @SelectedFields.Count,
         HasPreviewData: @HasPreviewData
@@ -181,6 +216,70 @@
                 </div>
             }
         </div>
+
+        @* NEW: Google Sheets Export Section *@
+        @if (HasPreviewData && SelectedFields.Any())
+        {
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="mb-1">
+                            <i class="bi bi-google me-2"></i>Export to Google Sheets
+                        </h6>
+                        <small class="text-muted">
+                            Export all @(SessionResults?.Count ?? 0) documents with @SelectedFields.Count selected fields
+                            @if (CustomTickBoxColumns.Any())
+                            {
+                                <span> + @CustomTickBoxColumns.Count custom columns</span>
+                            }
+                        </small>
+                    </div>
+                    <div>
+                        @if (_isExporting)
+                        {
+                            <button class="btn btn-success" disabled>
+                                <div class="spinner-border spinner-border-sm me-2"></div>
+                                Exporting...
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-success" @onclick="HandleGoogleSheetsExport">
+                                <i class="bi bi-file-earmark-spreadsheet me-2"></i>
+                                Export to Google Sheets
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                @* Export Status *@
+                @if (!string.IsNullOrEmpty(_exportMessage))
+                {
+                    <div class="mt-2">
+                        <div class="alert @(_exportSuccess ? "alert-success" : "alert-danger") alert-sm mb-0">
+                            @if (_exportSuccess)
+                            {
+                                <i class="bi bi-check-circle me-2"></i>
+                                @_exportMessage
+                                @if (!string.IsNullOrEmpty(_exportUrl))
+                                {
+                                    <div class="mt-2">
+                                        <a href="@_exportUrl" target="_blank" class="btn btn-sm btn-outline-success">
+                                            <i class="bi bi-box-arrow-up-right me-1"></i>Open Spreadsheet
+                                        </a>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                @_exportMessage
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
     </div>
 
 </div>
@@ -192,219 +291,363 @@
     [Parameter] public bool ShowFormulaRow { get; set; } = true;
     [Parameter] public int MaxPreviewRows { get; set; } = 5;
     [Parameter] public EventCallback<List<string>> OnSelectedFieldsChanged { get; set; }
+    [Parameter] public string CollectionName { get; set; } = "BankSlips"; // NEW: For sheet naming
 
     private HashSet<string> SelectedFields { get; set; } = new();
     private string? DebugInfo { get; set; }
-
-    // NEW: Custom column management state
-    private List<TickBoxColumnConfig> SavedCustomColumns { get; set; } = new();
     private List<string> ColumnOrder { get; set; } = new();
 
+    // NEW: Export state management
+    private bool _isExporting = false;
+    private string _exportMessage = string.Empty;
+    private bool _exportSuccess = false;
+    private string _exportUrl = string.Empty;
+
     private int SelectedFieldCount => SelectedFields.Count;
-    private bool HasPreviewData => SelectedFields.Any() && SessionResults?.Any() == true;
+    private bool HasPreviewData => GetSampleData().Any();
 
-    protected override async void OnParametersSet()
+    protected override void OnParametersSet()
     {
-        // Load saved custom columns first
-        await LoadSavedCustomColumnsAsync();
-
-        // Auto-select recommended fields on first load
+        // Auto-select high-quality fields if none are selected
         if (AnalysisResult != null && !SelectedFields.Any())
         {
-            SelectRecommendedFields();
+            var highQualityFields = AnalysisResult.GetFieldNamesByUsage()
+                .Where(f => AnalysisResult.FieldStatistics[f].UsagePercentage >= 80)
+                .Take(6) // Limit to avoid overwhelming
+                .ToList();
+
+            SelectedFields = highQualityFields.ToHashSet();
+            Console.WriteLine($"🎯 Auto-selected {SelectedFields.Count} high-quality fields: {string.Join(", ", SelectedFields)}");
         }
 
-        // Update debug info
-        UpdateDebugInfo();
-    }
-
-    private void UpdateDebugInfo()
-    {
-        if (SessionResults?.Any() == true)
+        // Initialize column order if not set
+        if (!ColumnOrder.Any() && (SelectedFields.Any() || CustomTickBoxColumns.Any()))
         {
-            var firstDoc = SessionResults.First();
-            DebugInfo = $"First doc has {firstDoc.Count} fields: {string.Join(", ", firstDoc.Keys.Take(3))}";
-            if (firstDoc.Count > 3) DebugInfo += $" ... (+{firstDoc.Count - 3} more)";
+            var initialOrder = new List<string>();
+
+            // Add selected fields first (in usage order if AnalysisResult available)
+            if (AnalysisResult != null)
+            {
+                initialOrder.AddRange(AnalysisResult.GetFieldNamesByUsage()
+                    .Where(f => SelectedFields.Contains(f)));
+            }
+            else
+            {
+                initialOrder.AddRange(SelectedFields.OrderBy(f => f));
+            }
+
+            // Add custom columns at the end
+            initialOrder.AddRange(CustomTickBoxColumns.Select(c => c.Name));
+
+            ColumnOrder = initialOrder;
+            Console.WriteLine($"🏗️ Initialized column order: {string.Join(", ", ColumnOrder)}");
         }
-        else
-        {
-            DebugInfo = "No session results available";
-        }
-
-        if (SelectedFields.Any())
-        {
-            DebugInfo += $" | Selected: {string.Join(", ", SelectedFields.Take(3))}";
-            if (SelectedFields.Count > 3) DebugInfo += $" ... (+{SelectedFields.Count - 3} more)";
-        }
     }
 
-    /// <summary>
-    /// NEW: Get available numeric fields for formula references
-    /// </summary>
-    private List<string> GetAvailableFieldsForFormulas()
-    {
-        if (AnalysisResult?.FieldStatistics == null)
-            return new List<string>();
-
-        return AnalysisResult.FieldStatistics.Keys
-            .Where(field => IsNumericFieldForFormula(field))
-            .OrderBy(field => field)
-            .ToList();
-    }
-
-    /// <summary>
-    /// NEW: Check if field is numeric for formula purposes
-    /// </summary>
-    private bool IsNumericFieldForFormula(string fieldName)
-    {
-        var numericKeywords = new[] { "total", "amount", "sum", "balance", "value", "price", "cost", "fee", "charge", "payment" };
-        var lowerField = fieldName.ToLowerInvariant();
-
-        return numericKeywords.Any(keyword => lowerField.Contains(keyword)) ||
-               lowerField.Contains("baht") ||
-               lowerField.Contains("thb") ||
-               lowerField.EndsWith("amt") ||
-               lowerField.EndsWith("val");
-    }
-
-    /// <summary>
-    /// NEW: Handle custom columns being updated in the template
-    /// </summary>
-    private async Task OnCustomColumnsUpdated(List<TickBoxColumnConfig> updatedColumns)
-    {
-        Console.WriteLine($"🔄 OnCustomColumnsUpdated called with {updatedColumns.Count} columns");
-
-        CustomTickBoxColumns = updatedColumns; // Direct assignment instead of Clear/AddRange
-
-        UpdateColumnOrderForCustomColumns();
-
-        Console.WriteLine($"✅ CustomTickBoxColumns now has {CustomTickBoxColumns.Count} columns");
-        foreach (var col in CustomTickBoxColumns)
-        {
-            Console.WriteLine($"   - {col.Name} (SumField: {col.SumFieldName})");
-        }
-
-        StateHasChanged();
-    }
-
-    /// <summary>
-    /// Handle saved custom columns being updated - NOW WITH PERSISTENCE
-    /// </summary>
-    private async Task OnSavedColumnsUpdated(List<TickBoxColumnConfig> updatedSavedColumns)
-    {
-        SavedCustomColumns = updatedSavedColumns;
-
-        // Save to persistent storage
-        await SaveCustomColumnsToStorageAsync();
-
-        StateHasChanged();
-    }
-
-    /// <summary>
-    /// Save custom columns to persistent storage
-    /// </summary>
-    private async Task SaveCustomColumnsToStorageAsync()
+    // NEW: Main export method - this is where the magic happens!
+    private async Task HandleGoogleSheetsExport()
     {
         try
         {
-            var storageColumns = SavedCustomColumns.Select(tc => new SavedCustomColumn
-                {
-                    Name = tc.Name,
-                    SumFieldName = tc.SumFieldName,
-                    Id = Guid.NewGuid().ToString(), // Generate ID for new columns
-                    CreatedAt = DateTime.UtcNow,
-                    LastModified = DateTime.UtcNow
-                }).ToList();
+            _isExporting = true;
+            _exportMessage = string.Empty;
+            _exportSuccess = false;
+            _exportUrl = string.Empty;
+            StateHasChanged();
 
-            await CustomColumnStorage.SaveUserCustomColumnsAsync(storageColumns);
-            Console.WriteLine($"✅ Saved {storageColumns.Count} custom columns to storage");
+            Console.WriteLine("🚀 Starting Google Sheets export...");
+            Console.WriteLine($"   Collection: {CollectionName}");
+            Console.WriteLine($"   Total documents: {SessionResults?.Count ?? 0}");
+            Console.WriteLine($"   Selected fields: {SelectedFields.Count}");
+            Console.WriteLine($"   Custom columns: {CustomTickBoxColumns.Count}");
+
+            if (SessionResults == null || !SessionResults.Any())
+            {
+                throw new InvalidOperationException("No data to export");
+            }
+
+            if (!SelectedFields.Any())
+            {
+                throw new InvalidOperationException("No fields selected for export");
+            }
+
+            // Step 1: Get the full export data (no row limits!)
+            Console.WriteLine("📊 Getting full export data...");
+            var fullExportData = GetFullExportData();
+            Console.WriteLine($"   Export data columns: {fullExportData.Keys.Count}");
+            Console.WriteLine($"   Export data rows: {(fullExportData.Values.Any() ? fullExportData.Values.First().Count : 0)}");
+
+            // Step 2: Convert to Google Sheets format
+            Console.WriteLine("🔄 Converting to Google Sheets format...");
+            var sheetData = ConvertToSheetData(fullExportData);
+            Console.WriteLine($"   SheetData rows: {sheetData.Rows.Count}");
+            Console.WriteLine($"   SheetData columns: {(sheetData.Rows.Any() ? sheetData.Rows.First().Cells.Count : 0)}");
+
+            // Step 3: Generate sheet name with timestamp
+            var sheetName = GenerateSheetName();
+            Console.WriteLine($"   Sheet name: {sheetName}");
+
+            // Step 4: Export to Google Sheets using OAuth2
+            Console.WriteLine("☁️ Calling Google Sheets service...");
+            var (success, spreadsheetId, url, error) = await GoogleSheetsService.CreateWithOAuth2OnlyAsync(
+                title: sheetName,
+                sheetData: sheetData,
+                finalOwnerEmail: "superfox75@gmail.com", // Keep ownership with OAuth account
+                worksheetName: null // Use default worksheet (Sheet1)
+            );
+
+            if (success && !string.IsNullOrEmpty(url))
+            {
+                _exportSuccess = true;
+                _exportMessage = $"Successfully exported {sheetData.Rows.Count} rows to Google Sheets!";
+                _exportUrl = url;
+
+                Console.WriteLine("✅ Export successful!");
+                Console.WriteLine($"   Spreadsheet ID: {spreadsheetId}");
+                Console.WriteLine($"   URL: {url}");
+
+                // Optional: Auto-open in new tab
+                await JSRuntime.InvokeVoidAsync("open", url, "_blank");
+            }
+            else
+            {
+                throw new InvalidOperationException(error ?? "Unknown error occurred during export");
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Failed to save custom columns to storage: {ex.Message}");
-        }
-    }
+            _exportSuccess = false;
 
-    /// <summary>
-    /// Get current column order for the arranger component
-    /// </summary>
-    private List<string> GetCurrentColumnOrder()
-    {
-        if (!ColumnOrder.Any())
-        {
-            // Initialize with current order: selected fields FIRST, then custom columns LAST
-            var currentOrder = new List<string>();
-            currentOrder.AddRange(SelectedFields.OrderBy(f => f));
-            // Custom columns go at the end (matching preview behavior)
-            currentOrder.AddRange(CustomTickBoxColumns.Select(c => c.Name));
-
-            ColumnOrder = currentOrder;
-        }
-
-        return ColumnOrder;
-    }
-
-    /// <summary>
-    /// NEW: Get custom checkbox column names for the arranger
-    /// </summary>
-    private List<string> GetCustomCheckboxColumnNames()
-    {
-        return CustomTickBoxColumns.Select(c => c.Name).ToList();
-    }
-
-    /// <summary>
-    /// NEW: Handle column order being updated
-    /// </summary>
-    private async Task OnColumnOrderUpdated(List<string> newOrder)
-    {
-        ColumnOrder = newOrder.ToList();
-
-        // Update the GetTableData method to respect this order
-        StateHasChanged();
-    }
-
-    /// <summary>
-    /// NEW: Update column order when custom columns are added/removed
-    /// </summary>
-    private void UpdateColumnOrderForCustomColumns()
-    {
-        Console.WriteLine($"🔧 UpdateColumnOrderForCustomColumns: Current order has {ColumnOrder.Count} items");
-
-        // Get all available columns
-        var allRegularFields = SelectedFields.ToHashSet();
-        var customColumnNames = CustomTickBoxColumns.Select(c => c.Name).ToHashSet();
-
-        // Clean up column order - remove columns that no longer exist
-        ColumnOrder = ColumnOrder.Where(col =>
-            allRegularFields.Contains(col) || customColumnNames.Contains(col)).ToList();
-
-        // Add any new regular fields that aren't in the order yet (add them at the beginning)
-        var missingRegularFields = allRegularFields.Where(field => !ColumnOrder.Contains(field)).ToList();
-        foreach (var field in missingRegularFields.OrderBy(f => f))
-        {
-            ColumnOrder.Insert(0, field);
-            Console.WriteLine($"➕ Added regular field '{field}' to beginning of column order");
-        }
-
-        // Add any new custom columns that aren't in the order yet (add them at the END)
-        foreach (var customCol in CustomTickBoxColumns)
-        {
-            if (!ColumnOrder.Contains(customCol.Name))
+            // Provide specific guidance for OAuth2 credential errors
+            if (ex.Message.Contains("Unrecognized credential type") || ex.Message.Contains("Error creating credential"))
             {
-                ColumnOrder.Add(customCol.Name);
-                Console.WriteLine($"➕ Added custom column '{customCol.Name}' to end of column order");
+                _exportMessage = "OAuth2 credentials error: The file 'C:\\Keys\\oauth2-credentials.json' appears to be a service account JSON (not OAuth2 client credentials). " +
+                               "Please ensure you're using OAuth2 Desktop Application credentials, not Service Account credentials.";
             }
-        }
+            else if (ex.Message.Contains("Personal account OAuth credentials not found"))
+            {
+                _exportMessage = "OAuth2 credentials file not found. Please ensure 'C:\\Keys\\oauth2-credentials.json' exists and contains OAuth2 Desktop Application credentials.";
+            }
+            else
+            {
+                _exportMessage = $"Export failed: {ex.Message}";
+            }
 
-        Console.WriteLine($"✅ Column order now has {ColumnOrder.Count} items: {string.Join(", ", ColumnOrder)}");
+            Console.WriteLine($"❌ Export failed: {ex.Message}");
+            Console.WriteLine($"   Stack trace: {ex.StackTrace}");
+            Logger.LogError(ex, "Google Sheets export failed");
+        }
+        finally
+        {
+            _isExporting = false;
+            StateHasChanged();
+        }
     }
 
-    /// <summary>
-    /// Transform data using the parser for the table component (UPDATED to respect custom column order)
-    /// </summary>
+    // NEW: Get full export data (reuse existing logic but without row limits)
+    private Dictionary<string, List<string>> GetFullExportData()
+    {
+        if (SessionResults == null || !SelectedFields.Any())
+        {
+            return new Dictionary<string, List<string>>();
+        }
+
+        var options = new TableParseOptions
+            {
+                IncludeFormulaRow = ShowFormulaRow,
+                MaxRows = null, // ← KEY CHANGE: No row limit for full export!
+                MaxValueLength = null, // Don't truncate values for export
+                CustomColumns = ConvertCustomColumns(CustomTickBoxColumns)
+            };
+
+        Console.WriteLine($"🔧 Export options: FormulaRow={options.IncludeFormulaRow}, MaxRows=unlimited");
+
+        var rawResult = TableParser.ParseToColumns(SessionResults, SelectedFields.ToList(), options);
+
+        // Apply column ordering if specified
+        if (ColumnOrder.Any())
+        {
+            var orderedResult = new Dictionary<string, List<string>>();
+
+            // Add regular fields in specified order
+            foreach (var columnName in ColumnOrder.Where(col => !CustomTickBoxColumns.Any(c => c.Name == col)))
+            {
+                if (rawResult.ContainsKey(columnName))
+                {
+                    orderedResult[columnName] = rawResult[columnName];
+                }
+            }
+
+            // Add custom columns in specified order
+            foreach (var columnName in ColumnOrder.Where(col => CustomTickBoxColumns.Any(c => c.Name == col)))
+            {
+                if (rawResult.ContainsKey(columnName))
+                {
+                    orderedResult[columnName] = rawResult[columnName];
+                }
+            }
+
+            // Add any remaining columns that weren't in the order list
+            foreach (var kvp in rawResult.Where(x => !orderedResult.ContainsKey(x.Key)))
+            {
+                orderedResult[kvp.Key] = kvp.Value;
+            }
+
+            return orderedResult;
+        }
+
+        return rawResult;
+    }
+
+    // NEW: Convert column-based data to row-based data for Google Sheets
+    private SheetData ConvertToSheetData(Dictionary<string, List<string>> tableData)
+    {
+        var sheetData = new SheetData
+            {
+                Title = GenerateSheetName()
+            };
+
+        if (!tableData.Any())
+        {
+            return sheetData;
+        }
+
+        // Get all column names in order
+        var columnNames = tableData.Keys.ToList();
+        var maxRows = tableData.Values.Max(list => list.Count);
+
+        Console.WriteLine($"🔄 Converting {columnNames.Count} columns × {maxRows} rows");
+
+        // Create rows
+        for (int rowIndex = 0; rowIndex < maxRows; rowIndex++)
+        {
+            var sheetRow = new SheetRow();
+
+            for (int colIndex = 0; colIndex < columnNames.Count; colIndex++)
+            {
+                var columnName = columnNames[colIndex];
+                var columnData = tableData[columnName];
+                var cellValue = rowIndex < columnData.Count ? columnData[rowIndex] : string.Empty;
+
+                var cell = new SheetCell();
+
+                // Process formula row (typically first row if ShowFormulaRow is true)
+                if (ShowFormulaRow && rowIndex == 0 && !string.IsNullOrEmpty(cellValue))
+                {
+                    if (cellValue.StartsWith("=SUM("))
+                    {
+                        // Convert =SUM(...) to actual column range
+                        var columnLetter = GetColumnLetter(colIndex);
+                        cell.Value = $"=SUM({columnLetter}2:{columnLetter})"; // Sum from row 2 to end
+                        Console.WriteLine($"📊 Formula: {columnName} -> {cell.Value}");
+                    }
+                    else if (cellValue.StartsWith("=SUMIF("))
+                    {
+                        // Handle custom checkbox column formulas
+                        var customColumn = CustomTickBoxColumns.FirstOrDefault(c => FormatCustomColumnHeader(c) == columnName);
+                        if (customColumn != null && !string.IsNullOrEmpty(customColumn.SumFieldName))
+                        {
+                            // Find the column index for the reference field
+                            var refColumnIndex = columnNames.IndexOf(customColumn.SumFieldName);
+                            if (refColumnIndex >= 0)
+                            {
+                                var checkboxColumnLetter = GetColumnLetter(colIndex);
+                                var refColumnLetter = GetColumnLetter(refColumnIndex);
+                                cell.Value = $"=SUMIF({checkboxColumnLetter}2:{checkboxColumnLetter}, TRUE, {refColumnLetter}2:{refColumnLetter})";
+                                Console.WriteLine($"📊 SUMIF Formula: {columnName} -> {cell.Value}");
+                            }
+                            else
+                            {
+                                cell.Value = "=0"; // Fallback if reference column not found
+                            }
+                        }
+                        else
+                        {
+                            cell.Value = cellValue; // Keep original if can't process
+                        }
+                    }
+                    else
+                    {
+                        cell.Value = cellValue; // Keep other formulas as-is
+                    }
+                }
+                else
+                {
+                    // Handle data rows
+                    if (IsCheckboxColumn(columnName))
+                    {
+                        // Convert checkbox symbols to boolean values
+                        if (cellValue == "☐" || string.IsNullOrEmpty(cellValue))
+                        {
+                            cell.Value = false; // Default unchecked
+                        }
+                        else if (cellValue == "☑" || cellValue == "✓")
+                        {
+                            cell.Value = true; // Checked
+                        }
+                        else
+                        {
+                            cell.Value = false; // Default for any other value
+                        }
+                        cell.IsCheckbox = true;
+                    }
+                    else
+                    {
+                        cell.Value = cellValue ?? string.Empty;
+                    }
+                }
+
+                sheetRow.Cells.Add(cell);
+            }
+
+            sheetData.Rows.Add(sheetRow);
+        }
+
+        Console.WriteLine($"✅ Converted to {sheetData.Rows.Count} rows with proper formulas and checkboxes");
+        return sheetData;
+    }
+
+    // Helper method to get Excel-style column letters (A, B, C, ..., AA, AB, etc.)
+    private string GetColumnLetter(int columnIndex)
+    {
+        string columnLetter = "";
+        while (columnIndex >= 0)
+        {
+            columnLetter = (char)('A' + columnIndex % 26) + columnLetter;
+            columnIndex = columnIndex / 26 - 1;
+        }
+        return columnLetter;
+    }
+
+    // NEW: Generate unique sheet name
+    private string GenerateSheetName()
+    {
+        var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm");
+        return $"{CollectionName}_{timestamp}";
+    }
+
+    // NEW: Check if column is a checkbox column
+    private bool IsCheckboxColumn(string columnName)
+    {
+        return CustomTickBoxColumns.Any(c => c.Name == columnName ||
+                                           FormatCustomColumnHeader(c) == columnName);
+    }
+
+    // NEW: Convert TickBoxColumnConfig to TableCustomColumn for the parser
+    private List<TableCustomColumn> ConvertCustomColumns(List<TickBoxColumnConfig> tickBoxColumns)
+    {
+        return tickBoxColumns.Select(tbc => new TableCustomColumn
+            {
+                Name = tbc.Name,
+                Type = TableCustomColumnType.Checkbox,
+                SumFieldName = tbc.SumFieldName
+            }).ToList();
+    }
+
+    // Existing methods...
     private Dictionary<string, List<string>> GetTableData()
     {
-        Console.WriteLine("🔍 GetTableData() CALLED");
+        Console.WriteLine($"🔍 GetTableData called:");
         Console.WriteLine($"   SessionResults: {SessionResults?.Count ?? 0} documents");
         Console.WriteLine($"   SelectedFields: {SelectedFields.Count} fields");
         Console.WriteLine($"   CustomColumns: {CustomTickBoxColumns.Count} custom columns");
@@ -418,10 +661,9 @@
         var options = new TableParseOptions
             {
                 IncludeFormulaRow = ShowFormulaRow,
-                MaxRows = MaxPreviewRows,
+                MaxRows = MaxPreviewRows, // ← This stays limited for preview
                 MaxValueLength = 50,
-                // UPDATED: Order custom columns according to ColumnOrder
-                CustomColumns = GetOrderedCustomColumns()
+                CustomColumns = ConvertCustomColumns(CustomTickBoxColumns)
             };
 
         Console.WriteLine($"   Options: FormulaRow={options.IncludeFormulaRow}, MaxRows={options.MaxRows}");
@@ -454,245 +696,139 @@
                     }
                 }
 
-                // Add any remaining columns that weren't in the order
-                foreach (var kvp in rawResult)
+                // Add any remaining columns that weren't in the order list
+                foreach (var kvp in rawResult.Where(x => !orderedResult.ContainsKey(x.Key)))
                 {
-                    if (!orderedResult.ContainsKey(kvp.Key))
-                    {
-                        orderedResult[kvp.Key] = kvp.Value;
-                    }
+                    orderedResult[kvp.Key] = kvp.Value;
                 }
 
-                Console.WriteLine($"✅ Parser returned: {orderedResult.Count} columns (custom-ordered)");
+                Console.WriteLine($"✅ Applied column ordering. Result: {orderedResult.Keys.Count} columns");
                 return orderedResult;
             }
 
-            Console.WriteLine($"✅ Parser returned: {rawResult.Count} columns");
+            Console.WriteLine($"✅ ParseToColumns succeeded. Result: {rawResult.Keys.Count} columns");
             return rawResult;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Parser error: {ex.Message}");
+            Console.WriteLine($"❌ ParseToColumns failed: {ex.Message}");
+            Logger.LogError(ex, "Error parsing table data");
+            DebugInfo = $"Error: {ex.Message}";
             return new Dictionary<string, List<string>>();
         }
     }
 
-
-    /// <summary>
-    /// NEW: Get custom columns ordered according to ColumnOrder
-    /// </summary>
-    private List<TableCustomColumn> GetOrderedCustomColumns()
+    private async Task OnCustomColumnsChanged(List<TickBoxColumnConfig> newColumns)
     {
-        var orderedCustomColumns = new List<TableCustomColumn>();
-
-        // Get custom columns in the order specified by ColumnOrder
-        foreach (var columnName in ColumnOrder.Where(col => CustomTickBoxColumns.Any(c => c.Name == col)))
-        {
-            var customCol = CustomTickBoxColumns.FirstOrDefault(c => c.Name == columnName);
-            if (customCol != null)
-            {
-                orderedCustomColumns.Add(new TableCustomColumn
-                    {
-                        Name = customCol.Name,
-                        Type = TableCustomColumnType.Checkbox,
-                        SumFieldName = customCol.SumFieldName
-                    });
-            }
-        }
-
-        // Add any custom columns not in ColumnOrder (shouldn't happen, but safety)
-        foreach (var customCol in CustomTickBoxColumns)
-        {
-            if (!orderedCustomColumns.Any(oc => oc.Name == customCol.Name))
-            {
-                orderedCustomColumns.Add(new TableCustomColumn
-                    {
-                        Name = customCol.Name,
-                        Type = TableCustomColumnType.Checkbox,
-                        SumFieldName = customCol.SumFieldName
-                    });
-            }
-        }
-
-        return orderedCustomColumns;
+        CustomTickBoxColumns = newColumns;
+        Console.WriteLine($"📋 Custom columns updated: {CustomTickBoxColumns.Count} columns");
+        StateHasChanged();
     }
 
-    /// <summary>
-    /// Get CSS class for column based on field type
-    /// </summary>
-    private string GetColumnCssClass(string columnName)
+    private async Task OnColumnOrderChanged(List<string> newOrder)
     {
-        // Check if it's a custom checkbox column
-        if (CustomTickBoxColumns.Any(cb => cb.Name == columnName))
-        {
-            return "col-checkbox";
-        }
-
-        // Determine column type by field name patterns
-        if (IsDateField(columnName))
-        {
-            return "col-date";
-        }
-
-        if (IsAmountField(columnName))
-        {
-            return "col-amount";
-        }
-
-        // Default to text column
-        return "col-text";
+        ColumnOrder = newOrder;
+        Console.WriteLine($"🔄 Column order changed: {string.Join(", ", ColumnOrder)}");
+        StateHasChanged();
     }
 
-    /// <summary>
-    /// Get CSS class for row based on content
-    /// </summary>
-    private string GetRowCssClass(int rowIndex, Dictionary<string, List<string>> tableData)
+    private List<string> GetAllAvailableColumns()
     {
-        // Check if this is a formula row (first row contains formulas)
-        if (ShowFormulaRow && rowIndex == 0 && tableData.Values.Any())
-        {
-            var firstColumn = tableData.Values.First();
-            if (rowIndex < firstColumn.Count && firstColumn[rowIndex].StartsWith("="))
-            {
-                return "formula-row";
-            }
-        }
-
-        return "";
+        var allColumns = new List<string>();
+        allColumns.AddRange(SelectedFields);
+        allColumns.AddRange(CustomTickBoxColumns.Select(c => c.Name));
+        return allColumns;
     }
 
-    /// <summary>
-    /// Get cell value with proper formatting
-    /// </summary>
-    private string GetCellValue(List<string> columnData, int index)
-    {
-        if (index < columnData.Count)
-        {
-            var value = columnData[index];
-            return string.IsNullOrEmpty(value) ? "—" : value;
-        }
-        return "—"; // Em dash for missing values
-    }
-
-    /// <summary>
-    /// Check if field is a date field
-    /// </summary>
-    private bool IsDateField(string fieldName)
-    {
-        var dateKeywords = new[] { "Date", "Time", "Created", "Updated", "Processed" };
-        return dateKeywords.Any(keyword =>
-            fieldName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>
-    /// Check if field is an amount/numeric field
-    /// </summary>
-    private bool IsAmountField(string fieldName)
-    {
-        var amountKeywords = new[] { "Amount", "Total", "Sum", "Fee", "Cost", "Balance", "Price" };
-        return amountKeywords.Any(keyword =>
-            fieldName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
-    }
-
-    // Field selection methods
-    private async Task ToggleField(string fieldName)
+    private void ToggleField(string fieldName)
     {
         if (SelectedFields.Contains(fieldName))
         {
             SelectedFields.Remove(fieldName);
-            // Remove from column order too
+            // Also remove from column order
             ColumnOrder.Remove(fieldName);
         }
         else
         {
             SelectedFields.Add(fieldName);
-            // Add to column order if not already there
-            if (!ColumnOrder.Contains(fieldName))
+            // Add to column order at appropriate position (before custom columns)
+            var firstCustomIndex = ColumnOrder.FindIndex(col => CustomTickBoxColumns.Any(c => c.Name == col));
+            if (firstCustomIndex >= 0)
+            {
+                ColumnOrder.Insert(firstCustomIndex, fieldName);
+            }
+            else
             {
                 ColumnOrder.Add(fieldName);
             }
         }
 
-        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
-        UpdateDebugInfo();
+        Console.WriteLine($"🔄 Toggled field '{fieldName}'. Now selected: {SelectedFields.Count} fields");
+        Console.WriteLine($"🔄 Column order: {string.Join(", ", ColumnOrder)}");
+        OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
+        StateHasChanged();
     }
-    /// <summary>
-    /// Load saved custom columns from storage
-    /// </summary>
-    private async Task LoadSavedCustomColumnsAsync()
+
+    private void SelectAllFields()
     {
-        try
+        if (AnalysisResult != null)
         {
-            var savedColumns = await CustomColumnStorage.LoadUserCustomColumnsAsync();
-            SavedCustomColumns = savedColumns.Select(sc => new TickBoxColumnConfig
-                {
-                    Name = sc.Name,
-                    SumFieldName = sc.SumFieldName
-                }).ToList();
+            SelectedFields = AnalysisResult.GetFieldNamesByUsage().ToHashSet();
 
-            Console.WriteLine($"✅ Loaded {SavedCustomColumns.Count} saved custom columns from storage");
+            // Update column order to include all fields (in usage order)
+            var newOrder = new List<string>();
+            newOrder.AddRange(AnalysisResult.GetFieldNamesByUsage());
+            newOrder.AddRange(CustomTickBoxColumns.Select(c => c.Name));
+            ColumnOrder = newOrder;
 
-            if (SavedCustomColumns.Count == 0)
-            {
-                Console.WriteLine("ℹ️ No saved custom columns found - starting with empty collection");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Failed to load saved custom columns: {ex.Message}");
-            SavedCustomColumns = new List<TickBoxColumnConfig>();
-            Console.WriteLine("ℹ️ Starting with empty custom columns collection");
+            OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
+            StateHasChanged();
         }
     }
-    private async Task SelectRecommendedFields()
-    {
-        if (AnalysisResult == null) return;
 
-        SelectedFields.Clear();
-
-        // Select fields with >= 70% usage rate
-        var recommendedFields = AnalysisResult.FieldStatistics.Values
-            .Where(stats => stats.UsagePercentage >= 70)
-            .Select(stats => stats.FieldName)
-            .ToList();
-
-        foreach (var field in recommendedFields)
-        {
-            SelectedFields.Add(field);
-        }
-
-        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
-        UpdateDebugInfo();
-    }
-
-    private async Task SelectAllFields()
-    {
-        if (AnalysisResult == null) return;
-
-        SelectedFields.Clear();
-        foreach (var field in AnalysisResult.FieldStatistics.Keys)
-        {
-            SelectedFields.Add(field);
-        }
-
-        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
-        UpdateDebugInfo();
-    }
-
-    private async Task ClearAllFields()
+    private void SelectNoneFields()
     {
         SelectedFields.Clear();
-        await OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
-        UpdateDebugInfo();
+
+        // Remove all regular fields from column order, keep only custom columns
+        ColumnOrder = ColumnOrder.Where(col => CustomTickBoxColumns.Any(c => c.Name == col)).ToList();
+
+        OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
+        StateHasChanged();
+    }
+
+    private void SelectHighQualityFields()
+    {
+        if (AnalysisResult != null)
+        {
+            var highQualityFields = AnalysisResult.GetFieldNamesByUsage()
+                .Where(f => AnalysisResult.FieldStatistics[f].UsagePercentage >= 70);
+
+            SelectedFields = highQualityFields.ToHashSet();
+
+            // Update column order to include only high-quality fields (in usage order)
+            var newOrder = new List<string>();
+            newOrder.AddRange(highQualityFields);
+            newOrder.AddRange(CustomTickBoxColumns.Select(c => c.Name));
+            ColumnOrder = newOrder;
+
+            OnSelectedFieldsChanged.InvokeAsync(SelectedFields.ToList());
+            StateHasChanged();
+        }
+    }
+
+    private string FormatCustomColumnHeader(TickBoxColumnConfig config)
+    {
+        return $"✓ {config.Name}";
     }
 
     private string GetFieldButtonClass(FieldUsageStatistics stats)
     {
         return stats.UsagePercentage switch
         {
-            >= 90 => "btn-outline-success",     // Green outline for excellent availability
-            >= 70 => "btn-outline-primary",     // Blue outline for good availability
-            >= 50 => "btn-outline-warning",     // Yellow outline for moderate availability
+            >= 90 => "btn-outline-success",       // Green outline for excellent availability
+            >= 70 => "btn-outline-primary",       // Blue outline for good availability
+            >= 50 => "btn-outline-warning",       // Yellow outline for moderate availability
             _ => "btn-outline-secondary"         // Gray outline for poor availability
         };
     }
@@ -713,6 +849,54 @@
             .Where(doc => !doc.ContainsKey("Error"))
             .Take(MaxPreviewRows)
             .ToList();
+    }
+
+    private string GetColumnCssClass(string columnName)
+    {
+        // Add CSS classes based on column type
+        if (IsCheckboxColumn(columnName))
+            return "col-checkbox";
+
+        if (columnName.ToLower().Contains("date"))
+            return "col-date";
+
+        if (columnName.ToLower().Contains("amount") || columnName.ToLower().Contains("total"))
+            return "col-amount";
+
+        return "col-text";
+    }
+
+    private string GetRowCssClass(int rowIndex, Dictionary<string, List<string>> tableData)
+    {
+        if (tableData.Any() && tableData.First().Value.Count > rowIndex)
+        {
+            var firstColumnValue = tableData.First().Value[rowIndex];
+            if (firstColumnValue.StartsWith("SUM(") || firstColumnValue.StartsWith("="))
+                return "table-warning"; // Highlight formula rows
+        }
+        return "";
+    }
+
+    private string GetCellValue(List<string> columnData, int rowIndex)
+    {
+        if (rowIndex >= 0 && rowIndex < columnData.Count)
+        {
+            return columnData[rowIndex] ?? string.Empty;
+        }
+        return string.Empty;
+    }
+
+    // Helper methods for field type detection
+    private bool IsDateField(string fieldName)
+    {
+        var dateKeywords = new[] { "Date", "Time", "Timestamp", "DateTime", "Created", "Updated" };
+        return dateKeywords.Any(keyword => fieldName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsAmountField(string fieldName)
+    {
+        var amountKeywords = new[] { "Amount", "Total", "Fee", "Cost", "Balance", "Price", "Sum", "Value" };
+        return amountKeywords.Any(keyword => fieldName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
     // Temporary class for tick box columns - will be replaced with actual model later
@@ -760,77 +944,31 @@
             width: auto;
             min-width: 120px;
             word-wrap: break-word;
-            white-space: normal;
-            vertical-align: top;
-            max-width: 200px; /* Prevent extremely wide columns */
         }
 
-        /* Header styling */
-        .export-preview-table thead th {
-            background-color: var(--bs-primary) !important;
-            color: white;
-            font-weight: 600;
-            padding: 0.5rem 0.375rem;
-            vertical-align: middle;
-            position: sticky;
-            top: 0;
-            z-index: 10;
+        /* Row styling */
+        .export-preview-table tbody tr:hover {
+            background-color: rgba(0, 0, 0, 0.025);
         }
 
-        /* Cell styling */
-        .export-preview-table td {
-            padding: 0.375rem 0.375rem;
-            vertical-align: top;
-            border: 1px solid #dee2e6;
-            line-height: 1.4;
-        }
-
-        /* Formula row styling */
-        .export-preview-table .formula-row {
-            background-color: #fff3cd;
-            font-style: italic;
-        }
-
-            .export-preview-table .formula-row td {
-                background-color: #fff3cd !important;
-                font-weight: 500;
-                text-align: center;
-            }
-
-        /* Text column specific styling */
-        .export-preview-table .col-text {
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-        }
-
-        /* Checkbox column specific styling */
-        .export-preview-table .col-checkbox input[type="checkbox"] {
-            margin: 0;
-            transform: scale(1.1);
-        }
-
-    /* Field toggle button styles */
+    /* Field selection buttons */
     .field-toggle-btn {
-        transition: all 0.2s ease-in-out;
-        font-size: 0.875rem;
+        transition: all 0.15s ease-in-out;
     }
 
         .field-toggle-btn:hover {
             transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
-    .export-preview-container .card {
-        border: 1px solid #dee2e6;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Export section styling */
+    .alert-sm {
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.5rem;
     }
 
-    /* Hover effects */
-    .export-preview-table tbody tr:hover {
-        background-color: #f8f9fa;
-    }
-
-    .export-preview-table .formula-row:hover td {
-        background-color: #f0e68c !important;
-    }
+        .alert-sm .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
 </style>
