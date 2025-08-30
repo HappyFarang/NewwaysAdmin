@@ -120,13 +120,11 @@
                 <div class="text-muted small">
                     <i class="bi bi-info-circle me-1"></i>
                     Column ordering temporarily simplified. Fields will appear in the order shown above.
-                </div>
-                @* TODO: Re-enable CustomColumnArranger once issues are resolved
+                </div>                
             <CustomColumnArranger
             ColumnOrder="ColumnOrder"
             CustomCheckboxColumns="@(CustomTickBoxColumns.Select(c => c.Name).ToList())"
-            OnColumnOrderChanged="OnColumnOrderChanged" />
-            *@
+            OnColumnOrderChanged="OnColumnOrderChanged" />            
             </div>
         </div>
     }
