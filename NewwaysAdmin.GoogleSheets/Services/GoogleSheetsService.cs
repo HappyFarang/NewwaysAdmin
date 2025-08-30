@@ -328,10 +328,31 @@ namespace NewwaysAdmin.GoogleSheets.Services
                     var rowValues = new List<object>();
                     foreach (var cell in row.Cells)
                     {
-                        rowValues.Add(cell.Value ?? string.Empty);
+                        // 🔧 FIXED: Handle checkbox cells properly
+                        if (cell.IsCheckbox)
+                        {
+                            // Use boolean values for checkboxes (not strings)
+                            if (cell.Value is bool boolValue)
+                            {
+                                rowValues.Add(boolValue); // Keep as boolean
+                            }
+                            else if (cell.Value?.ToString()?.ToUpper() == "TRUE")
+                            {
+                                rowValues.Add(true);
+                            }
+                            else
+                            {
+                                rowValues.Add(false); // Default to unchecked
+                            }
+                        }
+                        else
+                        {
+                            rowValues.Add(cell.Value ?? string.Empty);
+                        }
                     }
                     values.Add(rowValues);
                 }
+
 
                 var range = $"{worksheetName}!A1";
                 var valueRange = new ValueRange

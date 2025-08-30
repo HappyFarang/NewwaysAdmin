@@ -389,12 +389,12 @@
 
             // Step 4: Export to Google Sheets using OAuth2
             Console.WriteLine("☁️ Calling Google Sheets service...");
-            var (success, spreadsheetId, url, error) = await GoogleSheetsService.CreateWithOAuth2OnlyAsync(
+            var (success, spreadsheetId, url, error) = await GoogleSheetsService.CreateWithProperOAuth2Async(
                 title: sheetName,
                 sheetData: sheetData,
-                finalOwnerEmail: "superfox75@gmail.com", // Keep ownership with OAuth account
-                worksheetName: null // Use default worksheet (Sheet1)
-            );
+                finalOwnerEmail: "superfox75@gmail.com",
+                worksheetName: null
+                );
 
             if (success && !string.IsNullOrEmpty(url))
             {
@@ -543,8 +543,8 @@
                     }
                     else if (cellValue.StartsWith("=SUMIF(") || cellValue.Contains("SUMIF"))
                     {
-                        // Handle custom checkbox column formulas
-                        var customColumn = CustomTickBoxColumns.FirstOrDefault(c => FormatCustomColumnHeader(c) == columnName);
+                        // 🔧 FIXED: Better column matching logic
+                        var customColumn = FindCustomColumnByName(columnName);
                         if (customColumn != null && !string.IsNullOrEmpty(customColumn.SumFieldName))
                         {
                             // Find the column index for the reference field
@@ -559,44 +559,48 @@
                             else
                             {
                                 Console.WriteLine($"⚠️ Reference column '{customColumn.SumFieldName}' not found for custom column '{columnName}'");
+                                Console.WriteLine($"   Available columns: {string.Join(", ", columnNames)}");
                                 cell.Value = "=0"; // Fallback if reference column not found
                             }
                         }
                         else
                         {
                             Console.WriteLine($"⚠️ Custom column definition not found for '{columnName}'");
+                            Console.WriteLine($"   Looking for column with name matching: '{columnName}'");
+                            Console.WriteLine($"   Available custom columns: {string.Join(", ", CustomTickBoxColumns.Select(c => $"'{c.Name}' (formatted: '{FormatCustomColumnHeader(c)}')").ToList())}");
                             cell.Value = "=0"; // Fallback if custom column not found
                         }
                     }
                     else
                     {
-                        cell.Value = cellValue; // Keep other formulas as-is
+                        // Keep original cell value for other formulas
+                        cell.Value = cellValue;
                     }
                 }
                 else
                 {
-                    // Handle data rows
-                    if (IsCheckboxColumn(columnName))
+                    // Regular data cell
+                    if (IsCheckboxColumn(columnName) && rowIndex > 0) // Skip formula row
                     {
-                        // Convert ALL checkbox symbols to boolean values for Google Sheets
+                        // Convert checkbox symbols to boolean values for Google Sheets
                         if (cellValue == "☐" || string.IsNullOrEmpty(cellValue) || cellValue.Trim() == "")
                         {
-                            cell.Value = false; // Default unchecked
+                            cell.Value = false; // Boolean false (unchecked)
                         }
                         else if (cellValue == "☑" || cellValue == "✓" || cellValue.ToUpper() == "TRUE")
                         {
-                            cell.Value = true; // Checked
+                            cell.Value = true; // Boolean true (checked)
                         }
                         else
                         {
-                            cell.Value = false; // Default for any other value
+                            cell.Value = false; // Default to unchecked for any other value
                         }
-                        cell.IsCheckbox = true;
+                        cell.IsCheckbox = true; // This tells GoogleSheetsService to apply checkbox formatting
                         Console.WriteLine($"📋 Checkbox cell: '{cellValue}' -> {cell.Value} (IsCheckbox: true)");
                     }
                     else
                     {
-                        cell.Value = cellValue ?? string.Empty;
+                        cell.Value = cellValue;
                     }
                 }
 
@@ -608,6 +612,32 @@
 
         Console.WriteLine($"✅ Converted to {sheetData.Rows.Count} rows with proper formulas and checkboxes");
         return sheetData;
+    }
+
+    // 🔧 NEW HELPER METHOD: Better custom column finding
+    private TickBoxColumnConfig? FindCustomColumnByName(string columnName)
+    {
+        // Try multiple matching strategies
+        foreach (var customColumn in CustomTickBoxColumns)
+        {
+            // 1. Direct name match
+            if (customColumn.Name == columnName)
+                return customColumn;
+
+            // 2. Match with "✓ Name" format (ExportPreviewTable format)
+            if ($"✓ {customColumn.Name}" == columnName)
+                return customColumn;
+
+            // 3. Match with "Name ✓" format (DictionaryTableParser format)
+            if ($"{customColumn.Name} ✓" == columnName)
+                return customColumn;
+
+            // 4. Check if columnName contains the custom column name
+            if (columnName.Contains(customColumn.Name))
+                return customColumn;
+        }
+
+        return null;
     }
 
     // Helper method to get Excel-style column letters (A, B, C, ..., AA, AB, etc.)
@@ -828,7 +858,7 @@
 
     private string FormatCustomColumnHeader(TickBoxColumnConfig config)
     {
-        return $"✓ {config.Name}";
+        return $"{config.Name} ✓";
     }
 
     private string GetFieldButtonClass(FieldUsageStatistics stats)
