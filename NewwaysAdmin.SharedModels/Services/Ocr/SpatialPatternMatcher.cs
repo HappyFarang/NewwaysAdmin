@@ -25,28 +25,60 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         /// Extract words using spatial pattern matching - EXACT same logic as Settings
         /// </summary>
         public SpatialPatternResult ExtractPattern(
-            SpatialDocument document,
-            string searchTerm,
-            string patternType,
-            int yTolerance,
-            int xTolerance,
-            string stopWords = "",
-            string patternName = "")
+    SpatialDocument document,
+    string searchTerm,
+    string patternType,
+    int yTolerance,
+    int xTolerance,
+    string stopWords = "",
+    string patternName = "")
         {
             var result = new SpatialPatternResult();
 
             try
             {
-                _logger.LogDebug("🔍 Starting spatial pattern extraction for '{PatternName}' with keyword '{SearchTerm}'",
+                _logger.LogDebug("🔍 Starting spatial pattern extraction for '{PatternName}' with search term '{SearchTerm}'",
                     patternName, searchTerm);
 
-                // Find anchor word using EXACT same logic as Settings
+                // Parse stop words - needed for all patterns
+                var stopWordsList = ParseStopWords(stopWords);
+
+                // HANDLE POSITION-BASED PATTERNS FIRST (before keyword search)
+                if (patternType.ToLower() == "positionbasedcolumn")
+                {
+                    var coords = ParseCoordinates(searchTerm);
+                    if (coords == null)
+                    {
+                        _logger.LogWarning("❌ Invalid coordinates format '{SearchTerm}' for pattern '{PatternName}'. Expected format: 'X,Y'",
+                            searchTerm, patternName);
+                        return result;
+                    }
+
+                    return TestPositionBasedColumnPattern(document, coords.Value.x, coords.Value.y, yTolerance, xTolerance, stopWordsList, patternName);
+                }
+
+                // ADD this new case right after the column case:
+                if (patternType.ToLower() == "positionbasedhorizontal")
+                {
+                    var coords = ParseCoordinates(searchTerm);
+                    if (coords == null)
+                    {
+                        _logger.LogWarning("❌ Invalid coordinates format '{SearchTerm}' for pattern '{PatternName}'. Expected format: 'X,Y'",
+                            searchTerm, patternName);
+                        return result;
+                    }
+
+                    // X coordinate is ignored, only Y coordinate is used
+                    return TestPositionBasedHorizontalPattern(document, coords.Value.x, coords.Value.y, yTolerance, xTolerance, stopWordsList, patternName);
+                }
+
+                // FOR KEYWORD-BASED PATTERNS: Find anchor word
                 var anchorWord = document.FindWordsByText(searchTerm, exactMatch: false).FirstOrDefault();
                 if (anchorWord == null)
                 {
                     _logger.LogWarning("❌ Keyword '{SearchTerm}' not found in spatial document for pattern '{PatternName}'",
                         searchTerm, patternName);
-                    return result; // Success = false by default
+                    return result;
                 }
 
                 result.AnchorWord = anchorWord;
@@ -55,10 +87,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 _logger.LogDebug("✅ Keyword '{SearchTerm}' found at position ({X},{Y}) for pattern '{PatternName}'",
                     searchTerm, anchorWord.RawX1, anchorWord.RawY1, patternName);
 
-                // Parse stop words - EXACT same logic as Settings
-                var stopWordsList = ParseStopWords(stopWords);
-
-                // Extract based on pattern type using EXACT Settings algorithms
+                // Extract based on pattern type
                 switch (patternType.ToLower())
                 {
                     case "verticalcolumn":
@@ -93,6 +122,338 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                     patternName, ex.Message);
                 return result;
             }
+        }
+
+        // NEW: Parse coordinates from searchTerm like "189,373"
+        private (int x, int y)? ParseCoordinates(string searchTerm)
+        {
+            if (string.IsNullOrWhiteSpace(searchTerm)) return null;
+
+            var parts = searchTerm.Split(',');
+            if (parts.Length != 2) return null;
+
+            if (int.TryParse(parts[0].Trim(), out int x) &&
+                int.TryParse(parts[1].Trim(), out int y))
+            {
+                return (x, y);
+            }
+
+            return null;
+        }
+
+        // NEW: Find word at specific position using configurable grid search
+        private WordBoundingBox? FindWordAtPosition(SpatialDocument document, int targetX, int targetY,
+            int xTolerance = 5, int yTolerance = 26)
+        {
+            _logger.LogInformation("🎯 Searching for word at position ({TargetX},{TargetY}) with tolerance ±{XTol},+{YTol}",
+                targetX, targetY, xTolerance, yTolerance);
+
+            // Define search area: (targetX - xTolerance, targetY - yTolerance) to (targetX + xTolerance, targetY + yTolerance)
+            var searchX1 = targetX - xTolerance;
+            var searchY1 = targetY - yTolerance;
+            var searchX2 = targetX + xTolerance;
+            var searchY2 = targetY + yTolerance;
+
+            _logger.LogInformation("🔍 Search rectangle: ({X1},{Y1}) to ({X2},{Y2})",
+                searchX1, searchY1, searchX2, searchY2);
+
+            // DEBUG: Show all words in document first
+            _logger.LogInformation("📋 Document has {WordCount} total words", document.Words.Count);
+            foreach (var word in document.Words.Take(10)) // Show first 10 words
+            {
+                _logger.LogInformation("   Word: '{Text}' at ({X},{Y})", word.Text, word.RawX1, word.RawY1);
+            }
+
+            // Find all words whose bounding boxes intersect with our search rectangle
+            var candidateWords = document.Words
+                .Where(w => !(w.RawX2 < searchX1 || w.RawX1 > searchX2 || w.RawY2 < searchY1 || w.RawY1 > searchY2))
+                .ToList();
+
+            _logger.LogInformation("📦 Found {CandidateCount} candidate words in search area:", candidateWords.Count);
+            foreach (var candidate in candidateWords)
+            {
+                _logger.LogInformation("   Candidate: '{Text}' at ({X},{Y})", candidate.Text, candidate.RawX1, candidate.RawY1);
+            }
+
+            if (!candidateWords.Any())
+            {
+                _logger.LogWarning("❌ No words found in search area ({X1},{Y1}) to ({X2},{Y2})",
+                    searchX1, searchY1, searchX2, searchY2);
+                return null;
+            }
+
+            // Find closest word to target point (by distance from top-left corners)
+            var closestWord = candidateWords
+                .OrderBy(w => Math.Sqrt(Math.Pow(w.RawX1 - targetX, 2) + Math.Pow(w.RawY1 - targetY, 2)))
+                .First();
+
+            _logger.LogInformation("🎯 Closest word to ({TargetX},{TargetY}): '{WordText}' at ({WordX},{WordY})",
+                targetX, targetY, closestWord.Text, closestWord.RawX1, closestWord.RawY1);
+
+            return closestWord;
+        }
+
+        // NEW: Position-based column search algorithm
+        private SpatialPatternResult TestPositionBasedColumnPattern(
+     SpatialDocument document,
+     int targetX,
+     int targetY,
+     int yTolerance,
+     int xTolerance,
+     List<string> stopWords,
+     string patternName)
+        {
+            var result = new SpatialPatternResult();
+
+            _logger.LogDebug("🔄 Starting position-based column search for pattern '{PatternName}' at ({X},{Y})",
+                patternName, targetX, targetY);
+
+            // Step 1: Find anchor word at specified position (using 10x26 default grid)
+            var anchorWord = FindWordAtPosition(document, targetX, targetY, xTolerance: 5, yTolerance: 26);
+            if (anchorWord == null)
+            {
+                _logger.LogWarning("❌ No word found at position ({X},{Y}) for pattern '{PatternName}'",
+                    targetX, targetY, patternName);
+                return result;
+            }
+
+            result.AnchorWord = anchorWord;
+
+            _logger.LogDebug("✅ Found anchor word '{WordText}' at position ({X},{Y}) for pattern '{PatternName}'",
+                anchorWord.Text, anchorWord.RawX1, anchorWord.RawY1, patternName);
+
+            // Step 2: First, capture the COMPLETE LINE containing the anchor word
+            var firstLineWords = new List<WordBoundingBox> { anchorWord };
+            var currentWord = anchorWord;
+
+            // March left to find line start - allow 5px overlap
+            while (true)
+            {
+                var leftWord = document.Words
+                    .Where(w => !firstLineWords.Contains(w))
+                    .Where(w => w.RawX2 <= currentWord.RawX1 + 5) // Allow 5px overlap
+                    .Where(w => currentWord.RawX1 - w.RawX2 <= xTolerance + 5) // Adjust gap tolerance
+                    .Where(w => !(w.RawY2 < currentWord.RawY1 || w.RawY1 > currentWord.RawY2))
+                    .OrderByDescending(w => w.RawX2)
+                    .FirstOrDefault();
+
+                if (leftWord == null) break;
+                firstLineWords.Insert(0, leftWord);
+                currentWord = leftWord;
+            }
+
+            // March right to complete the line - allow 5px overlap
+            currentWord = anchorWord;
+            while (true)
+            {
+                var rightWord = document.Words
+                    .Where(w => !firstLineWords.Contains(w))
+                    .Where(w => w.RawX1 >= currentWord.RawX2 - 5) // Allow 5px overlap
+                    .Where(w => w.RawX1 - currentWord.RawX2 <= xTolerance + 5) // Adjust gap tolerance
+                    .Where(w => !(w.RawY2 < currentWord.RawY1 || w.RawY1 > currentWord.RawY2))
+                    .OrderBy(w => w.RawX1)
+                    .FirstOrDefault();
+
+                if (rightWord == null) break;
+                firstLineWords.Add(rightWord);
+                currentWord = rightWord;
+            }
+
+            // Add the complete first line to results
+            result.GroupedWords.AddRange(firstLineWords);
+            _logger.LogDebug("📝 Added first line with {WordCount} words: '{LineText}'",
+                firstLineWords.Count, string.Join(" ", firstLineWords.Select(w => w.Text)));
+
+            // Step 3: NOW establish marching coordinate from the bottom of this complete line
+            int marchingX = firstLineWords.First().RawX1;  // Leftmost word of first line
+            int marchingY = firstLineWords.Max(w => w.RawY2);  // Bottom of first line
+
+            _logger.LogDebug("📍 Marching coordinate after first line: ({MarchingX},{MarchingY})", marchingX, marchingY);
+
+            // Step 4: Continue scanning down for additional lines
+            while (true)
+            {
+                // March downward to find next line
+                var foundWord = document.Words
+                    .Where(w => !result.GroupedWords.Contains(w))
+                    .Where(w => w.RawY1 > marchingY && w.RawY1 <= marchingY + yTolerance)
+                    .Where(w => Math.Abs(w.RawX1 - marchingX) <= 5) // ±5px X tolerance from marching coordinate
+                    .OrderBy(w => w.RawY1)
+                    .FirstOrDefault();
+
+                if (foundWord == null)
+                {
+                    // Try wider tolerance
+                    var anyWordInRange = document.Words
+                        .Where(w => !result.GroupedWords.Contains(w))
+                        .Where(w => w.RawY1 > marchingY && w.RawY1 <= marchingY + yTolerance)
+                        .Where(w => Math.Abs(w.RawX1 - marchingX) <= xTolerance)
+                        .OrderBy(w => w.RawY1)
+                        .FirstOrDefault();
+
+                    if (anyWordInRange == null)
+                        break; // No more lines found
+
+                    foundWord = anyWordInRange;
+                }
+
+                // Build complete line
+                var lineWords = new List<WordBoundingBox> { foundWord };
+                currentWord = foundWord;
+
+                // March left to find line start - allow 5px overlap
+                while (true)
+                {
+                    var leftWord = document.Words
+                        .Where(w => !result.GroupedWords.Contains(w) && !lineWords.Contains(w))
+                        .Where(w => w.RawX2 <= currentWord.RawX1 + 5) // Allow 5px overlap
+                        .Where(w => currentWord.RawX1 - w.RawX2 <= xTolerance + 5) // Adjust gap tolerance
+                        .Where(w => !(w.RawY2 < currentWord.RawY1 || w.RawY1 > currentWord.RawY2))
+                        .OrderByDescending(w => w.RawX2)
+                        .FirstOrDefault();
+
+                    if (leftWord == null) break;
+                    lineWords.Insert(0, leftWord);
+                    currentWord = leftWord;
+                }
+
+                // Update marching coordinate to leftmost word
+                var leftmostWord = lineWords.First();
+                marchingX = leftmostWord.RawX1;
+
+                // March right to complete the line - allow 5px overlap
+                currentWord = leftmostWord;
+                while (true)
+                {
+                    var rightWord = document.Words
+                        .Where(w => !result.GroupedWords.Contains(w) && !lineWords.Contains(w))
+                        .Where(w => w.RawX1 >= currentWord.RawX2 - 5) // Allow 5px overlap
+                        .Where(w => w.RawX1 - currentWord.RawX2 <= xTolerance + 5) // Adjust gap tolerance
+                        .Where(w => !(w.RawY2 < currentWord.RawY1 || w.RawY1 > currentWord.RawY2))
+                        .OrderBy(w => w.RawX1)
+                        .FirstOrDefault();
+
+                    if (rightWord == null) break;
+                    lineWords.Add(rightWord);
+                    currentWord = rightWord;
+                }
+
+                // Add all words from this line
+                result.GroupedWords.AddRange(lineWords);
+                _logger.LogDebug("📝 Added additional line with {WordCount} words: '{LineText}'",
+                    lineWords.Count, string.Join(" ", lineWords.Select(w => w.Text)));
+
+                // Update marching Y to continue down
+                marchingY = lineWords.Max(w => w.RawY2);
+            }
+
+            result.Success = result.GroupedWords.Count >= 1; // Changed from > 1 since we want even single lines
+            result.CombinedText = string.Join(" ", result.GroupedWords.Select(w => w.Text));
+
+            _logger.LogInformation("✅ Position-based column extracted {WordCount} words for pattern '{PatternName}': '{Text}'",
+                result.GroupedWords.Count, patternName, result.CombinedText);
+
+            return result;
+        }
+
+        private SpatialPatternResult TestPositionBasedHorizontalPattern(
+    SpatialDocument document,
+    int targetX,  // Ignored for horizontal patterns
+    int targetY,  // Used for horizontal line detection
+    int yTolerance,
+    int xTolerance,  // Used for word gap detection if needed
+    List<string> stopWords,
+    string patternName)
+        {
+            var result = new SpatialPatternResult();
+
+            _logger.LogDebug("🔄 Starting position-based horizontal search for pattern '{PatternName}' at Y={Y} (±{YTol}px)",
+                patternName, targetY, yTolerance);
+
+            // Find ALL words at the target Y position (within tolerance)
+            var wordsAtTargetY = document.Words
+                .Where(w => Math.Abs(w.RawY1 - targetY) <= yTolerance)
+                .OrderBy(w => w.RawX1)  // Sort left to right
+                .ToList();
+
+            _logger.LogInformation("🔍 Found {WordCount} words at Y position {TargetY} (±{YTolerance}px):",
+                wordsAtTargetY.Count, targetY, yTolerance);
+
+            // Debug: Show all found words
+            foreach (var word in wordsAtTargetY)
+            {
+                _logger.LogInformation("   Word: '{Text}' at ({X},{Y})", word.Text, word.RawX1, word.RawY1);
+            }
+
+            if (!wordsAtTargetY.Any())
+            {
+                _logger.LogWarning("❌ No words found at Y position {Y} (±{YTolerance}px) for pattern '{PatternName}'",
+                    targetY, yTolerance, patternName);
+                return result;
+            }
+
+            // Use first word as anchor for consistency
+            result.AnchorWord = wordsAtTargetY.First();
+
+            // Process words with gap filtering to handle proper word spacing
+            var filteredWords = new List<WordBoundingBox>();
+            var previousWord = wordsAtTargetY.First();
+            filteredWords.Add(previousWord);
+
+            for (int i = 1; i < wordsAtTargetY.Count; i++)
+            {
+                var currentWord = wordsAtTargetY[i];
+                var gap = currentWord.RawX1 - previousWord.RawX2;
+
+                // Only include if gap is reasonable (not too large - filters out unrelated text)
+                if (gap <= xTolerance)
+                {
+                    filteredWords.Add(currentWord);
+                    previousWord = currentWord;
+                }
+                else
+                {
+                    _logger.LogDebug("⏭️ Skipping word '{WordText}' - gap too large: {Gap}px > {Tolerance}px",
+                        currentWord.Text, gap, xTolerance);
+                }
+            }
+
+            // Add all filtered words to result
+            result.GroupedWords.AddRange(filteredWords);
+
+            // Check for stop words if specified
+            if (stopWords.Any())
+            {
+                var stopWordFound = false;
+                var wordsUpToStop = new List<WordBoundingBox>();
+
+                foreach (var word in filteredWords)
+                {
+                    wordsUpToStop.Add(word);
+
+                    if (stopWords.Any(stop => word.Text.Contains(stop, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _logger.LogDebug("🛑 Found stop word '{StopWord}' in '{WordText}', stopping horizontal scan",
+                            stopWords.First(stop => word.Text.Contains(stop, StringComparison.OrdinalIgnoreCase)), word.Text);
+                        stopWordFound = true;
+                        break;
+                    }
+                }
+
+                if (stopWordFound)
+                {
+                    result.GroupedWords.Clear();
+                    result.GroupedWords.AddRange(wordsUpToStop);
+                }
+            }
+
+            result.Success = result.GroupedWords.Any();
+            result.CombinedText = string.Join(" ", result.GroupedWords.Select(w => w.Text));
+
+            _logger.LogInformation("✅ Position-based horizontal extracted {WordCount} words for pattern '{PatternName}': '{Text}'",
+                result.GroupedWords.Count, patternName, result.CombinedText);
+
+            return result;
         }
 
         /// <summary>

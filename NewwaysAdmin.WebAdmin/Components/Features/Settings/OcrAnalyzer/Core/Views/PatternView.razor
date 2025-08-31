@@ -6,6 +6,7 @@
 @implements IDisposable
 @inject IJSRuntime JSRuntime
 @inject PatternManagementService PatternService
+@inject SpatialPatternMatcher SpatialPatternMatcher
 
 <div class="patterns-section">
 
@@ -29,6 +30,8 @@
                     <select @bind="State.SelectedPatternType" class="form-select form-select-sm">
                         <option value="VerticalColumn">Vertical Column</option>
                         <option value="Horizontal">Horizontal</option>
+                        <option value="PositionBasedColumn">Position Based Column</option>
+                        <option value="PositionBasedHorizontal">Position Based Horizontal</option>
                         <option value="Sequential" disabled>Sequential (Coming Soon)</option>
                     </select>
                 </div>
@@ -152,8 +155,8 @@
                         @foreach (var word in State.GetFilteredWords())
                         {
                             <div class="heat-word-dot" style="@GetHeatWordStyle(word)"
-                                 title="@word.Text"
-                                 @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"></div>
+                                 title="@GetWordTooltip(word)"
+                                 @onclick="@((MouseEventArgs e) => CopyWordOrCoordinates(word))"></div>
                         }
                     }
 
@@ -164,16 +167,16 @@
                         @if (State.CurrentPatternResult.AnchorWord != null)
                         {
                             <div class="pattern-anchor" style="@GetPatternAnchorStyle(State.CurrentPatternResult.AnchorWord)"
-                                 title="Anchor: @State.CurrentPatternResult.AnchorWord.Text"
-                                 @onclick="@((MouseEventArgs e) => CopyWordToClipboard(State.CurrentPatternResult.AnchorWord.Text))"></div>
+                                 title="@GetWordTooltip(State.CurrentPatternResult.AnchorWord, "Anchor: ")"
+                                 @onclick="@((MouseEventArgs e) => CopyWordOrCoordinates(State.CurrentPatternResult.AnchorWord))"></div>
                         }
 
                         <!-- Grouped Words (Green) -->
                         @foreach (var word in State.CurrentPatternResult.GroupedWords.Where(w => w != State.CurrentPatternResult.AnchorWord))
                         {
                             <div class="pattern-grouped" style="@GetPatternGroupStyle(word)"
-                                 title="Grouped: @word.Text"
-                                 @onclick="@((MouseEventArgs e) => CopyWordToClipboard(word.Text))"></div>
+                                 title="@GetWordTooltip(word, "Grouped: ")"
+                                 @onclick="@((MouseEventArgs e) => CopyWordOrCoordinates(word))"></div>
                         }
                     }
                 </div>
@@ -210,6 +213,35 @@
     private string currentRegexPattern = "";
     private List<string> currentRegexPatterns = new(); // NEW: List to manage multiple regex patterns
     private string newRegexPattern = ""; // NEW: For adding new patterns
+    private bool IsPositionBasedPattern =>
+    State.SelectedPatternType?.Contains("positionbased", StringComparison.OrdinalIgnoreCase) == true;
+
+    // NEW: Smart copy method that copies coordinates or word based on pattern type
+private async Task CopyWordOrCoordinates(WordBoundingBox word)
+    {
+        if (word == null) return;
+
+        string textToCopy;
+        if (IsPositionBasedPattern)
+        {
+            // For position-based patterns, copy coordinates
+            textToCopy = $"{word.RawX1},{word.RawY1}";
+        }
+        else
+        {
+            // For keyword-based patterns, copy word text
+            textToCopy = word.Text;
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", textToCopy);
+        }
+        catch (Exception)
+        {
+            // Fallback for older browsers - could show a message
+        }
+    }
 
     private void OnRegexPatternChanged(string regexPattern)
     {
@@ -225,6 +257,25 @@
     public void Dispose()
     {
         State.StateChanged -= StateHasChanged;
+    }
+
+    // UPDATED: Enhanced tooltip method that shows what will be copied
+    private string GetWordTooltip(WordBoundingBox word, string prefix = "")
+    {
+        var wordInfo = string.IsNullOrEmpty(prefix) ? $"Word: \"{word.Text}\"" : $"{prefix}\"{word.Text}\"";
+        var coordinates = $"Coordinates: {word.RawX1},{word.RawY1}";
+
+        string clickToCopy;
+        if (IsPositionBasedPattern)
+        {
+            clickToCopy = $"Click to copy: {word.RawX1},{word.RawY1}";
+        }
+        else
+        {
+            clickToCopy = $"Click to copy: {word.Text}";
+        }
+
+        return $"{wordInfo}\n{coordinates}\n{clickToCopy}";
     }
 
     // NEW: Handle pattern save request from PatternBrowserComponent
@@ -387,6 +438,14 @@
             {
                 State.CurrentPatternResult = TestHorizontalPattern();
             }
+            else if (State.SelectedPatternType == "PositionBasedColumn")
+            {
+                State.CurrentPatternResult = TestPositionBasedColumnPattern();
+            }
+            else if (State.SelectedPatternType == "PositionBasedHorizontal")
+            {
+                State.CurrentPatternResult = TestPositionBasedHorizontalPattern();
+            }
             else
             {
                 State.CurrentPatternResult = new PatternTestResult { Success = false };
@@ -396,6 +455,63 @@
         {
             State.CurrentPatternResult = new PatternTestResult { Success = false };
         }
+    }
+    private PatternTestResult TestPositionBasedHorizontalPattern()
+    {
+        try
+        {
+            var spatialResult = SpatialPatternMatcher.ExtractPattern(
+                document: State.SpatialResult.Document,
+                searchTerm: State.PatternSearchTerm, // "100,150" - X ignored, Y=150 used
+                patternType: "positionbasedhorizontal",
+                yTolerance: State.PatternYTolerance,
+                xTolerance: State.PatternXTolerance,
+                stopWords: State.PatternStopWords ?? "",
+                patternName: "TestPattern"
+            );
+
+            return ConvertToLocalResult(spatialResult);
+        }
+        catch (Exception ex)
+        {
+            return new PatternTestResult { Success = false };
+        }
+    }
+    private PatternTestResult TestPositionBasedColumnPattern()
+    {
+        try
+        {
+            // Use the shared SpatialPatternMatcher (same logic as bank slip processing)
+            var spatialResult = SpatialPatternMatcher.ExtractPattern(
+                document: State.SpatialResult.Document,
+                searchTerm: State.PatternSearchTerm, // "189,373"
+                patternType: "positionbasedcolumn",
+                yTolerance: State.PatternYTolerance,
+                xTolerance: State.PatternXTolerance,
+                stopWords: State.PatternStopWords ?? "",
+                patternName: "TestPattern"
+            );
+
+            // Convert SpatialPatternResult to local PatternTestResult format
+            return ConvertToLocalResult(spatialResult);
+        }
+        catch (Exception ex)
+        {
+            return new PatternTestResult { Success = false };
+        }
+    }
+
+    private PatternTestResult ConvertToLocalResult(SpatialPatternResult spatialResult)
+    {
+        var localResult = new PatternTestResult
+            {
+                Success = spatialResult.Success,
+                AnchorWord = spatialResult.AnchorWord,
+                GroupedWords = spatialResult.GroupedWords.ToList(),
+                CombinedText = spatialResult.CombinedText
+            };
+
+        return localResult;
     }
 
     private PatternTestResult TestHorizontalPattern()
