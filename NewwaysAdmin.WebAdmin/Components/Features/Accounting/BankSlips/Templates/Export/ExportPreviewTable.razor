@@ -516,7 +516,7 @@
 
         Console.WriteLine($"🔄 Converting {columnNames.Count} columns × {maxRows} rows");
 
-        // ADD HEADER ROW FIRST
+        // ✅ ALWAYS ADD HEADER ROW FIRST (FIXED!)
         var headerRow = new SheetRow { IsHeader = true };
         foreach (var columnName in columnNames)
         {
@@ -529,8 +529,73 @@
             headerRow.Cells.Add(headerCell);
         }
         sheetData.Rows.Add(headerRow);
+        Console.WriteLine($"📋 Added header row with {columnNames.Count} columns");
 
-        // Create data rows (your existing logic)
+        // ✅ ADD FORMULA ROW IF ENABLED (PROPERLY GENERATE FORMULAS!)
+        if (ShowFormulaRow)
+        {
+            var formulaRow = new SheetRow();
+            var hasAnyFormulas = false;
+
+            for (int colIndex = 0; colIndex < columnNames.Count; colIndex++)
+            {
+                var columnName = columnNames[colIndex];
+                var cell = new SheetCell();
+
+                // Check if this is a custom checkbox column that needs SUMIF
+                var customColumn = FindCustomColumnByName(columnName);
+                if (customColumn != null && !string.IsNullOrEmpty(customColumn.SumFieldName))
+                {
+                    // Find the column index for the reference field (Amount)
+                    var refColumnIndex = columnNames.IndexOf(customColumn.SumFieldName);
+                    if (refColumnIndex >= 0)
+                    {
+                        var checkboxColumnLetter = GetColumnLetter(colIndex);
+                        var refColumnLetter = GetColumnLetter(refColumnIndex);
+
+                        // Generate proper SUMIF formula: =SUMIF(checkbox_column, TRUE, reference_column)
+                        // Data starts at row 3 (1=header, 2=formula, 3=first data)
+                        cell.Value = $"=SUMIF({checkboxColumnLetter}3:{checkboxColumnLetter},TRUE,{refColumnLetter}3:{refColumnLetter})";
+                        cell.Type = CellType.Formula;
+                        cell.IsBold = true;
+                        hasAnyFormulas = true;
+                        Console.WriteLine($"📊 Generated SUMIF: {columnName} -> {cell.Value}");
+                        Console.WriteLine($"   Checkbox column: {checkboxColumnLetter} | Reference: {customColumn.SumFieldName} ({refColumnLetter})");
+                    }
+                    else
+                    {
+                        // Reference field not found - this is a problem, log it
+                        cell.Value = "";
+                        Console.WriteLine($"❌ ERROR: Reference field '{customColumn.SumFieldName}' not found for custom column '{columnName}'");
+                        Console.WriteLine($"   Available columns: {string.Join(", ", columnNames)}");
+                    }
+                }
+                else if (IsNumericColumn(columnName, tableData) && !IsCheckboxColumn(columnName))
+                {
+                    // Add SUM formula for numeric columns like Amount (but not checkbox columns)
+                    var columnLetter = GetColumnLetter(colIndex);
+                    cell.Value = $"=SUM({columnLetter}3:{columnLetter})";
+                    cell.Type = CellType.Formula;
+                    cell.IsBold = true;
+                    hasAnyFormulas = true;
+                    Console.WriteLine($"📊 Generated SUM: {columnName} -> {cell.Value}");
+                }
+                else
+                {
+                    // Empty cell for non-formula columns (dates, text, etc.)
+                    cell.Value = "";
+                    Console.WriteLine($"📝 No formula for: {columnName} (not numeric or custom)");
+                }
+
+                formulaRow.Cells.Add(cell);
+            }
+
+            // Always add formula row if ShowFormulaRow is true (even if no formulas)
+            sheetData.Rows.Add(formulaRow);
+            Console.WriteLine($"📊 Added formula row with {hasAnyFormulas} formulas to {sheetData.Rows.Count} total rows");
+        }
+
+        // ✅ CREATE DATA ROWS (FIXED TO SKIP FORMULA ROW DATA)
         for (int rowIndex = 0; rowIndex < maxRows; rowIndex++)
         {
             var sheetRow = new SheetRow();
@@ -543,88 +608,78 @@
 
                 var cell = new SheetCell();
 
-                // Process formula row (typically first row if ShowFormulaRow is true)
-                if (ShowFormulaRow && rowIndex == 0 && !string.IsNullOrEmpty(cellValue))
+                // Skip formula data that might be mixed in with regular data
+                if (ShowFormulaRow && !string.IsNullOrEmpty(cellValue) && cellValue.StartsWith("="))
                 {
-                    if (cellValue.StartsWith("=SUM("))
+                    // This looks like formula data that shouldn't be in data rows
+                    Console.WriteLine($"⚠️ Skipping formula data in data row: {cellValue}");
+                    continue;
+                }
+
+                // Handle checkbox columns
+                if (IsCheckboxColumn(columnName))
+                {
+                    // Convert checkbox symbols to boolean values for Google Sheets
+                    if (cellValue == "☐" || string.IsNullOrEmpty(cellValue) || cellValue.Trim() == "")
                     {
-                        // Convert =SUM(...) to actual column range - adjust for header row
-                        var columnLetter = GetColumnLetter(colIndex);
-                        cell.Value = $"=SUM({columnLetter}3:{columnLetter})"; // Sum from row 3 to end (2 is header, 3 is first data)
-                        Console.WriteLine($"📊 Formula: {columnName} -> {cell.Value}");
+                        cell.Value = false; // Boolean false (unchecked)
                     }
-                    else if (cellValue.StartsWith("=SUMIF(") || cellValue.Contains("SUMIF"))
+                    else if (cellValue == "☑" || cellValue == "✓" || cellValue.ToUpper() == "TRUE")
                     {
-                        // Better column matching logic
-                        var customColumn = FindCustomColumnByName(columnName);
-                        if (customColumn != null && !string.IsNullOrEmpty(customColumn.SumFieldName))
-                        {
-                            // Find the column index for the reference field
-                            var refColumnIndex = columnNames.IndexOf(customColumn.SumFieldName);
-                            if (refColumnIndex >= 0)
-                            {
-                                var checkboxColumnLetter = GetColumnLetter(colIndex);
-                                var refColumnLetter = GetColumnLetter(refColumnIndex);
-                                // Adjust for header row - data starts at row 3
-                                cell.Value = $"=SUMIF({checkboxColumnLetter}3:{checkboxColumnLetter}, TRUE, {refColumnLetter}3:{refColumnLetter})";
-                                Console.WriteLine($"📊 SUMIF Formula: {columnName} -> {cell.Value} (checkbox col: {checkboxColumnLetter}, ref col: {refColumnLetter})");
-                            }
-                            else
-                            {
-                                Console.WriteLine($"⚠️ Reference column '{customColumn.SumFieldName}' not found for custom column '{columnName}'");
-                                Console.WriteLine($"   Available columns: {string.Join(", ", columnNames)}");
-                                cell.Value = "=0"; // Fallback if reference column not found
-                            }
-                        }
-                        else
-                        {
-                            Console.WriteLine($"⚠️ Custom column definition not found for '{columnName}'");
-                            Console.WriteLine($"   Looking for column with name matching: '{columnName}'");
-                            Console.WriteLine($"   Available custom columns: {string.Join(", ", CustomTickBoxColumns.Select(c => $"'{c.Name}' (formatted: '{FormatCustomColumnHeader(c)}')").ToList())}");
-                            cell.Value = "=0"; // Fallback if custom column not found
-                        }
+                        cell.Value = true; // Boolean true (checked)
                     }
                     else
                     {
-                        // Keep original cell value for other formulas
-                        cell.Value = cellValue;
+                        cell.Value = false; // Default to unchecked for any other value
                     }
+                    cell.IsCheckbox = true; // This tells GoogleSheetsService to apply checkbox formatting
+                    Console.WriteLine($"📋 Checkbox cell: '{cellValue}' -> {cell.Value} (IsCheckbox: true)");
                 }
                 else
                 {
-                    // Regular data cell
-                    if (IsCheckboxColumn(columnName) && rowIndex > 0) // Skip formula row
-                    {
-                        // Convert checkbox symbols to boolean values for Google Sheets
-                        if (cellValue == "☐" || string.IsNullOrEmpty(cellValue) || cellValue.Trim() == "")
-                        {
-                            cell.Value = false; // Boolean false (unchecked)
-                        }
-                        else if (cellValue == "☑" || cellValue == "✓" || cellValue.ToUpper() == "TRUE")
-                        {
-                            cell.Value = true; // Boolean true (checked)
-                        }
-                        else
-                        {
-                            cell.Value = false; // Default to unchecked for any other value
-                        }
-                        cell.IsCheckbox = true; // This tells GoogleSheetsService to apply checkbox formatting
-                        Console.WriteLine($"📋 Checkbox cell: '{cellValue}' -> {cell.Value} (IsCheckbox: true)");
-                    }
-                    else
-                    {
-                        cell.Value = cellValue;
-                    }
+                    cell.Value = cellValue;
                 }
 
                 sheetRow.Cells.Add(cell);
             }
 
-            sheetData.Rows.Add(sheetRow);
+            // Only add row if it has cells
+            if (sheetRow.Cells.Any())
+            {
+                sheetData.Rows.Add(sheetRow);
+            }
         }
 
         Console.WriteLine($"✅ Converted to {sheetData.Rows.Count} rows with headers, formulas and checkboxes");
         return sheetData;
+    }
+
+    private bool IsNumericColumn(string columnName, Dictionary<string, List<string>> tableData)
+    {
+        if (!tableData.ContainsKey(columnName) || !tableData[columnName].Any())
+            return false;
+
+        // Check the actual data values - if most are numeric, it's a numeric column
+        var columnData = tableData[columnName];
+        var numericCount = 0;
+        var totalNonEmptyCount = 0;
+
+        foreach (var value in columnData.Take(10)) // Check first 10 values as sample
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            totalNonEmptyCount++;
+
+            // Try to parse as decimal (handles both integers and decimals)
+            if (decimal.TryParse(value.Replace(",", "").Replace("฿", "").Replace("THB", "").Trim(), out _))
+            {
+                numericCount++;
+            }
+        }
+
+        // If 80% or more of the values are numeric, consider it a numeric column
+        return totalNonEmptyCount > 0 && (numericCount / (double)totalNonEmptyCount) >= 0.8;
     }
 
     // 🔧 NEW HELPER METHOD: Better custom column finding
