@@ -217,7 +217,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 return result;
             }
 
-            result.AnchorWord = anchorWord;
+            result.AnchorWord = null; // Position-based patterns don't have anchor words
 
             _logger.LogDebug("✅ Found anchor word '{WordText}' at position ({X},{Y}) for pattern '{PatternName}'",
                 anchorWord.Text, anchorWord.RawX1, anchorWord.RawY1, patternName);
@@ -393,7 +393,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             }
 
             // Use first word as anchor for consistency
-            result.AnchorWord = wordsAtTargetY.First();
+            result.AnchorWord = null; // Position-based patterns don't have anchor words
 
             // Process words with gap filtering to handle proper word spacing
             var filteredWords = new List<WordBoundingBox>();

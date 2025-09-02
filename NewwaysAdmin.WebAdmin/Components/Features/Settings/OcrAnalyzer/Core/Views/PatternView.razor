@@ -3,10 +3,13 @@
 @using WordBoundingBox = NewwaysAdmin.SharedModels.Models.Ocr.Core.WordBoundingBox;
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer.Core.Components
 @using NewwaysAdmin.SharedModels.Models.Ocr
+@using NewwaysAdmin.SharedModels.Services.Parsing
+
 @implements IDisposable
 @inject IJSRuntime JSRuntime
 @inject PatternManagementService PatternService
 @inject SpatialPatternMatcher SpatialPatternMatcher
+@inject SpatialResultParser SpatialResultParser
 
 <div class="patterns-section">
 
@@ -109,7 +112,47 @@
                         <small class="form-text">No regex patterns added yet (optional)</small>
                     }
                 </div>
+                <!-- NEW: Date Parsing Configuration -->
+                <div class="config-group">
+                    <div class="d-flex align-items-center mb-2">
+                        <input @bind="needDateParsing"
+                               type="checkbox"
+                               class="form-check-input me-2"
+                               id="needDateParsingCheck" />
+                        <label class="config-label mb-0" for="needDateParsingCheck">
+                            <i class="bi bi-calendar3"></i> Need Date Parsing
+                        </label>
+                    </div>
 
+                    @if (needDateParsing)
+                    {
+                        <div class="ps-3" style="border-left: 3px solid #007bff; background: #f8f9ff; padding: 0.5rem; border-radius: 4px;">
+                            <div class="mb-2">
+                                <label class="config-label" style="font-size: 0.8rem;">Date Format Type</label>
+                                <select @bind="selectedDateParsingType" class="form-select form-select-sm">
+                                    <option value="@DateParsingType.Thai">Thai dates (30 ส.ค. 68 → 2025/08/30)</option>
+                                    <option value="@DateParsingType.English">English dates (27 Aug 25 → 2025/08/27)</option>
+                                </select>
+                            </div>
+
+                            <div class="date-parsing-info" style="background: #e7f3ff; padding: 0.375rem; border-radius: 3px; font-size: 0.75rem;">
+                                <i class="bi bi-info-circle text-primary"></i>
+                                @if (selectedDateParsingType == DateParsingType.Thai)
+                                {
+                                    <span>Thai format: Uses Buddhist era (67-99 = 2024-2056). Examples: "30 ส.ค. 68", "15 ม.ค. 67"</span>
+                                }
+                                else
+                                {
+                                    <span>English format: Standard Gregorian dates (00-30 = 2000-2030, 31-99 = 1931-1999). Examples: "27 Aug 25", "15 Jan 24"</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <small class="form-text">Check to enable automatic date parsing and formatting</small>
+                    }
+                </div>
                 <!-- Test Button -->
                 <button @onclick="TestCurrentPattern" class="btn btn-primary btn-sm w-100"
                         disabled="@(string.IsNullOrEmpty(State.PatternSearchTerm))">
@@ -215,6 +258,8 @@
     private string newRegexPattern = ""; // NEW: For adding new patterns
     private bool IsPositionBasedPattern =>
     State.SelectedPatternType?.Contains("positionbased", StringComparison.OrdinalIgnoreCase) == true;
+    private bool needDateParsing = false;
+    private DateParsingType selectedDateParsingType = DateParsingType.Thai;
 
     // NEW: Smart copy method that copies coordinates or word based on pattern type
 private async Task CopyWordOrCoordinates(WordBoundingBox word)
@@ -258,6 +303,7 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
     {
         State.StateChanged -= StateHasChanged;
     }
+
 
     // UPDATED: Enhanced tooltip method that shows what will be copied
     private string GetWordTooltip(WordBoundingBox word, string prefix = "")
@@ -311,7 +357,10 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
                     ToleranceX = State.PatternXTolerance,
                     ToleranceY = State.PatternYTolerance,
                     StopWords = State.PatternStopWords ?? "",
-                    RegexPatterns = currentRegexPatterns.ToList() // Use the full list
+                    RegexPatterns = currentRegexPatterns.ToList(),
+                    // NEW: Include date parsing configuration
+                    NeedDateParsing = needDateParsing,
+                    DateParsingType = selectedDateParsingType
                 };
 
             // Debug: Log what we're about to save
@@ -323,6 +372,8 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
             Console.WriteLine($"ToleranceY: {patternToSave.ToleranceY}");
             Console.WriteLine($"StopWords: {patternToSave.StopWords}");
             Console.WriteLine($"RegexPatterns Count: {patternToSave.RegexPatterns?.Count ?? 0}");
+            Console.WriteLine($"NeedDateParsing: {patternToSave.NeedDateParsing}");
+            Console.WriteLine($"DateParsingType: {patternToSave.DateParsingType}");
             if (patternToSave.RegexPatterns != null)
             {
                 for (int i = 0; i < patternToSave.RegexPatterns.Count; i++)
@@ -410,6 +461,10 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
         // Load the regex patterns into our list
         currentRegexPatterns = loadedPattern.RegexPatterns?.ToList() ?? new List<string>();
 
+        // NEW: Reset date parsing to defaults for now (until LoadedPatternData is updated)
+        needDateParsing = false;
+        selectedDateParsingType = DateParsingType.Thai;
+
         // Update the legacy single pattern for compatibility (use first pattern or empty)
         currentRegexPattern = currentRegexPatterns.FirstOrDefault() ?? "";
 
@@ -418,6 +473,62 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
 
         // Trigger UI update
         StateHasChanged();
+    }
+
+    // NEW: Test using real processing pipeline (same as batch processing)
+    private PatternTestResult TestCurrentPatternWithRealPipeline()
+    {
+        if (State.SpatialResult?.Document == null || string.IsNullOrEmpty(State.PatternSearchTerm))
+        {
+            return new PatternTestResult { Success = false };
+        }
+
+        try
+        {
+            // Step 1: Get spatial result using SpatialPatternMatcher (same as before)
+            var spatialResult = SpatialPatternMatcher.ExtractPattern(
+                document: State.SpatialResult.Document,
+                searchTerm: State.PatternSearchTerm,
+                patternType: State.SelectedPatternType?.ToLower() ?? "verticalcolumn",
+                yTolerance: State.PatternYTolerance,
+                xTolerance: State.PatternXTolerance,
+                stopWords: State.PatternStopWords ?? "",
+                patternName: "TestPattern"
+            );
+            Console.WriteLine($"=== DEBUG: Spatial Result ===");
+            Console.WriteLine($"Success: {spatialResult.Success}");
+            Console.WriteLine($"AnchorWord: {spatialResult.AnchorWord?.Text ?? "null"}");
+            Console.WriteLine($"GroupedWords count: {spatialResult.GroupedWords.Count}");
+            Console.WriteLine($"GroupedWords: {string.Join(", ", spatialResult.GroupedWords.Select(w => w.Text))}");
+            Console.WriteLine($"CombinedText: '{spatialResult.CombinedText}'");
+            Console.WriteLine($"GetExtractedTextOnly(): '{spatialResult.GetExtractedTextOnly()}'");
+            // Step 2: Process through real pipeline (including date parsing!)
+            var currentPattern = GetCurrentSearchPattern();
+            if (currentPattern != null)
+            {
+                var processedText = SpatialResultParser.ProcessSpatialResult(
+                    spatialResult,
+                    currentPattern,
+                    "TestPattern",
+                    "TestFile.jpg"
+                );
+
+                // Step 3: Create result with processed text
+                var result = ConvertToLocalResult(spatialResult);
+
+                // Update CombinedText with the processed result (this will show parsed dates!)
+                result.CombinedText = processedText;
+
+                return result;
+            }
+
+            return ConvertToLocalResult(spatialResult);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in real pipeline testing: {ex.Message}");
+            return new PatternTestResult { Success = false };
+        }
     }
 
     private void TestCurrentPattern()
@@ -430,51 +541,13 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
 
         try
         {
-            if (State.SelectedPatternType == "VerticalColumn")
-            {
-                State.CurrentPatternResult = TestVerticalColumnPattern();
-            }
-            else if (State.SelectedPatternType == "Horizontal")
-            {
-                State.CurrentPatternResult = TestHorizontalPattern();
-            }
-            else if (State.SelectedPatternType == "PositionBasedColumn")
-            {
-                State.CurrentPatternResult = TestPositionBasedColumnPattern();
-            }
-            else if (State.SelectedPatternType == "PositionBasedHorizontal")
-            {
-                State.CurrentPatternResult = TestPositionBasedHorizontalPattern();
-            }
-            else
-            {
-                State.CurrentPatternResult = new PatternTestResult { Success = false };
-            }
+            // Use the real processing pipeline (same as batch processing)
+            State.CurrentPatternResult = TestCurrentPatternWithRealPipeline();
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"Error testing pattern: {ex.Message}");
             State.CurrentPatternResult = new PatternTestResult { Success = false };
-        }
-    }
-    private PatternTestResult TestPositionBasedHorizontalPattern()
-    {
-        try
-        {
-            var spatialResult = SpatialPatternMatcher.ExtractPattern(
-                document: State.SpatialResult.Document,
-                searchTerm: State.PatternSearchTerm, // "100,150" - X ignored, Y=150 used
-                patternType: "positionbasedhorizontal",
-                yTolerance: State.PatternYTolerance,
-                xTolerance: State.PatternXTolerance,
-                stopWords: State.PatternStopWords ?? "",
-                patternName: "TestPattern"
-            );
-
-            return ConvertToLocalResult(spatialResult);
-        }
-        catch (Exception ex)
-        {
-            return new PatternTestResult { Success = false };
         }
     }
     private PatternTestResult TestPositionBasedColumnPattern()
@@ -806,7 +879,10 @@ private async Task CopyWordOrCoordinates(WordBoundingBox word)
                 ToleranceX = State.PatternXTolerance,
                 ToleranceY = State.PatternYTolerance,
                 StopWords = State.PatternStopWords ?? "",
-                RegexPatterns = currentRegexPatterns.ToList() // Use the full list instead of single pattern
+                RegexPatterns = currentRegexPatterns.ToList(),
+                // NEW: Include date parsing configuration
+                NeedDateParsing = needDateParsing,
+                DateParsingType = selectedDateParsingType
             };
     }
 

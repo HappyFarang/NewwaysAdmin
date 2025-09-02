@@ -34,6 +34,8 @@ using NewwaysAdmin.WebAdmin.Services.Security;
 using NewwaysAdmin.WebAdmin.Middleware;
 using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates;
+using NewwaysAdmin.SharedModels.Services.Parsing;
+
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -315,6 +317,7 @@ public class Program
 
         // 🚀 PHASE 2: NEW Spatial Pattern Engine Services
         services.AddScoped<SpatialPatternMatcher>();
+        services.AddScoped<DateParsingService>(); // NEW: Add DateParsingService
         services.AddScoped<SpatialResultParser>();
 
         // Register email storage service (only once!)

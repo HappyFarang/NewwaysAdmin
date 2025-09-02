@@ -4,6 +4,7 @@
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.SharedModels.Models.Ocr;
+using NewwaysAdmin.SharedModels.Services.Parsing;
 using System.Text.RegularExpressions;
 
 namespace NewwaysAdmin.SharedModels.Services.Ocr
@@ -14,10 +15,12 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
     public class SpatialResultParser
     {
         private readonly ILogger<SpatialResultParser> _logger;
+        private readonly DateParsingService _dateParsingService;
 
-        public SpatialResultParser(ILogger<SpatialResultParser> logger)
+        public SpatialResultParser(ILogger<SpatialResultParser> logger, DateParsingService dateParsingService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dateParsingService = dateParsingService ?? throw new ArgumentNullException(nameof(dateParsingService));
         }
 
         /// <summary>
@@ -57,24 +60,41 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 _logger.LogDebug("📝 Raw spatial text for pattern '{PatternKey}' on {FileName}: '{ExtractedText}'",
                     patternKey, fileName, extractedText);
 
-                // If no regex patterns defined, return the full extracted text (e.g., "To:" field)
+                string processedText;
+
+                // If no regex patterns defined, use the full extracted text
                 if (pattern.RegexPatterns == null || pattern.RegexPatterns.Count == 0)
                 {
-                    _logger.LogDebug("✅ No regex patterns defined for '{PatternKey}' on {FileName}, returning full extracted text",
+                    _logger.LogDebug("✅ No regex patterns defined for '{PatternKey}' on {FileName}, using full extracted text",
                         patternKey, fileName);
-                    return extractedText.Trim();
+                    processedText = extractedText.Trim();
+                }
+                else
+                {
+                    // Apply regex patterns to find a match
+                    processedText = ApplyRegexPatterns(extractedText, pattern.RegexPatterns, patternKey, fileName);
+
+                    // If regex failed, return the error
+                    if (processedText.StartsWith("Missing"))
+                    {
+                        return processedText;
+                    }
                 }
 
-                // Apply regex patterns to find a match
-                var finalValue = ApplyRegexPatterns(extractedText, pattern.RegexPatterns, patternKey, fileName);
+                // NEW: Apply date parsing if needed using the dedicated service
+                if (pattern.NeedDateParsing)
+                {
+                    var contextInfo = $"{patternKey} on {fileName}";
+                    processedText = _dateParsingService.ParseDate(processedText, pattern.DateParsingType, contextInfo);
+                }
 
-                if (!string.IsNullOrWhiteSpace(finalValue) && !finalValue.StartsWith("Missing"))
+                if (!string.IsNullOrWhiteSpace(processedText) && !processedText.StartsWith("Missing"))
                 {
                     _logger.LogInformation("🎉 Pattern '{PatternKey}' successfully processed for {FileName}: '{FinalValue}'",
-                        patternKey, fileName, finalValue);
+                        patternKey, fileName, processedText);
                 }
 
-                return finalValue;
+                return processedText;
             }
             catch (Exception ex)
             {
@@ -102,7 +122,8 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
 
             try
             {
-                _logger.LogDebug("🔄 Processing {Count} spatial results for {FileName}", totalCount, fileName);
+                _logger.LogDebug("🔄 Processing {Count} spatial results for {FileName}",
+                    totalCount, fileName);
 
                 foreach (var kvp in spatialResults)
                 {
@@ -191,44 +212,13 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 patternKey, fileName);
             return "Missing Regex Match";
         }
-
-        /// <summary>
-        /// Create a summary of processing results for debugging/logging
-        /// </summary>
-        /// <param name="results">Final processed results</param>
-        /// <param name="fileName">Source file name</param>
-        /// <returns>Processing summary</returns>
-        public ProcessingSummary CreateSummary(Dictionary<string, string> results, string fileName = "")
-        {
-            var summary = new ProcessingSummary
-            {
-                FileName = fileName,
-                TotalPatterns = results.Count,
-                SuccessfulPatterns = results.Values.Count(v => !string.IsNullOrEmpty(v) && v != "Missing"),
-                MissingPatterns = results.Values.Count(v => string.IsNullOrEmpty(v) || v == "Missing"),
-                ProcessedAt = DateTime.UtcNow
-            };
-
-            summary.ExtractedFields = results
-                .Where(kvp => !string.IsNullOrEmpty(kvp.Value) && kvp.Value != "Missing")
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-            summary.MissingFields = results
-                .Where(kvp => string.IsNullOrEmpty(kvp.Value) || kvp.Value == "Missing")
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            _logger.LogInformation("📊 Processing Summary for {FileName}: {Success}/{Total} patterns extracted",
-                fileName, summary.SuccessfulPatterns, summary.TotalPatterns);
-
-            return summary;
-        }
     }
 
-    /// <summary>
-    /// Summary of processing results
-    /// </summary>
-    public class ProcessingSummary
+
+/// <summary>
+/// Summary of processing results
+/// </summary>
+public class ProcessingSummary
     {
         public string FileName { get; set; } = string.Empty;
         public int TotalPatterns { get; set; }
