@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 
+
 namespace NewwaysAdmin.SharedModels.Models.Ocr.Core
 {
     /// <summary>
@@ -247,9 +248,9 @@ namespace NewwaysAdmin.SharedModels.Models.Ocr.Core
         }
 
         private async Task<SpatialDocument> ProcessAnnotationsToSpatialDocument(
-            IReadOnlyList<EntityAnnotation> annotations,
-            string imagePath,
-            OcrExtractionResult result)
+    IReadOnlyList<EntityAnnotation> annotations,
+    string imagePath,
+    OcrExtractionResult result)
         {
             var document = new SpatialDocument
             {
@@ -303,6 +304,14 @@ namespace NewwaysAdmin.SharedModels.Models.Ocr.Core
             document.AddMetadata("ProcessedAt", DateTime.UtcNow.ToString("O"));
             document.AddMetadata("SourceImage", Path.GetFileName(imagePath));
 
+            /* 🇹🇭 NEW: Process Thai text if present
+            if (document.HasThaiContent())
+            {
+                _logger.LogDebug("Thai content detected, applying Thai text processing");
+                document.ProcessThaiText();
+                _logger.LogDebug("Thai text processing completed");
+            }
+            */
             return document;
         }
 
