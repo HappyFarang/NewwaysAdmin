@@ -1,5 +1,5 @@
 ﻿// NewwaysAdmin.SharedModels/Models/Ocr/SearchPattern.cs
-// UPDATED with proper 3-level structure + Date Parsing Support
+// UPDATED with proper 3-level structure + Date Parsing Support + Number Parsing Support
 
 using NewwaysAdmin.SharedModels.Models.Ocr;
 using NewwaysAdmin.SharedModels.Services.Parsing;
@@ -17,9 +17,13 @@ namespace NewwaysAdmin.SharedModels.Models.Ocr
         public string PatternType { get; set; }     // "VerticalColumn" or "Horizontal"
         public List<string> RegexPatterns { get; set; }  // Multiple regex patterns to test
 
-        // NEW: Date parsing support
+        // Date parsing support
         public bool NeedDateParsing { get; set; } = false;
         public DateParsingType DateParsingType { get; set; } = DateParsingType.Thai; // Default to Thai
+
+        // Number parsing support
+        public bool NeedNumberParsing { get; set; } = false;
+        public NumberParsingType NumberParsingType { get; set; } = NumberParsingType.Thai; // 
     }
 
     public class PatternSubCollection

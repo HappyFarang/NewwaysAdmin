@@ -317,7 +317,8 @@ public class Program
 
         // 🚀 PHASE 2: NEW Spatial Pattern Engine Services
         services.AddScoped<SpatialPatternMatcher>();
-        services.AddScoped<DateParsingService>(); // NEW: Add DateParsingService
+        services.AddScoped<DateParsingService>();
+        services.AddScoped<NumberParsingService>(); // NEW: Add NumberParsingService
         services.AddScoped<SpatialResultParser>();
 
         // Register email storage service (only once!)

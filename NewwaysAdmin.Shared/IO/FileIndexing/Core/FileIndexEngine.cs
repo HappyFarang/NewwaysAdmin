@@ -76,7 +76,12 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
                 Created = fileInfo.CreationTime,
                 LastModified = fileInfo.LastWriteTime,
                 FileSize = fileInfo.Length,
-                IndexedAt = DateTime.Now
+                IndexedAt = DateTime.Now,
+                // New properties with defaults
+                IsProcessed = false,
+                ProcessingStage = ProcessingStage.Detected,
+                ProcessedAt = null,
+                ProcessingMetadata = null
             };
 
             _logger.LogDebug("Created index entry for: {FilePath}", relativePath);
