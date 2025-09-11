@@ -1,5 +1,7 @@
 ﻿using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
+using System.Diagnostics;
+using System;
 
 namespace NewwaysAdmin.WebAdmin.IOConfiguration;
 
@@ -77,6 +79,29 @@ public static class StorageFolderConfiguration
             IsShared = true,  // Other modules might use these patterns
             CreateBackups = true,
             MaxBackupCount = 10  // More backups since patterns are valuable
+        });
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "ExternalFileIndexes",
+            Description = "Index data for external file collections (NAS, network drives)",
+            Type = StorageType.Json,
+            Path = "FileIndexing/External",
+            IsShared = true,
+            CreateBackups = true,
+            MaxBackupCount = 10
+        });
+        // Processed bank slip scan results(NEW)
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "BankSlipResults",
+            Description = "Processed bank slip OCR scan results with automatic background processing",
+            Type = StorageType.Binary,        // .bin files for fast access
+            Path = "BankSlips/ProcessedResults",
+            IsShared = true,                  // Multiple users can access
+            CreateBackups = true,
+            MaxBackupCount = 50,              // Keep more backups for financial data
+            IndexFiles = true,                // Enable indexing for fast date range queries
+            IndexedExtensions = [".bin"]      // Only index our scan result files
         });
     }
 }

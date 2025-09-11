@@ -82,6 +82,7 @@ public class Program
             Console.ReadKey();
             throw; // Re-throw to see in debugger
         }
+        app.Services.ConfigureExternalFileProcessors();
 
         await ConfigureApplication(app);
 
@@ -240,6 +241,8 @@ public class Program
 
         // Module system
         services.AddModuleRegistry();
+
+        services.AddExternalFileProcessing();
 
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig

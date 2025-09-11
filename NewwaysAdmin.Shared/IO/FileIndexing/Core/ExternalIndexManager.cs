@@ -23,9 +23,8 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
             _storageFactory = storageFactory ?? throw new ArgumentNullException(nameof(storageFactory));
             _indexEngine = indexEngine ?? throw new ArgumentNullException(nameof(indexEngine));
 
-            // Ensure the ExternalIndexes storage folder exists and load existing collections
-            EnsureExternalIndexStorageFolder();
-            Task.Run(LoadExistingCollectionsAsync); // Load on startup
+            // Load existing collections on startup
+            Task.Run(LoadExistingCollectionsAsync);
         }
 
         /// <summary>
@@ -106,9 +105,9 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
                 // Scan the external folder
                 var entries = await _indexEngine.ScanFolderAsync(collection.ExternalPath, tempFolder);
 
-                // Save to external index storage
-                var indexStorageName = GetExternalIndexStorageName(collectionName);
-                await _indexEngine.SaveIndexAsync(indexStorageName, entries);
+                // Save to external index storage - all in one folder with logical naming
+                var storage = _storageFactory.GetStorage<List<FileIndexEntry>>("ExternalFileIndexes");
+                await storage.SaveAsync($"index_{collectionName}", entries);
 
                 // Update last scan time and save collection config
                 collection.LastScanned = DateTime.Now;
@@ -133,8 +132,8 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
         {
             try
             {
-                var indexStorageName = GetExternalIndexStorageName(collectionName);
-                var entries = await _indexEngine.LoadIndexAsync(indexStorageName);
+                var storage = _storageFactory.GetStorage<List<FileIndexEntry>>("ExternalFileIndexes");
+                var entries = await storage.LoadAsync($"index_{collectionName}");
 
                 _logger.LogDebug("Retrieved {EntryCount} entries for external collection: {CollectionName}",
                     entries.Count, collectionName);
@@ -196,7 +195,7 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
         {
             try
             {
-                var storage = _storageFactory.GetStorage<ExternalIndexCollection>("ExternalIndexes");
+                var storage = _storageFactory.GetStorage<ExternalIndexCollection>("ExternalFileIndexes");
                 var identifiers = await storage.ListIdentifiersAsync();
 
                 foreach (var identifier in identifiers)
@@ -225,34 +224,11 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
             }
         }
 
-        private void EnsureExternalIndexStorageFolder()
-        {
-            try
-            {
-                var externalIndexFolder = new StorageFolder
-                {
-                    Name = "ExternalIndexes",
-                    Description = "Storage for external file indexing collections",
-                    Type = StorageType.Json,
-                    IsShared = false,
-                    CreateBackups = true,
-                    MaxBackupCount = 10
-                };
-
-                _storageFactory.RegisterFolder(externalIndexFolder);
-                _logger.LogDebug("Ensured ExternalIndexes storage folder exists");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to ensure ExternalIndexes storage folder");
-            }
-        }
-
         private async Task SaveCollectionConfigAsync(ExternalIndexCollection collection)
         {
             try
             {
-                var storage = _storageFactory.GetStorage<ExternalIndexCollection>("ExternalIndexes");
+                var storage = _storageFactory.GetStorage<ExternalIndexCollection>("ExternalFileIndexes");
                 var identifier = $"collection_{collection.Name}";
                 await storage.SaveAsync(identifier, collection);
                 _logger.LogDebug("Saved collection configuration: {CollectionName}", collection.Name);
@@ -267,7 +243,7 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
         {
             try
             {
-                var storage = _storageFactory.GetStorage<ExternalIndexCollection>("ExternalIndexes");
+                var storage = _storageFactory.GetStorage<ExternalIndexCollection>("ExternalFileIndexes");
                 var identifier = $"collection_{collectionName}";
                 await storage.DeleteAsync(identifier);
                 _logger.LogDebug("Deleted collection configuration: {CollectionName}", collectionName);
@@ -282,20 +258,14 @@ namespace NewwaysAdmin.Shared.IO.FileIndexing.Core
         {
             try
             {
-                var indexStorageName = GetExternalIndexStorageName(collectionName);
-                var storage = _storageFactory.GetStorage<List<FileIndexEntry>>(indexStorageName);
-                await storage.DeleteAsync("file-index");
+                var storage = _storageFactory.GetStorage<List<FileIndexEntry>>("ExternalFileIndexes");
+                await storage.DeleteAsync($"index_{collectionName}");
                 _logger.LogDebug("Deleted collection index: {CollectionName}", collectionName);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete collection index: {CollectionName}", collectionName);
             }
-        }
-
-        private string GetExternalIndexStorageName(string collectionName)
-        {
-            return $"External_{collectionName}_Index";
         }
     }
 }
