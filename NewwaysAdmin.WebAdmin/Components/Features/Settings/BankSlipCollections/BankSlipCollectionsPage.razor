@@ -1,0 +1,300 @@
+﻿//NewwaysAdmin.WebAdmin/Components/Features/Settings/BankSlipCollections/BankSlipCollectionsPage.razor
+@page "/settings/bankslip-collections"
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
+@using Microsoft.AspNetCore.Components.Authorization
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.BankSlipCollections.Components
+
+@inject BankSlipOcrService BankSlipService
+@inject BankSlipCollectionExtensions CollectionExtensions
+@inject AuthenticationStateProvider AuthStateProvider
+@inject ILogger<BankSlipCollectionsPage> Logger
+
+<PageTitle>Bank Slip Collections - Settings</PageTitle>
+
+<div class="container-fluid p-4">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2>
+                    <i class="bi bi-collection me-2"></i>
+                    Bank Slip Collections
+                    <small class="text-muted fs-6">External Monitoring & User Access</small>
+                </h2>
+                <button class="btn btn-primary" @onclick="ShowCreateModal">
+                    <i class="bi bi-plus-circle me-1"></i>Add Collection
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Messages -->
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert alert-@(_isError ? "danger" : "success") alert-dismissible fade show">
+            @_statusMessage
+            <button type="button" class="btn-close" @onclick="ClearStatus"></button>
+        </div>
+    }
+
+    <!-- Collections Grid Component -->
+    <CollectionsGrid Collections="_collections"
+                     CollectionStats="_collectionStats"
+                     IsLoading="_isLoading"
+                     OnEditCollection="ShowEditModal"
+                     OnManagePermissions="ShowPermissionsModal"
+                     OnToggleMonitoring="ToggleMonitoring"
+                     OnScanCollection="ScanCollection" />
+
+    <!-- Create/Edit Modal -->
+    <CreateEditCollectionModal IsVisible="_showModal"
+                               Collection="_editingCollection"
+                               IsEditMode="_isEditMode"
+                               OnSave="SaveCollection"
+                               OnCancel="HideModal" />
+
+    <!-- User Permissions Modal -->
+    <UserPermissionsModal IsVisible="_showPermissionsModal"
+                          Collection="_selectedCollection"
+                          AllUsers="_allUsers"
+                          OnSave="SavePermissions"
+                          OnCancel="HidePermissionsModal" />
+</div>
+
+@code {
+    private List<SlipCollection> _collections = new();
+    private Dictionary<string, CollectionMonitoringStatus> _collectionStats = new();
+    private List<User> _allUsers = new();
+
+    private bool _isLoading = true;
+    private string _statusMessage = string.Empty;
+    private bool _isError = false;
+
+    // Modal states
+    private bool _showModal = false;
+    private bool _showPermissionsModal = false;
+    private bool _isEditMode = false;
+    private SlipCollection _editingCollection = new();
+    private SlipCollection _selectedCollection = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCollections();
+        await LoadUsers();
+    }
+
+    private async Task LoadCollections()
+    {
+        try
+        {
+            _isLoading = true;
+            StateHasChanged();
+
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var username = authState.User?.Identity?.Name ?? "system";
+            Logger.LogInformation("Loading collections for user: {Username}", username);
+
+            _collections = await BankSlipService.GetUserCollectionsAsync(username) ?? new List<SlipCollection>();
+            Logger.LogInformation("Loaded {Count} collections", _collections.Count);
+
+            foreach (var collection in _collections)
+            {
+                var stats = await CollectionExtensions.GetMonitoringStatusAsync(collection);
+                Logger.LogInformation("Stats for collection {Id}: {Stats}", collection.Id, stats != null ? "Loaded" : "Null");
+                if (stats != null)
+                {
+                    _collectionStats[collection.Id] = stats;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading collections");
+            ShowError($"Error loading collections: {ex.Message}");
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadUsers()
+    {
+        try
+        {
+            _allUsers = await BankSlipService.GetAllUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading users");
+        }
+    }
+
+    private void ShowCreateModal()
+    {
+        _editingCollection = new SlipCollection
+            {
+                DocumentType = "BankSlips",
+                MonitoredExtensions = new[] { ".jpg", ".jpeg", ".png", ".pdf" },
+                EnableExternalMonitoring = true,
+                SaveProcessedResults = true
+            };
+        _isEditMode = false;
+        _showModal = true;
+    }
+
+    private void ShowEditModal(SlipCollection collection)
+    {
+        _editingCollection = new SlipCollection
+            {
+                Id = collection.Id,
+                Name = collection.Name,
+                Description = collection.Description,
+                SourceDirectory = collection.SourceDirectory,
+                OutputDirectory = collection.OutputDirectory,
+                DocumentType = collection.DocumentType,
+                FormatName = collection.FormatName,
+                EnableExternalMonitoring = collection.EnableExternalMonitoring,
+                AutoProcessNewFiles = collection.AutoProcessNewFiles,
+                MonitoredExtensions = collection.MonitoredExtensions?.ToArray() ?? new[] { ".jpg", ".jpeg", ".png", ".pdf" },
+                AuthorizedUserIds = new List<string>(collection.AuthorizedUserIds),
+                SaveProcessedResults = collection.SaveProcessedResults
+            };
+        _isEditMode = true;
+        _showModal = true;
+    }
+
+    private void HideModal()
+    {
+        _showModal = false;
+        _editingCollection = new();
+    }
+
+    private void ShowPermissionsModal(SlipCollection collection)
+    {
+        _selectedCollection = collection;
+        _showPermissionsModal = true;
+    }
+
+    private void HidePermissionsModal()
+    {
+        _showPermissionsModal = false;
+        _selectedCollection = null;
+    }
+
+    private async Task SaveCollection(SlipCollection collection)
+    {
+        try
+        {
+            // TODO: Implement proper CreateCollectionAsync and UpdateCollectionAsync methods
+            // For now, just show success message to avoid errors
+            if (_isEditMode)
+            {
+                // await BankSlipService.UpdateCollectionAsync(collection);
+                ShowSuccess("Collection would be updated (method not implemented yet)");
+            }
+            else
+            {
+                // await BankSlipService.CreateCollectionAsync(collection);
+                ShowSuccess("Collection would be created (method not implemented yet)");
+            }
+
+            // Enable external monitoring if requested
+            if (collection.EnableExternalMonitoring)
+            {
+                await CollectionExtensions.EnableExternalMonitoringAsync(collection);
+            }
+
+            HideModal();
+            await LoadCollections();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving collection");
+            ShowError($"Error saving collection: {ex.Message}");
+        }
+    }
+
+    private async Task SavePermissions(SlipCollection collection)
+    {
+        try
+        {
+            // TODO: Implement proper UpdateCollectionAsync method
+            // await BankSlipService.UpdateCollectionAsync(collection);
+            ShowSuccess("User permissions would be updated (method not implemented yet)");
+
+            HidePermissionsModal();
+            await LoadCollections();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error saving permissions");
+            ShowError($"Error saving permissions: {ex.Message}");
+        }
+    }
+
+    private async Task ToggleMonitoring(SlipCollection collection)
+    {
+        try
+        {
+            if (collection.IsExternalMonitoringEnabled)
+            {
+                await CollectionExtensions.DisableExternalMonitoringAsync(collection);
+                ShowSuccess($"Disabled monitoring for {collection.Name}");
+            }
+            else
+            {
+                await CollectionExtensions.EnableExternalMonitoringAsync(collection);
+                ShowSuccess($"Enabled monitoring for {collection.Name}");
+            }
+
+            await LoadCollections();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error toggling monitoring");
+            ShowError($"Error toggling monitoring: {ex.Message}");
+        }
+    }
+
+    private async Task ScanCollection(SlipCollection collection)
+    {
+        try
+        {
+            var success = await CollectionExtensions.ScanCollectionAsync(collection);
+            if (success)
+            {
+                ShowSuccess($"Scan initiated for {collection.Name}");
+                await LoadCollections();
+            }
+            else
+            {
+                ShowError($"Failed to scan {collection.Name}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error scanning collection");
+            ShowError($"Error scanning collection: {ex.Message}");
+        }
+    }
+
+    private void ShowSuccess(string message)
+    {
+        _statusMessage = message;
+        _isError = false;
+    }
+
+    private void ShowError(string message)
+    {
+        _statusMessage = message;
+        _isError = true;
+    }
+
+    private void ClearStatus()
+    {
+        _statusMessage = string.Empty;
+    }
+}

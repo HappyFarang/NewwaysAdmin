@@ -1,9 +1,9 @@
-﻿// NewwaysAdmin.SharedModels/Models/BankSlips/BankSlipModels.cs
-// 🚀 UPDATED: Enhanced SlipCollection with pattern-based support
-
+﻿//NewwaysAdmin.SharedModels/Models/BankSlips/BankSlipModels.cs
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.IO;
 using Newtonsoft.Json;
 using MessagePack;
 using Key = MessagePack.KeyAttribute;
@@ -43,7 +43,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public string CreatedBy { get; set; } = string.Empty;
 
         [Key(7)]
-        public DateTime CreatedAt { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         [Key(8)]
         public bool IsActive { get; set; } = true;
@@ -55,7 +55,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         [Key(10)]
         public bool IsKBizFormat { get; set; } = false;
 
-        // 🆕 NEW: Pattern-based system fields
+        // Pattern-based system fields
         [Key(11)]
         [Required(ErrorMessage = "Document type is required")]
         public string DocumentType { get; set; } = "BankSlips";
@@ -66,6 +66,34 @@ namespace NewwaysAdmin.SharedModels.BankSlips
 
         [Key(13)]
         public bool AutoProcessNewFiles { get; set; } = false;
+
+        // NEW: User permission system
+        [Key(14)]
+        public List<string> AuthorizedUserIds { get; set; } = new();
+
+        // NEW: External monitoring integration  
+        [Key(15)]
+        public bool EnableExternalMonitoring { get; set; } = false;
+
+        [Key(16)]
+        public string[] MonitoredExtensions { get; set; } = new[] { ".jpg", ".jpeg", ".png", ".pdf" };
+
+        // NEW: Background processing statistics
+        [Key(17)]
+        public DateTime? LastScanned { get; set; }
+
+        [Key(18)]
+        public DateTime? LastProcessed { get; set; }
+
+        [Key(19)]
+        public int ProcessedFileCount { get; set; } = 0;
+
+        [Key(20)]
+        public int FailedFileCount { get; set; } = 0;
+
+        // NEW: Storage integration
+        [Key(21)]
+        public bool SaveProcessedResults { get; set; } = true; // Save to .bin files for fast access
 
         // Helper properties for display and compatibility
         [IgnoreMember]
@@ -80,6 +108,40 @@ namespace NewwaysAdmin.SharedModels.BankSlips
 
         [IgnoreMember]
         public string FullPatternPath => $"{DocumentType}/{FormatName}";
+
+        // Helper properties for external monitoring
+        [IgnoreMember]
+        public bool IsExternalMonitoringEnabled => EnableExternalMonitoring && AutoProcessNewFiles;
+
+        [IgnoreMember]
+        public string ExternalCollectionId => $"{Name.Replace(" ", "_")}_{Id.Substring(0, 8)}";
+
+        /// <summary>
+        /// Check if a user has access to this collection
+        /// </summary>
+        public bool HasUserAccess(string userId)
+        {
+            return AuthorizedUserIds.Contains(userId);
+        }
+
+        /// <summary>
+        /// Add user access to this collection
+        /// </summary>
+        public void AddUserAccess(string userId)
+        {
+            if (!AuthorizedUserIds.Contains(userId))
+            {
+                AuthorizedUserIds.Add(userId);
+            }
+        }
+
+        /// <summary>
+        /// Remove user access from this collection
+        /// </summary>
+        public void RemoveUserAccess(string userId)
+        {
+            AuthorizedUserIds.Remove(userId);
+        }
 
         /// <summary>
         /// Migration helper to update legacy collections to pattern-based system
@@ -112,15 +174,14 @@ namespace NewwaysAdmin.SharedModels.BankSlips
                 IsKBizFormat = true; // Maintain backward compatibility
             }
         }
-
     }
 
-    // Enum for slip format types (for future extensibility)
+    // Enum for slip format types - kept for backward compatibility with existing parsers
     public enum SlipFormat
     {
         Original = 0,
-        KBiz = 1,
-        // Future formats can be added here
+        KBiz = 1
+        // Future formats can be added here if needed
         // SCB = 2,
         // TTB = 3,
         // etc.
@@ -163,7 +224,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         [Key(8)]
         public bool ValidateAccountFormat { get; set; } = true;
 
-        // 🆕 NEW: Pattern-specific settings
+        // Pattern-specific settings
         [Key(9)]
         public bool EnablePatternDebugging { get; set; } = false;
 
@@ -227,7 +288,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         public string ProcessedBy { get; set; } = string.Empty;
 
         [Key(10)]
-        public DateTime ProcessedAt { get; set; }
+        public DateTime ProcessedAt { get; set; } = DateTime.UtcNow;
 
         [Key(11)]
         public string SlipCollectionName { get; set; } = string.Empty;
@@ -251,7 +312,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         [Key(17)]
         public Dictionary<string, string> ParsingNotes { get; set; } = new();
 
-        // 🆕 NEW: Pattern-based processing metadata
+        // Pattern-based processing metadata
         [Key(18)]
         public string DocumentType { get; set; } = string.Empty;
 
@@ -314,11 +375,13 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         /// <summary>
         /// Total processing duration
         /// </summary>
+        [IgnoreMember]
         public TimeSpan ProcessingDuration => ProcessingCompleted - ProcessingStarted;
 
         /// <summary>
         /// Whether processing completed successfully (no critical errors)
         /// </summary>
+        [IgnoreMember]
         public bool IsSuccessful => Errors.Count == 0 || Errors.All(e => !e.IsCritical);
     }
 
@@ -333,11 +396,13 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         /// <summary>
         /// Success rate as percentage
         /// </summary>
+        [IgnoreMember]
         public double SuccessRate => TotalFiles > 0 ? (double)ProcessedFiles / TotalFiles * 100 : 0;
 
         /// <summary>
         /// Files remaining to process
         /// </summary>
+        [IgnoreMember]
         public int RemainingFiles => TotalFiles - ProcessedFiles - FailedFiles;
     }
 
@@ -353,6 +418,7 @@ namespace NewwaysAdmin.SharedModels.BankSlips
         /// <summary>
         /// User-friendly error message
         /// </summary>
+        [IgnoreMember]
         public string FriendlyMessage => $"{Path.GetFileName(FilePath)}: {Reason}";
     }
 

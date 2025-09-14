@@ -1,0 +1,143 @@
+﻿//NewwaysAdmin.WebAdmin/Components/Features/Settings/BankSlipCollections/Components/UserPermissionsModal.razor
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Models.Auth
+
+@if (IsVisible && Collection != null)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-people me-2"></i>
+                        User Access - @Collection.Name
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HandleCancel"></button>
+                </div>
+
+                <div class="modal-body">
+                    @if (AllUsers != null && AllUsers.Any())
+                    {
+                        <div class="mb-3">
+                            <small class="text-muted">Select users who can access processed results from this collection:</small>
+                        </div>
+
+                        @foreach (var user in AllUsers)
+                        {
+                            <div class="form-check mb-2">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="user_@user.Username"
+                                       checked="@(Collection.HasUserAccess(user.Username))"
+                                       @onchange="e => ToggleUserAccess(user.Username, (bool)e.Value)" />
+                                <label class="form-check-label d-flex justify-content-between align-items-center w-100"
+                                       for="user_@user.Username">
+                                    <span>
+                                        <i class="bi bi-person me-2"></i>
+                                        @user.Username
+                                        @if (user.IsAdmin)
+                                        {
+                                            <span class="badge bg-primary ms-2">Admin</span>
+                                        }
+                                    </span>
+                                    @if (user.IsAdmin)
+                                    {
+                                        <small class="text-muted">(Admin users always have access)</small>
+                                    }
+                                </label>
+                            </div>
+                        }
+
+                        @if (Collection.AuthorizedUserIds.Count == 0)
+                        {
+                            <div class="alert alert-warning mt-3">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                No users selected. Only admin users will be able to access this collection.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-info mt-3">
+                                <i class="bi bi-info-circle me-2"></i>
+                                @Collection.AuthorizedUserIds.Count user(s) selected + admin users will have access.
+                            </div>
+                        }
+                    }
+                    else if (AllUsers != null && !AllUsers.Any())
+                    {
+                        <div class="text-center py-4">
+                            <i class="bi bi-people display-6 text-muted"></i>
+                            <p class="text-muted mt-2">No users found in the system.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary me-2" role="status"></div>
+                            <span>Loading users...</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="HandleCancel">Cancel</button>
+                    <button type="button" class="btn btn-primary" @onclick="HandleSave" disabled="@_isSaving">
+                        @if (_isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        Save Permissions
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public SlipCollection? Collection { get; set; }
+    [Parameter] public List<User>? AllUsers { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool _isSaving = false;
+
+    private void ToggleUserAccess(string username, bool hasAccess)
+    {
+        if (Collection == null) return;
+
+        if (hasAccess)
+        {
+            Collection.AddUserAccess(username);
+        }
+        else
+        {
+            Collection.RemoveUserAccess(username);
+        }
+    }
+
+    private async Task HandleSave()
+    {
+        if (Collection == null) return;
+
+        try
+        {
+            _isSaving = true;
+            StateHasChanged();
+
+            await OnSave.InvokeAsync(Collection);
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleCancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+}

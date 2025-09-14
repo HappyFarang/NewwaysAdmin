@@ -276,6 +276,7 @@ public class Program
         services.AddScoped<BankSlipImageProcessor>();
         services.AddScoped<DocumentParser>();
         services.AddScoped<BankSlipExportService>();
+        services.AddScoped<BankSlipCollectionExtensions>();
         services.AddScoped<SimpleEmailStorageService>();
         services.AddScoped<ISpatialOcrService, SpatialOcrService>();
         services.AddScoped<OcrFieldAnalyzerService>();

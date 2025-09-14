@@ -7,6 +7,8 @@
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.PdfAnalyzer
 @using NewwaysAdmin.WebAdmin.Components.Features.Settings.OcrAnalyzer
 @using NewwaysAdmin.WebAdmin.Components.Settings.GoogleSheets
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.BankSlipCollections
+
 @inject IAuthenticationService AuthService
 @inject NavigationManager NavigationManager
 
@@ -36,6 +38,10 @@
                         @onclick="() => SwitchView(ViewType.OcrAnalyzer)">
                     <i class="bi bi-eye"></i> Spatial OCR <!-- Updated name -->
                 </button>
+                <button class="btn @(ActiveView == ViewType.BankSlipCollections ? "active" : "")"
+                        @onclick="() => SwitchView(ViewType.BankSlipCollections)">
+                    <i class="bi bi-collection"></i> Bank Slip Collections
+                </button>
             </div>
         </div>
     </div>
@@ -59,10 +65,13 @@
                     <PdfAnalyzer />
                     break;
                 case ViewType.OcrAnalyzer:
-                    <SpatialOcrAnalyzer /> @* NEW - Replaced OcrAnalyzer with SpatialOcrAnalyzer *@
+                    <SpatialOcrAnalyzer /> 
                     break;
                 case ViewType.GoogleSheets:
                     <GoogleSheetsSettings />
+                    break;
+                case ViewType.BankSlipCollections:
+                    <BankSlipCollectionsPage />
                     break;
             }
         }
@@ -80,7 +89,8 @@
         PdfProcessor,
         PdfAnalyzer,
         OcrAnalyzer,
-        GoogleSheets
+        GoogleSheets,
+        BankSlipCollections
     }
 
     private ViewType ActiveView { get; set; } = ViewType.Accounts;

@@ -1,0 +1,170 @@
+﻿//NewwaysAdmin.WebAdmin/Components/Features/Settings/BankSlipCollections/Components/CollectionCard.razor
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
+
+<div class="card h-100">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center">
+            <i class="@Collection.FormatIcon me-2 text-primary"></i>
+            <strong>@Collection.Name</strong>
+        </div>
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                <i class="bi bi-three-dots"></i>
+            </button>
+            <ul class="dropdown-menu">
+                <li>
+                    <a class="dropdown-item" href="#" @onclick="HandleEdit" @onclick:preventDefault="true">
+                        <i class="bi bi-pencil me-1"></i>Edit
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item" href="#" @onclick="HandleManagePermissions" @onclick:preventDefault="true">
+                        <i class="bi bi-people me-1"></i>Manage Users
+                    </a>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="#" @onclick="HandleToggleMonitoring" @onclick:preventDefault="true">
+                        <i class="bi bi-@(Collection.IsExternalMonitoringEnabled ? "pause" : "play") me-1"></i>
+                        @(Collection.IsExternalMonitoringEnabled ? "Disable" : "Enable") Monitoring
+                    </a>
+                </li>
+                <li>
+                    <a class="dropdown-item" href="#" @onclick="HandleScan" @onclick:preventDefault="true">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Scan Now
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card-body">
+        <!-- Description -->
+        @if (!string.IsNullOrEmpty(Collection.Description))
+        {
+            <p class="card-text text-muted small mb-3">@Collection.Description</p>
+        }
+
+        <!-- Monitoring Status -->
+        <div class="d-flex align-items-center mb-3">
+            <span class="badge bg-@(Collection.IsExternalMonitoringEnabled ? "success" : "secondary") me-2">
+                <i class="bi bi-@(Collection.IsExternalMonitoringEnabled ? "eye" : "eye-slash") me-1"></i>
+                @(Collection.IsExternalMonitoringEnabled ? "Monitoring" : "Inactive")
+            </span>
+            <span class="text-muted small">@Collection.FormatDisplayName</span>
+        </div>
+
+        <!-- Folder Path -->
+        <div class="mb-3">
+            <small class="text-muted d-block">Source Folder:</small>
+            <code class="small text-break">@Collection.SourceDirectory</code>
+        </div>
+
+        <!-- Statistics -->
+        @if (Stats != null)
+        {
+            <div class="row text-center small mb-3">
+                <div class="col-4">
+                    <div class="text-primary fw-bold">@Stats.ProcessedFileCount</div>
+                    <div class="text-muted">Processed</div>
+                </div>
+                <div class="col-4">
+                    <div class="text-warning fw-bold">@Stats.UnprocessedFiles</div>
+                    <div class="text-muted">Pending</div>
+                </div>
+                <div class="col-4">
+                    <div class="text-danger fw-bold">@Stats.FailedFileCount</div>
+                    <div class="text-muted">Failed</div>
+                </div>
+            </div>
+
+            @if (Stats.LastScanned.HasValue)
+            {
+                <div class="text-center mb-3">
+                    <small class="text-muted">
+                        <i class="bi bi-clock me-1"></i>
+                        Last scan: @Stats.LastScanned.Value.ToString("MMM dd, HH:mm")
+                    </small>
+                </div>
+            }
+
+            <!-- Processing Success Rate -->
+            @if (Stats.TotalFiles > 0)
+            {
+                <div class="progress mb-3" style="height: 6px;">
+                    <div class="progress-bar bg-success" role="progressbar"
+                         style="width: @Stats.ProcessingSuccessRate.ToString("F1")%"
+                         title="@Stats.ProcessingSuccessRate.ToString("F1")% success rate">
+                    </div>
+                </div>
+            }
+        }
+
+        <!-- User Count -->
+        <div class="mt-auto pt-3 border-top d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+                <i class="bi bi-people me-1"></i>
+                @Collection.AuthorizedUserIds.Count user(s) authorized
+            </small>
+            @if (Collection.AutoProcessNewFiles)
+            {
+                <span class="badge bg-info">Auto-Process</span>
+            }
+        </div>
+
+        <!-- Error State -->
+        @if (Stats?.ErrorMessage != null)
+        {
+            <div class="alert alert-warning alert-sm mt-2 mb-0">
+                <small><i class="bi bi-exclamation-triangle me-1"></i>@Stats.ErrorMessage</small>
+            </div>
+        }
+    </div>
+
+    <!-- Quick Action Footer (optional) -->
+    @if (Collection.IsExternalMonitoringEnabled)
+    {
+        <div class="card-footer bg-light border-0 py-2">
+            <div class="d-flex justify-content-between align-items-center small">
+                <span class="text-muted">
+                    <i class="bi bi-folder me-1"></i>
+                    @(Stats?.TotalFiles ?? 0) files total
+                </span>
+                <button class="btn btn-outline-primary btn-sm py-1 px-2" @onclick="HandleScan" title="Scan for new files">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public SlipCollection Collection { get; set; } = new();
+    [Parameter] public CollectionMonitoringStatus? Stats { get; set; }
+
+    [Parameter] public EventCallback OnEdit { get; set; }
+    [Parameter] public EventCallback OnManagePermissions { get; set; }
+    [Parameter] public EventCallback OnToggleMonitoring { get; set; }
+    [Parameter] public EventCallback OnScan { get; set; }
+
+    private async Task HandleEdit()
+    {
+        await OnEdit.InvokeAsync();
+    }
+
+    private async Task HandleManagePermissions()
+    {
+        await OnManagePermissions.InvokeAsync();
+    }
+
+    private async Task HandleToggleMonitoring()
+    {
+        await OnToggleMonitoring.InvokeAsync();
+    }
+
+    private async Task HandleScan()
+    {
+        await OnScan.InvokeAsync();
+    }
+}

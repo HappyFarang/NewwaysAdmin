@@ -8,6 +8,7 @@ using NewwaysAdmin.IO.Manager;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.WebAdmin.Services.Auth;
+using NewwaysAdmin.WebAdmin.Models.Auth;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips
 {
@@ -37,7 +38,57 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             _imageProcessor = imageProcessor;
             _documentParser = documentParser;
         }
+        #region Collection Management - Missing Methods
 
+        /// <summary>
+        /// Create a new collection (alias for SaveCollectionAsync for consistency with UI)
+        /// </summary>
+        public async Task CreateCollectionAsync(SlipCollection collection)
+        {
+            var authState = await _authService.GetCurrentSessionAsync();
+            var username = authState?.Username ?? "system";
+
+            // Ensure new collection has a unique ID
+            collection.Id = Guid.NewGuid().ToString();
+            collection.CreatedAt = DateTime.UtcNow;
+
+            await SaveCollectionAsync(collection, username);
+
+            _logger.LogInformation("Created new collection: {CollectionName} by {Username}",
+                collection.Name, username);
+        }
+
+        /// <summary>
+        /// Update an existing collection (alias for SaveCollectionAsync for consistency with UI)
+        /// </summary>
+        public async Task UpdateCollectionAsync(SlipCollection collection)
+        {
+            var authState = await _authService.GetCurrentSessionAsync();
+            var username = authState?.Username ?? "system";
+
+            await SaveCollectionAsync(collection, username);
+
+            _logger.LogInformation("Updated collection: {CollectionName} by {Username}",
+                collection.Name, username);
+        }
+
+        /// <summary>
+        /// Get all users for permission assignment
+        /// </summary>
+        public async Task<List<User>> GetAllUsersAsync()
+        {
+            try
+            {
+                return await _authService.GetAllUsersAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting all users");
+                return new List<User>();
+            }
+        }
+
+        #endregion
         #region Modern Processing Methods
 
         /// <summary>

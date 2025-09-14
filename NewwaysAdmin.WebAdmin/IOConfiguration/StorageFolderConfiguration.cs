@@ -1,4 +1,6 @@
-﻿using NewwaysAdmin.Shared.IO;
+﻿//NewwaysAdmin.WebAdmin/IOConfiguration/StorageFolderConfiguration.cs
+
+using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
 using System.Diagnostics;
 using System;

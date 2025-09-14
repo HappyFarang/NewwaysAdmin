@@ -1,0 +1,57 @@
+﻿//NewwaysAdmin.WebAdmin/Components/Features/Settings/BankSlipCollections/Components/CollectionsGrid.razor
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips
+@using NewwaysAdmin.WebAdmin.Components.Features.Settings.BankSlipCollections.Components
+
+<!-- Loading State -->
+@if (IsLoading)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-primary me-2" role="status"></div>
+        <span>Loading collections...</span>
+    </div>
+}
+else if (!Collections.Any())
+{
+    <!-- Empty State -->
+    <div class="text-center py-5">
+        <div class="mb-3">
+            <i class="bi bi-collection display-4 text-muted"></i>
+        </div>
+        <h5 class="text-muted">No Collections Yet</h5>
+        <p class="text-muted">Create your first bank slip collection to get started with automated processing.</p>
+    </div>
+}
+else
+{
+    <!-- Collections Grid -->
+    <div class="row">
+        @foreach (var collection in Collections)
+        {
+            <div class="col-lg-4 col-md-6 mb-4">
+                <CollectionCard Collection="collection" 
+                               Stats="GetStatsForCollection(collection.Id)"
+                               OnEdit="() => OnEditCollection.InvokeAsync(collection)"
+                               OnManagePermissions="() => OnManagePermissions.InvokeAsync(collection)"
+                               OnToggleMonitoring="() => OnToggleMonitoring.InvokeAsync(collection)"
+                               OnScan="() => OnScanCollection.InvokeAsync(collection)" />
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public List<SlipCollection> Collections { get; set; } = new();
+    [Parameter] public Dictionary<string, CollectionMonitoringStatus> CollectionStats { get; set; } = new();
+    [Parameter] public bool IsLoading { get; set; }
+
+    [Parameter] public EventCallback<SlipCollection> OnEditCollection { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnManagePermissions { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnToggleMonitoring { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnScanCollection { get; set; }
+
+    private CollectionMonitoringStatus? GetStatsForCollection(string collectionId)
+    {
+        return CollectionStats.ContainsKey(collectionId) ? CollectionStats[collectionId] : null;
+    }
+}

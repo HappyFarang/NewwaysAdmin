@@ -1,0 +1,219 @@
+﻿//NewwaysAdmin.WebAdmin/Components/Features/Settings/BankSlipCollections/Components/CreateEditCollectionModal.razor
+@using NewwaysAdmin.SharedModels.BankSlips
+
+@if (IsVisible)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-backdrop fade show"></div>
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-@(IsEditMode ? "pencil" : "plus-circle") me-2"></i>
+                        @(IsEditMode ? "Edit Collection" : "Create Collection")
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HandleCancel"></button>
+                </div>
+
+                <EditForm Model="Collection" OnValidSubmit="HandleSave">
+                    <DataAnnotationsValidator />
+
+                    <div class="modal-body">
+                        <!-- Basic Information -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">Basic Information</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Collection Name *</label>
+                                        <InputText @bind-Value="Collection.Name" class="form-control" placeholder="Company_KBIZ" />
+                                        <ValidationMessage For="() => Collection.Name" />
+                                        <small class="form-text text-muted">Unique name for this collection</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">OCR Format Pattern *</label>
+                                        <InputText @bind-Value="Collection.FormatName" class="form-control" placeholder="KBIZ" />
+                                        <ValidationMessage For="() => Collection.FormatName" />
+                                        <small class="form-text text-muted">Name of the OCR pattern to use (create patterns in Settings > OCR first)</small>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label">Description</label>
+                                    <InputTextArea @bind-Value="Collection.Description" class="form-control" rows="2"
+                                                   placeholder="Description of this collection (e.g., 'Personal K-Plus bank slips')" />
+                                    <small class="form-text text-muted">Optional description to help identify this collection</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Folder Configuration -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-folder me-1"></i>Folder Configuration
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Source Directory *</label>
+                                        <InputText @bind-Value="Collection.SourceDirectory" class="form-control"
+                                                   placeholder="C:\BankSlips\Input" />
+                                        <ValidationMessage For="() => Collection.SourceDirectory" />
+                                        <small class="form-text text-muted">External folder to monitor for new bank slip images</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Output Directory</label>
+                                        <InputText @bind-Value="Collection.OutputDirectory" class="form-control"
+                                                   placeholder="C:\BankSlips\Processed" />
+                                        <small class="form-text text-muted">Where processed results are saved (optional)</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Monitoring Settings -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-eye me-1"></i>External Monitoring Settings
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <InputCheckbox @bind-Value="Collection.EnableExternalMonitoring" class="form-check-input" id="enableMonitoring" />
+                                            <label class="form-check-label" for="enableMonitoring">
+                                                <strong>Enable External Monitoring</strong>
+                                            </label>
+                                        </div>
+                                        <small class="text-muted">Automatically detect new files in source directory</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-check">
+                                            <InputCheckbox @bind-Value="Collection.AutoProcessNewFiles" class="form-check-input" id="autoProcess" />
+                                            <label class="form-check-label" for="autoProcess">
+                                                <strong>Auto-Process New Files</strong>
+                                            </label>
+                                        </div>
+                                        <small class="text-muted">Automatically run OCR on detected files</small>
+                                    </div>
+                                </div>
+
+                                <!-- File Extensions -->
+                                <div class="mb-3">
+                                    <label class="form-label">Monitored File Extensions</label>
+                                    <div class="row">
+                                        @foreach (var ext in _defaultExtensions)
+                                        {
+                                            <div class="col-md-3 col-sm-6">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="ext_@ext.Replace(".", "")"
+                                                           checked="@(Collection.MonitoredExtensions?.Contains(ext) ?? false)"
+                                                           @onchange="@(e => ToggleExtension(ext, (bool)e.Value!))" />
+                                                    <label class="form-check-label" for="ext_@ext.Replace(".", "")">
+                                                        @ext
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                    <small class="form-text text-muted">Only files with these extensions will be processed</small>
+                                </div>
+
+                                <!-- Storage Settings -->
+                                <div class="form-check">
+                                    <InputCheckbox @bind-Value="Collection.SaveProcessedResults" class="form-check-input" id="saveResults" />
+                                    <label class="form-check-label" for="saveResults">
+                                        <strong>Save Processed Results</strong>
+                                    </label>
+                                    <br>
+                                    <small class="text-muted">Save OCR results to .bin files for fast access (recommended)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="HandleCancel">Cancel</button>
+                        <button type="submit" class="btn btn-primary" disabled="@_isSaving">
+                            @if (_isSaving)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <i class="bi bi-@(IsEditMode ? "check" : "plus") me-1"></i>
+                            @(IsEditMode ? "Update" : "Create") Collection
+                        </button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public SlipCollection Collection { get; set; } = new();
+    [Parameter] public bool IsEditMode { get; set; }
+    [Parameter] public EventCallback<SlipCollection> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool _isSaving = false;
+    private readonly string[] _defaultExtensions = { ".jpg", ".jpeg", ".png", ".pdf", ".tiff" };
+
+    protected override Task OnParametersSetAsync()
+    {
+        // Set default values for new collections
+        if (!IsEditMode && (Collection.MonitoredExtensions?.Length == 0 || Collection.MonitoredExtensions == null))
+        {
+            Collection.MonitoredExtensions = new[] { ".jpg", ".jpeg", ".png", ".pdf" };
+            Collection.DocumentType = "BankSlips";
+            Collection.EnableExternalMonitoring = true;
+            Collection.SaveProcessedResults = true;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void ToggleExtension(string extension, bool isChecked)
+    {
+        var currentExtensions = Collection.MonitoredExtensions?.ToList() ?? new List<string>();
+
+        if (isChecked && !currentExtensions.Contains(extension))
+        {
+            currentExtensions.Add(extension);
+        }
+        else if (!isChecked && currentExtensions.Contains(extension))
+        {
+            currentExtensions.Remove(extension);
+        }
+
+        Collection.MonitoredExtensions = currentExtensions.ToArray();
+    }
+
+    private async Task HandleSave()
+    {
+        try
+        {
+            _isSaving = true;
+            StateHasChanged();
+
+            await OnSave.InvokeAsync(Collection);
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleCancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+}
