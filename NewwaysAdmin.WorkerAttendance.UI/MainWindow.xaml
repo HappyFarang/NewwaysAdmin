@@ -1,0 +1,47 @@
+﻿<!-- File: NewwaysAdmin.WorkerAttendance.UI/MainWindow.xaml -->
+<!-- Purpose: Main window for face scanning and Arduino button interaction -->
+
+<Window x:Class="NewwaysAdmin.WorkerAttendance.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Worker Attendance - Face Scanner" 
+        Height="600" Width="800"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="Worker Attendance System" 
+                   FontSize="24" 
+                   FontWeight="Bold" 
+                   HorizontalAlignment="Center" 
+                   Margin="20"/>
+
+        <!-- Main content area for camera/face detection -->
+        <Border Grid.Row="1" 
+                Background="LightGray" 
+                Margin="20">
+            <TextBlock Text="Camera feed will go here" 
+                       HorizontalAlignment="Center" 
+                       VerticalAlignment="Center" 
+                       FontSize="16"/>
+        </Border>
+
+        <!-- Status bar -->
+        <StackPanel Grid.Row="2" 
+                    Orientation="Horizontal" 
+                    Background="DarkGray" 
+                    Height="30">
+            <TextBlock x:Name="StatusText" 
+                       Text="Ready..." 
+                       Margin="10,5" 
+                       Foreground="White"/>
+        </StackPanel>
+    </Grid>
+</Window>
