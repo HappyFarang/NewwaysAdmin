@@ -15,5 +15,8 @@
     <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Models\NewwaysAdmin.WorkerAttendance.Models.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Services\NewwaysAdmin.WorkerAttendance.Services.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Windows\" />
+  </ItemGroup>
 </Project>
 

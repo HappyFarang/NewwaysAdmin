@@ -1,0 +1,56 @@
+<!-- File: NewwaysAdmin.WorkerAttendance.UI/Controls/WorkerManagementControl.xaml -->
+<!-- Purpose: Collapsible worker management buttons component -->
+
+<UserControl x:Class="NewwaysAdmin.WorkerAttendance.UI.Controls.WorkerManagementControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel>
+        <!-- Collapsed State: Single Button -->
+        <Button x:Name="ExpandButton"
+                Content="Worker Management"
+                Width="140"
+                Height="30"
+                Margin="10,5"
+                Background="LightYellow"
+                Click="ExpandButton_Click"
+                Visibility="Visible"/>
+
+        <!-- Expanded State: Management Options -->
+        <StackPanel x:Name="ManagementOptions" Visibility="Collapsed">
+            <!-- Section Header -->
+            <TextBlock Text="Worker Management" 
+                       FontSize="14" 
+                       FontWeight="Bold" 
+                       Margin="10,5"
+                       HorizontalAlignment="Center"/>
+
+            <!-- Train New Worker Button -->
+            <Button x:Name="TrainWorkerButton" 
+                    Content="Train New Worker" 
+                    Width="140" 
+                    Height="30" 
+                    Margin="10,5"
+                    Background="LightBlue" 
+                    Click="TrainWorkerButton_Click"/>
+
+            <!-- Manage Workers Button -->
+            <Button x:Name="ManageWorkersButton" 
+                    Content="Manage Workers" 
+                    Width="140" 
+                    Height="30" 
+                    Margin="10,5"
+                    Background="LightGreen" 
+                    Click="ManageWorkersButton_Click"/>
+
+            <!-- Done Button -->
+            <Button x:Name="DoneButton"
+                    Content="Done"
+                    Width="100"
+                    Height="25"
+                    Margin="10,5"
+                    Background="LightGray"
+                    Click="DoneButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</UserControl>
