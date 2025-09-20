@@ -6,6 +6,8 @@ using System.Windows;
 using System.Windows.Media.Imaging;
 using NewwaysAdmin.WorkerAttendance.Services;
 using NewwaysAdmin.WorkerAttendance.Models;
+using Microsoft.Extensions.Logging;
+using NewwaysAdmin.Shared.IO.Structure;
 
 namespace NewwaysAdmin.WorkerAttendance.UI
 {
@@ -16,10 +18,24 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         private ApplicationState _currentState = ApplicationState.Ready;
         private List<DetectedFace> _detectedFaces = new();
 
+        // Storage system fields
+        private ILogger<MainWindow> _logger;
+        private EnhancedStorageFactory _storageFactory;
+        private WorkerStorageService _workerStorageService;
+        private readonly ILoggerFactory _loggerFactory;
+
         public MainWindow()
         {
             InitializeComponent();
 
+            // Set up logging factory
+            _loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder.AddConsole().SetMinimumLevel(LogLevel.Information);
+            });
+            _logger = _loggerFactory.CreateLogger<MainWindow>();
+
+            // Python and Arduino setup
             string pythonBasePath = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..",
@@ -41,6 +57,29 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             // Start services
             _arduinoService.TryConnect();
             _ = StartVideoFeedAsync();
+
+            // Initialize storage after UI is loaded
+            this.Loaded += MainWindow_Loaded;
+        }
+
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Initialize storage system
+                var storageLogger = _loggerFactory.CreateLogger<WorkerStorageService>();
+                _storageFactory = new EnhancedStorageFactory(_logger);
+                WorkerAttendanceStorageConfiguration.ConfigureStorageFolders(_storageFactory, _logger);
+                _workerStorageService = new WorkerStorageService(_storageFactory, storageLogger);
+
+                // Test storage system
+                await TestStorageSystemAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Storage initialization failed");
+                UpdateStatus($"Storage system error: {ex.Message}");
+            }
         }
 
         private async Task StartVideoFeedAsync()
@@ -141,7 +180,21 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             }
         }
 
-        // Helper methods stay the same...
+        private async Task TestStorageSystemAsync()
+        {
+            try
+            {
+                var workers = await _workerStorageService.GetAllWorkersAsync();
+                _logger.LogInformation("Found {Count} workers in database", workers.Count);
+                UpdateStatus($"Storage system ready - {workers.Count} workers loaded");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Storage system test failed");
+                UpdateStatus($"Storage system error: {ex.Message}");
+            }
+        }
+
         private void UpdateStatus(string message)
         {
             StatusText.Text = message;
@@ -186,6 +239,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             _videoService.StopVideoFeed();
             _arduinoService.Disconnect();
+            _loggerFactory?.Dispose();
             base.OnClosed(e);
         }
     }
