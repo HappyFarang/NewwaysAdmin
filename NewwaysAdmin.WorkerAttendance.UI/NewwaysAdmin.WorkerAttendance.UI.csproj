@@ -11,7 +11,8 @@
     <PackageReference Include="System.IO.Ports" Version="9.0.9" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Arduino\NewwaysAdmin.WorkerAttendance.Arduino.csproj" />
+    <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Models\NewwaysAdmin.WorkerAttendance.Models.csproj" />
+    <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Services\NewwaysAdmin.WorkerAttendance.Services.csproj" />
   </ItemGroup>
 </Project>
 

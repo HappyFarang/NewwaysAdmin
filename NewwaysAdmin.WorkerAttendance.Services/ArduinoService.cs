@@ -1,9 +1,9 @@
-﻿// File: NewwaysAdmin.WorkerAttendance.Arduino/ArduinoService.cs
+﻿// File: NewwaysAdmin.WorkerAttendance.Services/ArduinoService.cs
 // Purpose: Handles USB serial communication with Arduino for button input detection
 
 using System.IO.Ports;
 
-namespace NewwaysAdmin.WorkerAttendance.Arduino
+namespace NewwaysAdmin.WorkerAttendance.Services
 {
     public class ArduinoService
     {
