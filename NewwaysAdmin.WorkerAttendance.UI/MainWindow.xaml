@@ -44,33 +44,57 @@
 
             <!-- Instructions panel -->
             <StackPanel Grid.Column="2" 
-                       Background="LightGray" 
-                       Margin="0">
+           Background="LightGray" 
+           Margin="0">
                 <TextBlock Text="Instructions" 
-                          FontSize="16" 
-                          FontWeight="Bold" 
-                          Margin="10,10,10,5"/>
+              FontSize="16" 
+              FontWeight="Bold" 
+              Margin="10,10,10,5"/>
 
                 <TextBlock Text="1. Press SIGN_IN button" 
-                          Margin="10,5"
-                          TextWrapping="Wrap"/>
+              Margin="10,5"
+              TextWrapping="Wrap"/>
 
                 <TextBlock Text="2. Look at camera until face is detected" 
-                          Margin="10,5"
-                          TextWrapping="Wrap"/>
+              Margin="10,5"
+              TextWrapping="Wrap"/>
 
                 <TextBlock Text="3. Press CONFIRM button" 
-                          Margin="10,5"
-                          TextWrapping="Wrap"/>
+              Margin="10,5"
+              TextWrapping="Wrap"/>
 
-                <Rectangle Height="20" Fill="Transparent"/>
+                <Rectangle Height="15" Fill="Transparent"/>
+
+                <!-- Worker Management Section -->
+                <TextBlock Text="Worker Management" 
+              FontSize="14" 
+              FontWeight="Bold" 
+              Margin="10,5"/>
+
+                <Button x:Name="TrainWorkerButton" 
+            Content="Train New Worker" 
+            Width="140" 
+            Height="30" 
+            Margin="10,5"
+            Background="LightBlue" 
+            Click="TrainWorkerButton_Click"/>
+
+                <Button x:Name="ManageWorkersButton" 
+            Content="Manage Workers" 
+            Width="140" 
+            Height="30" 
+            Margin="10,5"
+            Background="LightGreen" 
+            Click="ManageWorkersButton_Click"/>
+
+                <Rectangle Height="15" Fill="Transparent"/>
 
                 <TextBlock x:Name="StateDisplay" 
-                          Text="Ready" 
-                          FontSize="14" 
-                          FontWeight="Bold" 
-                          Margin="10,5"
-                          Foreground="Green"/>
+              Text="Ready" 
+              FontSize="14" 
+              FontWeight="Bold" 
+              Margin="10,5"
+              Foreground="Green"/>
             </StackPanel>
         </Grid>
 

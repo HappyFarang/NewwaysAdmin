@@ -9,6 +9,7 @@ using NewwaysAdmin.WorkerAttendance.Models;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO.Structure;
 
+
 namespace NewwaysAdmin.WorkerAttendance.UI
 {
     public partial class MainWindow : Window
@@ -212,7 +213,10 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 _ => System.Windows.Media.Brushes.Black
             };
         }
-
+        private void TrainWorkerButton_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Worker training will be implemented here", "Coming Soon");
+        }
         private void OnArduinoStatusChanged(string status)
         {
             Dispatcher.Invoke(() =>
@@ -235,6 +239,12 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             });
         }
 
+
+
+        private void ManageWorkersButton_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Worker management will be implemented here", "Coming Soon");
+        }
         protected override void OnClosed(EventArgs e)
         {
             _videoService.StopVideoFeed();
