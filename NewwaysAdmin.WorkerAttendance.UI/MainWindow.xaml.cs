@@ -8,6 +8,7 @@ using NewwaysAdmin.WorkerAttendance.Services;
 using NewwaysAdmin.WorkerAttendance.Models;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO.Structure;
+using System.Diagnostics;
 
 namespace NewwaysAdmin.WorkerAttendance.UI
 {
@@ -22,10 +23,14 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         private ILogger<MainWindow> _logger;
         private EnhancedStorageFactory _storageFactory;
         private WorkerStorageService _workerStorageService;
-        private readonly ILoggerFactory _loggerFactory;
+        private readonly ILoggerFactory _loggerFactory; 
+        private FaceTrainingService _faceTrainingService;
+
+
 
         // UI State
         private bool _isInTrainingMode = false;
+        private int _currentTrainingStep = 1;
 
         public MainWindow()
         {
@@ -50,12 +55,23 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             _arduinoService = new ArduinoService();
             _videoService = new VideoFeedService(unifiedScript);
 
+            string faceTrainingScript = Path.Combine(pythonBasePath, "face_training_capture.py");
+            var trainingLogger = _loggerFactory.CreateLogger<FaceTrainingService>();
+            _faceTrainingService = new FaceTrainingService(faceTrainingScript, trainingLogger);
+
+
             // Wire up events
             _arduinoService.ButtonPressed += OnButtonPressed;
             _arduinoService.StatusChanged += OnArduinoStatusChanged;
             _videoService.FrameReceived += OnFrameReceived;
             _videoService.StatusChanged += OnVideoServiceStatusChanged;
             _videoService.DetectionComplete += OnDetectionComplete;
+
+            // Wire up face training events
+            _faceTrainingService.StatusChanged += OnFaceTrainingStatusChanged;
+            _faceTrainingService.ErrorOccurred += OnFaceTrainingError;
+            _faceTrainingService.FaceEncodingReceived += OnFaceEncodingReceived;
+            _faceTrainingService.FrameReceived += OnTrainingFrameReceived;
 
             // Start services
             _arduinoService.TryConnect();
@@ -100,12 +116,11 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
             if (result == true && passwordWindow.IsAuthenticated)
             {
-                // Password correct - switch to training mode
+                // Just switch to registration form - NO face training yet
                 SwitchToTrainingMode();
             }
             else
             {
-                // Password wrong or cancelled
                 MessageBox.Show("Access denied", "Authentication Failed");
             }
         }
@@ -145,16 +160,70 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             SwitchToNormalMode();
         }
 
-        private void OnFaceTrainingRequested()
+        private async void OnFaceTrainingRequested()
         {
-            // Update instructions for face training
-            Instructions.UpdateTrainingStep("Face training in progress");
-            Instructions.UpdateTrainingInstruction("Look directly at the camera");
+            // Make sure this calls the right method
+            Instructions.StartFaceTraining();
 
-            // TODO: Start face training workflow with video service
-            UpdateStatus("Face training requested - integration coming next!");
+            UpdateStatus("Testing Python directly...");
+
+            try
+            {
+                // Test Python version
+                var pythonTest = new ProcessStartInfo
+                {
+                    FileName = "python",
+                    Arguments = "--version",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                using var process = Process.Start(pythonTest);
+                if (process != null)
+                {
+                    var output = await process.StandardOutput.ReadToEndAsync();
+                    var error = await process.StandardError.ReadToEndAsync();
+                    await process.WaitForExitAsync();
+
+                    UpdateStatus($"Python test: {output.Trim()} {error}");
+                }
+                else
+                {
+                    UpdateStatus("Python process failed to start");
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Python error: {ex.Message}");
+            }
+
+            // Check script file
+            try
+            {
+                string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..",
+                    "NewwaysAdmin.WorkerAttendance.Python",
+                    "face_training_capture.py");
+
+                bool exists = File.Exists(scriptPath);
+                UpdateStatus($"Script exists: {exists} at {scriptPath}");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Path error: {ex.Message}");
+            }
         }
 
+        private async void OnCaptureRequested(int stepNumber)
+        {
+            UpdateStatus($"Capturing face step {stepNumber}...");
+            Instructions.UpdateTrainingStatus("Hold still - capturing...");
+
+            // Tell Python to capture current frame
+            await _faceTrainingService.RequestFaceCaptureAsync();
+        }
         #endregion
 
         #region UI Mode Management
@@ -178,12 +247,15 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             _isInTrainingMode = false;
 
-            // Update UI components for normal mode
-            Instructions.ShowNormalMode();
+            // Unwire events
+            Instructions.CaptureRequested -= OnCaptureRequested;
+            Instructions.TrainingCompleted -= OnTrainingCompleted;
+            Instructions.TrainingCancelled -= OnTrainingCancelled;
 
+            // Rest of your existing code...
+            Instructions.ShowNormalMode();
             WorkerRegistration.Visibility = Visibility.Collapsed;
             WorkerManagement.Visibility = Visibility.Visible;
-
             UpdateStatus("Ready for attendance scanning...");
         }
 
@@ -346,13 +418,74 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         }
 
         #endregion
+        private void OnFaceTrainingStatusChanged(string status)
+        {
+            UpdateStatus($"Training: {status}");
+        }
 
+        private void OnFaceTrainingError(string error)
+        {
+            UpdateStatus($"Training Error: {error}");
+        }
+
+        private void OnFaceEncodingReceived(byte[] encoding)
+        {
+            // Notify UI component that step was captured successfully
+            Instructions.OnStepCaptured(_currentTrainingStep, true);
+
+            // Move to next step
+            _currentTrainingStep++;
+
+            // Store the encoding for later use
+            // TODO: Add to worker's face encodings list
+        }
+
+        private void OnTrainingFrameReceived(byte[] frameData)
+        {
+            try
+            {
+                var bitmap = BytesToBitmapImage(frameData);
+                Dispatcher.Invoke(() =>
+                {
+                    VideoFeed.Source = bitmap; // Show training video feed
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error displaying training frame");
+            }
+        }
+
+        private BitmapImage BytesToBitmapImage(byte[] imageData)
+        {
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.StreamSource = new MemoryStream(imageData);
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return bitmap;
+        }
         protected override void OnClosed(EventArgs e)
         {
             _videoService.StopVideoFeed();
             _arduinoService.Disconnect();
             _loggerFactory?.Dispose();
             base.OnClosed(e);
+        }        
+
+        private void OnTrainingCompleted()
+        {
+            // TODO: Save worker and return to normal mode
+            SwitchToNormalMode();
+            UpdateStatus("Face training completed!");
+        }
+
+        private void OnTrainingCancelled()
+        {
+            // Handle training cancellation
+            SwitchToNormalMode();
+            UpdateStatus("Face training cancelled");
         }
     }
 }

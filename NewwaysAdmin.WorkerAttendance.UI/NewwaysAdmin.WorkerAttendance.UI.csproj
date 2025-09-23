@@ -18,5 +18,19 @@
   <ItemGroup>
     <Folder Include="Windows\" />
   </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Controls\Assets\icons\face_front.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Controls\Assets\icons\face_left.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Controls\Assets\icons\face_right.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Controls\Assets\icons\face_up.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
+  </ItemGroup>
 </Project>
 

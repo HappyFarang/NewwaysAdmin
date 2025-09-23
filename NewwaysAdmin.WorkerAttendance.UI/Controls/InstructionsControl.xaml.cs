@@ -1,5 +1,5 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.UI/Controls/InstructionsControl.xaml.cs
-// Purpose: Dynamic instructions component that adapts to application mode
+// Purpose: Clean dynamic instructions component - simplified version
 
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +8,11 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 {
     public partial class InstructionsControl : UserControl
     {
+        // Events for training workflow
+        public event Action<int>? CaptureRequested;
+        public event Action? TrainingCompleted;
+        public event Action? TrainingCancelled;
+
         public InstructionsControl()
         {
             InitializeComponent();
@@ -24,18 +29,63 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         }
 
         /// <summary>
-        /// Switch to worker training mode
+        /// Switch to worker training mode (registration form)
         /// </summary>
         public void ShowTrainingMode()
         {
-            InstructionsHeader.Text = "Worker Training";
+            InstructionsHeader.Text = "Worker Registration";
             NormalInstructions.Visibility = Visibility.Collapsed;
             TrainingInstructions.Visibility = Visibility.Visible;
-            CurrentTrainingInstruction.Text = "";
+
+            // Show basic instructions, hide face training
+            BasicTrainingInstructions.Visibility = Visibility.Visible;
+            FaceTrainingInstructionsPanel.Visibility = Visibility.Collapsed;
+
+            CurrentTrainingInstruction.Text = "Enter worker information and start face training";
         }
 
         /// <summary>
-        /// Update the current training instruction (e.g., "Look left", "Look right")
+        /// Start face training workflow (show visual instructions)
+        /// </summary>
+        public void StartFaceTraining()
+        {
+            if (FaceTrainingInstructions == null)
+            {
+                CurrentTrainingInstruction.Text = "ERROR: FaceTrainingInstructions is null!";
+                return;
+            }
+            else
+            {
+                CurrentTrainingInstruction.Text = "FaceTrainingInstructions found - resetting...";
+            }
+
+            InstructionsHeader.Text = "Face Training in Progress";
+
+            // Hide basic instructions, show face training
+            BasicTrainingInstructions.Visibility = Visibility.Collapsed;
+            FaceTrainingInstructionsPanel.Visibility = Visibility.Visible;
+
+            // Reset and wire up the face training component
+            if (FaceTrainingInstructions != null)
+            {
+                FaceTrainingInstructions.ResetToStep1();
+
+                // CRITICAL: Wire up the events
+                FaceTrainingInstructions.CaptureRequested += (step) => {
+                    CaptureRequested?.Invoke(step);
+                };
+                FaceTrainingInstructions.TrainingCompleted += () => {
+                    TrainingCompleted?.Invoke();
+                };
+                FaceTrainingInstructions.TrainingCancelled += () => {
+                    TrainingCancelled?.Invoke();
+                };
+            }
+
+            CurrentTrainingInstruction.Text = "Follow the visual steps below";
+        }
+        /// <summary>
+        /// Update the current training instruction text
         /// </summary>
         public void UpdateTrainingInstruction(string instruction)
         {
@@ -43,11 +93,81 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         }
 
         /// <summary>
-        /// Update the training step description
+        /// Update the training step description (legacy method for compatibility)
         /// </summary>
         public void UpdateTrainingStep(string step)
         {
-            TrainingStepText.Text = step;
+            CurrentTrainingInstruction.Text = step;
         }
+
+        #region Face Training Component Event Handlers
+
+        private void OnCaptureRequested(int stepNumber)
+        {
+            // Forward the capture request to parent window
+            CaptureRequested?.Invoke(stepNumber);
+        }
+
+        private void OnTrainingCompleted()
+        {
+            // Forward training completion to parent window
+            TrainingCompleted?.Invoke();
+        }
+
+        private void OnTrainingCancelled()
+        {
+            // Forward training cancellation to parent window
+            TrainingCancelled?.Invoke();
+        }
+
+        #endregion
+
+        #region Public Methods for Face Training Integration
+
+        /// <summary>
+        /// Notify that a training step was captured successfully
+        /// </summary>
+        public void OnStepCaptured(int stepNumber, bool success)
+        {
+            if (FaceTrainingInstructions != null)
+            {
+                FaceTrainingInstructions.OnStepCaptured(success);
+            }
+        }
+
+        /// <summary>
+        /// Show error message in training component
+        /// </summary>
+        public void ShowTrainingError(string message)
+        {
+            if (FaceTrainingInstructions != null)
+            {
+                FaceTrainingInstructions.ShowError(message);
+            }
+        }
+
+        /// <summary>
+        /// Update training status message
+        /// </summary>
+        public void UpdateTrainingStatus(string message)
+        {
+            if (FaceTrainingInstructions != null)
+            {
+                FaceTrainingInstructions.UpdateStatus(message);
+            }
+        }
+
+        /// <summary>
+        /// Reset training to step 1
+        /// </summary>
+        public void ResetTraining()
+        {
+            if (FaceTrainingInstructions != null)
+            {
+                FaceTrainingInstructions.ResetToStep1();
+            }
+        }
+
+        #endregion
     }
 }

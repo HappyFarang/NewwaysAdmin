@@ -1,9 +1,10 @@
 <!-- File: NewwaysAdmin.WorkerAttendance.UI/Controls/InstructionsControl.xaml -->
-<!-- Purpose: Dynamic instructions that change based on application mode -->
+<!-- Purpose: Clean dynamic instructions that switches between modes -->
 
 <UserControl x:Class="NewwaysAdmin.WorkerAttendance.UI.Controls.InstructionsControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:NewwaysAdmin.WorkerAttendance.UI.Controls">
 
     <StackPanel>
         <!-- Instructions Header -->
@@ -11,7 +12,8 @@
                    Text="Instructions" 
                    FontSize="16" 
                    FontWeight="Bold" 
-                   Margin="10,10,10,5"/>
+                   Margin="10,5,10,5"
+                   HorizontalAlignment="Center"/>
 
         <!-- Normal Mode Instructions -->
         <StackPanel x:Name="NormalInstructions" Visibility="Visible">
@@ -30,22 +32,41 @@
 
         <!-- Training Mode Instructions -->
         <StackPanel x:Name="TrainingInstructions" Visibility="Collapsed">
-            <TextBlock Text="Training Mode: Registering New Worker" 
+            <TextBlock Text="Worker Registration" 
                        Margin="10,5"
                        FontWeight="Bold"
+                       FontSize="14"
                        Foreground="DarkBlue"
+                       HorizontalAlignment="Center"
                        TextWrapping="Wrap"/>
 
-            <TextBlock x:Name="TrainingStepText"
-                       Text="Follow the prompts in the registration panel below" 
-                       Margin="10,5"
-                       TextWrapping="Wrap"/>
+            <!-- Basic Training Instructions (Before Face Training) -->
+            <StackPanel x:Name="BasicTrainingInstructions" Visibility="Visible">
+                <TextBlock Text="1. Enter worker name below" 
+                           Margin="10,5"
+                           TextWrapping="Wrap"/>
 
+                <TextBlock Text="2. Click 'Start Face Training'" 
+                           Margin="10,5"
+                           TextWrapping="Wrap"/>
+
+                <TextBlock Text="3. Follow face positioning steps" 
+                           Margin="10,5"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+
+            <!-- Face Training Instructions (Only during face training) -->
+            <StackPanel x:Name="FaceTrainingInstructionsPanel" Visibility="Collapsed">
+                <controls:FaceTrainingInstructionsControl x:Name="FaceTrainingInstructions" Margin="5"/>
+            </StackPanel>
+
+            <!-- General Training Status -->
             <TextBlock x:Name="CurrentTrainingInstruction"
                        Text=""
                        Margin="10,5"
                        FontStyle="Italic"
                        Foreground="Blue"
+                       HorizontalAlignment="Center"
                        TextWrapping="Wrap"/>
         </StackPanel>
     </StackPanel>
