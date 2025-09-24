@@ -55,16 +55,16 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 CurrentTrainingInstruction.Text = "ERROR: FaceTrainingInstructions is null!";
                 return;
             }
-            else
-            {
-                CurrentTrainingInstruction.Text = "FaceTrainingInstructions found - resetting...";
-            }
 
             InstructionsHeader.Text = "Face Training in Progress";
 
             // Hide basic instructions, show face training
             BasicTrainingInstructions.Visibility = Visibility.Collapsed;
             FaceTrainingInstructionsPanel.Visibility = Visibility.Visible;
+
+            // CRITICAL: Reset the FaceTrainingInstructions control visibility 
+            // (in case it was hidden after previous training completion)
+            FaceTrainingInstructions.Visibility = Visibility.Visible;
 
             // Reset and wire up the face training component
             if (FaceTrainingInstructions != null)
@@ -85,6 +85,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
             CurrentTrainingInstruction.Text = "Follow the visual steps below";
         }
+
         /// <summary>
         /// Update the current training instruction text
         /// </summary>
@@ -130,46 +131,15 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         /// </summary>
         public void OnStepCaptured(int stepNumber, bool success)
         {
-            Dispatcher.Invoke(() =>
-            {
-                if (FaceTrainingInstructions != null)
-                {
-                    FaceTrainingInstructions.OnStepCaptured(stepNumber, success);
-                }
-            });
-        }
-
-        /// <summary>
-        /// Show error message in training component
-        /// </summary>
-        public void ShowTrainingError(string message)
-        {
-            if (FaceTrainingInstructions != null)
-            {
-                FaceTrainingInstructions.ShowError(message);
-            }
+            FaceTrainingInstructions?.OnStepCaptured(stepNumber, success);
         }
 
         /// <summary>
         /// Update training status message
         /// </summary>
-        public void UpdateTrainingStatus(string message)
+        public void UpdateTrainingStatus(string status)
         {
-            if (FaceTrainingInstructions != null)
-            {
-                FaceTrainingInstructions.UpdateStatus(message);
-            }
-        }
-
-        /// <summary>
-        /// Reset training to step 1
-        /// </summary>
-        public void ResetTraining()
-        {
-            if (FaceTrainingInstructions != null)
-            {
-                FaceTrainingInstructions.ResetToStep1();
-            }
+            CurrentTrainingInstruction.Text = status;
         }
 
         #endregion

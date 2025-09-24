@@ -137,8 +137,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 // Initialize the training control - direct access since it's named in XAML
                 Instructions.FaceTrainingInstructions?.Initialize(_faceTrainingWorkflowService);
 
-                // Initialize registration component with storage service
-                WorkerRegistration.Initialize(_workerStorageService);
+                // Initialize registration component with BOTH services - THIS IS THE KEY CHANGE
+                WorkerRegistration.Initialize(_workerStorageService, _faceTrainingWorkflowService);
 
                 // Test storage system
                 await TestStorageSystemAsync();
@@ -155,44 +155,27 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         // Worker Management Component Events
         private void OnTrainWorkerRequested()
         {
-            var passwordWindow = new PasswordWindow();
-            passwordWindow.Owner = this;
-
-            bool? result = passwordWindow.ShowDialog();
-
-            if (result == true && passwordWindow.IsAuthenticated)
-            {
-                // Just switch to registration form - NO face training yet
-                SwitchToTrainingMode();
-            }
-            else
-            {
-                MessageBox.Show("Access denied", "Authentication Failed");
-            }
+            // No password check - already done in WorkerManagementControl
+            SwitchToTrainingMode();
         }
 
         private void OnManageWorkersRequested()
         {
-            var passwordWindow = new PasswordWindow();
-            passwordWindow.Owner = this;
-
-            bool? result = passwordWindow.ShowDialog();
-
-            if (result == true && passwordWindow.IsAuthenticated)
-            {
-                // Password correct - proceed to worker management
-                MessageBox.Show("Password correct! Worker management will be implemented here", "Access Granted");
-            }
-            else
-            {
-                // Password wrong or cancelled
-                MessageBox.Show("Access denied", "Authentication Failed");
-            }
+            // No password check - already done in WorkerManagementControl
+            MessageBox.Show("Worker management will be implemented here", "Manage Workers");
         }
 
         // Worker Registration Component Events
         private void OnRegistrationStatusChanged(string status)
         {
+            // GHOST FIX: Reset the training step counter when cleanup happens
+            if (status == "RESET_TRAINING_STEP")
+            {
+                _currentTrainingStep = 1;
+                UpdateStatus("Training step counter reset");
+                return;
+            }
+
             UpdateStatus(status);
         }
 

@@ -11,6 +11,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
     public partial class WorkerRegistrationControl : UserControl
     {
         private WorkerStorageService? _storageService;
+        private FaceTrainingWorkflowService? _faceTrainingWorkflowService;
         private bool _faceDataCaptured = false;
         private bool _isTrainingInProgress = false;
 
@@ -25,10 +26,29 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             InitializeComponent();
         }
 
-        public void Initialize(WorkerStorageService storageService)
+        public void Initialize(WorkerStorageService storageService, FaceTrainingWorkflowService workflowService)
         {
             _storageService = storageService;
+            _faceTrainingWorkflowService = workflowService;
+
+            // Subscribe to training completion - this is our direct connection!
+            if (_faceTrainingWorkflowService != null)
+            {
+                _faceTrainingWorkflowService.TrainingCompleted += OnWorkflowTrainingCompleted;
+            }
+
             ResetForm();
+        }
+
+        private void OnWorkflowTrainingCompleted()
+        {
+            // Direct connection from workflow service to registration control
+            // This bypasses all the MainWindow complexity!
+
+            // Use Dispatcher to ensure UI updates happen on UI thread
+            Dispatcher.Invoke(() => {
+                OnFaceTrainingCompleted(true);
+            });
         }
 
         public void ResetForm()
@@ -45,10 +65,12 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
         private void ScanFaceButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!_isTrainingInProgress)
+            // Only allow starting training if not in progress and no data captured yet
+            if (!_isTrainingInProgress && !_faceDataCaptured)
             {
                 StartFaceTraining();
             }
+            // If training complete or in progress, button does nothing
         }
 
         private void StartFaceTraining()
@@ -109,6 +131,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             try
             {
                 await SaveWorker();
+                // Call cleanup after successful save
+                Cleanup();
             }
             catch (Exception ex)
             {
@@ -186,8 +210,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
                 if (result == MessageBoxResult.Yes)
                 {
-                    // Reset form state
-                    ResetForm();
+                    // Call cleanup which handles unsubscribing and reset
+                    Cleanup();
                     StatusChanged?.Invoke("Face training cancelled - returning to normal mode");
 
                     // Fire event to trigger SwitchToNormalMode in MainWindow
@@ -198,10 +222,36 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             else
             {
                 // No training active - simple cancellation
-                ResetForm();
+                Cleanup();
                 StatusChanged?.Invoke("Worker registration cancelled");
                 RegistrationCancelled?.Invoke();
             }
+        }
+
+        /// <summary>
+        /// Dedicated cleanup function - unsubscribes from events and resets ALL face training state
+        /// Called from both Save and Cancel operations
+        /// </summary>
+        private void Cleanup()
+        {
+            // 1. Cancel any active face training workflow
+            if (_faceTrainingWorkflowService != null && _faceTrainingWorkflowService.IsTrainingActive)
+            {
+                _faceTrainingWorkflowService.CancelTraining();
+            }
+
+            // 2. Unsubscribe from events to prevent memory leaks
+            if (_faceTrainingWorkflowService != null)
+            {
+                _faceTrainingWorkflowService.TrainingCompleted -= OnWorkflowTrainingCompleted;
+            }
+
+            // 3. CRITICAL: Reset MainWindow's training step counter (the ghost!)
+            // We need to notify MainWindow to reset its _currentTrainingStep
+            StatusChanged?.Invoke("RESET_TRAINING_STEP");
+
+            // 4. Reset form state
+            ResetForm();
         }
     }
 }

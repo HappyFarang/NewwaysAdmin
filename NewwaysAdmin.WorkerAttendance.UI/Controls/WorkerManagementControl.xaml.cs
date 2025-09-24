@@ -13,6 +13,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         public event Action? ManageWorkersRequested;
 
         private bool _isExpanded = false;
+        private bool _isAuthenticated = false; // Track if user is already authenticated
 
         public WorkerManagementControl()
         {
@@ -21,21 +22,48 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
         private void ExpandButton_Click(object sender, RoutedEventArgs e)
         {
-            ExpandManagement();
+            // Check password before expanding
+            if (!_isAuthenticated)
+            {
+                var passwordWindow = new PasswordWindow();
+                passwordWindow.Owner = Window.GetWindow(this);
+
+                bool? result = passwordWindow.ShowDialog();
+
+                if (result == true && passwordWindow.IsAuthenticated)
+                {
+                    _isAuthenticated = true;
+                    ExpandManagement();
+                }
+                else
+                {
+                    MessageBox.Show("Access denied", "Authentication Failed");
+                    return;
+                }
+            }
+            else
+            {
+                // Already authenticated - just expand
+                ExpandManagement();
+            }
         }
 
         private void DoneButton_Click(object sender, RoutedEventArgs e)
         {
             CollapseManagement();
+            // Reset authentication when closing - user will need to re-authenticate next time
+            _isAuthenticated = false;
         }
 
         private void TrainWorkerButton_Click(object sender, RoutedEventArgs e)
         {
+            // No password check needed here - already authenticated at expand
             TrainWorkerRequested?.Invoke();
         }
 
         private void ManageWorkersButton_Click(object sender, RoutedEventArgs e)
         {
+            // No password check needed here - already authenticated at expand
             ManageWorkersRequested?.Invoke();
         }
 
@@ -59,6 +87,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         public void ForceCollapse()
         {
             CollapseManagement();
+            // Reset authentication when forced to collapse
+            _isAuthenticated = false;
         }
 
         /// <summary>

@@ -30,11 +30,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         public void Initialize(FaceTrainingWorkflowService workflowService)
         {
             _workflowService = workflowService;
-
-            // Wire up workflow events (remove StepCompleted to avoid double calls)
-            _workflowService.StatusChanged += OnWorkflowStatusChanged;
-            _workflowService.TrainingCompleted += OnWorkflowTrainingCompleted;
-            _workflowService.ErrorOccurred += OnWorkflowError;
+            // Don't subscribe here - let SubscribeToWorkflowEvents handle it
         }
 
         public void StartTrainingForWorker(string workerName)
@@ -45,12 +41,51 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 return;
             }
 
-            // Start the workflow
+            // CRITICAL: Re-subscribe to events in case we unsubscribed after previous training
+            SubscribeToWorkflowEvents();
+
+            // Make sure the control is visible (in case it was hidden)
+            Visibility = Visibility.Visible;
+
+            // IMPORTANT: Reset UI to ensure clean state
+            ResetToStep1();
+
+            // Start the workflow - should be clean thanks to Cleanup() in WorkerRegistrationControl
             _workflowService.StartTrainingWorkflow(workerName);
 
-            // Reset UI to step 1
-            ResetToStep1();
             CurrentInstruction.Text = $"Training {workerName} - Position face straight and click CAPTURE";
+        }
+
+        /// <summary>
+        /// Subscribe to workflow events - can be called multiple times safely
+        /// </summary>
+        private void SubscribeToWorkflowEvents()
+        {
+            if (_workflowService == null) return;
+
+            // Unsubscribe first to avoid double subscription
+            UnsubscribeFromWorkflowEvents();
+
+            // Now subscribe to all relevant events
+            _workflowService.StatusChanged += OnWorkflowStatusChanged;
+            _workflowService.TrainingCompleted += OnWorkflowTrainingCompleted;
+            _workflowService.ErrorOccurred += OnWorkflowError;
+
+            // CRITICAL: Subscribe to StepCompleted to handle individual step progression
+            _workflowService.StepCompleted += OnWorkflowStepCompleted;
+        }
+
+        /// <summary>
+        /// Unsubscribe from workflow events - can be called multiple times safely
+        /// </summary>
+        private void UnsubscribeFromWorkflowEvents()
+        {
+            if (_workflowService == null) return;
+
+            _workflowService.StatusChanged -= OnWorkflowStatusChanged;
+            _workflowService.TrainingCompleted -= OnWorkflowTrainingCompleted;
+            _workflowService.ErrorOccurred -= OnWorkflowError;
+            _workflowService.StepCompleted -= OnWorkflowStepCompleted;
         }
 
         public void ResetToStep1()
@@ -74,63 +109,59 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             CurrentInstruction.Text = "Position face in camera and click CAPTURE";
         }
 
-        public void OnStepCaptured(int stepNumber, bool success) // Use stepNumber parameter
+        public void OnStepCaptured(int stepNumber, bool success)
         {
             Dispatcher.Invoke(() =>
             {
+                // DEBUG: Let's see the call stack and what's calling this
+                var stackTrace = new System.Diagnostics.StackTrace(true);
+                var caller = stackTrace.GetFrame(1)?.GetMethod()?.Name ?? "Unknown";
+
+                CurrentInstruction.Text = $"DEBUG: OnStepCaptured called with step {stepNumber} from {caller}";
+
+                // Give user time to read the debug message
+                System.Threading.Thread.Sleep(1000);
+
                 if (!success)
                 {
                     CurrentInstruction.Text = $"Capture failed for step {stepNumber}. Please try again.";
                     return;
                 }
 
-                // Only process if step matches _currentStep to avoid double updates
-                if (stepNumber == _currentStep)
+                // Mark the completed step as done
+                MarkStepComplete(stepNumber);
+
+                // Sync our internal step counter with the workflow service
+                _currentStep = stepNumber;
+
+                if (stepNumber < _totalSteps)
                 {
-                    // Mark specified step as complete
-                    switch (stepNumber)
-                    {
-                        case 1:
-                            CompleteStep(Step1Border, Step1Status);
-                            break;
-                        case 2:
-                            CompleteStep(Step2Border, Step2Status);
-                            break;
-                        case 3:
-                            CompleteStep(Step3Border, Step3Status);
-                            break;
-                        case 4:
-                            CompleteStep(Step4Border, Step4Status);
-                            CompleteTraining();
-                            return;
-                    }
+                    // Calculate the NEXT step to activate
+                    int nextStep = stepNumber + 1;
+                    _currentStep = nextStep; // Update internal counter to next step
 
-                    // Advance to next step
-                    _currentStep = stepNumber + 1;
-
-                    if (_currentStep <= _totalSteps)
-                    {
-                        ActivateCurrentStep();
-                        UpdateProgress();
-                    }
+                    // Activate the next step in the UI
+                    ActivateNextStep(nextStep);
+                    CurrentInstruction.Text = GetStepInstruction(nextStep);
                 }
+                else
+                {
+                    // All steps completed
+                    _currentStep = _totalSteps;
+                    CompleteTraining();
+                }
+
+                UpdateProgress();
             });
         }
 
-        public void ShowError(string message)
+        private void CompleteTraining()
         {
-            Dispatcher.Invoke(() =>
-            {
-                CurrentInstruction.Text = $"Error: {message}";
-            });
-        }
-
-        public void UpdateStatus(string message)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                CurrentInstruction.Text = message;
-            });
+            // Show completion UI
+            Step4Border.Background = Brushes.LightGreen;
+            Step4Status.Text = "✓";
+            CompletionBorder.Visibility = Visibility.Visible;
+            CurrentInstruction.Text = "All face angles captured successfully!";
         }
 
         #region Workflow Event Handlers
@@ -139,16 +170,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         {
             Dispatcher.Invoke(() =>
             {
-                CurrentInstruction.Text = $"Workflow: {status}";
-            });
-        }
-
-        private void OnWorkflowTrainingCompleted()
-        {
-            Dispatcher.Invoke(() =>
-            {
-                CompleteTraining();
-                TrainingCompleted?.Invoke();
+                CurrentInstruction.Text = status;
             });
         }
 
@@ -156,85 +178,36 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         {
             Dispatcher.Invoke(() =>
             {
-                CurrentInstruction.Text = $"Workflow Error: {error}";
+                CurrentInstruction.Text = $"Error: {error}";
             });
         }
 
-        #endregion
-
-        #region Private Methods
-
-        private void ResetStep(Border border, Button button, TextBlock status)
+        private void OnWorkflowStepCompleted(int stepNumber, bool success)
         {
-            border.Background = new SolidColorBrush(Colors.LightGray);
-            border.BorderBrush = new SolidColorBrush(Colors.Gray);
-            border.BorderThickness = new Thickness(1);
-            button.Background = new SolidColorBrush(Colors.LightGray);
-            button.Foreground = new SolidColorBrush(Colors.Black);
-            button.IsEnabled = false;
-            status.Text = "";
-        }
-
-        private void ActivateStep(Border border, Button button)
-        {
-            border.Background = new SolidColorBrush(Colors.LightBlue);
-            border.BorderBrush = new SolidColorBrush(Colors.Blue);
-            border.BorderThickness = new Thickness(2);
-            button.Background = new SolidColorBrush(Colors.Orange);
-            button.Foreground = new SolidColorBrush(Colors.White);
-            button.IsEnabled = true;
-        }
-
-        private void CompleteStep(Border border, TextBlock status)
-        {
-            border.Background = new SolidColorBrush(Colors.LightGreen);
-            border.BorderBrush = new SolidColorBrush(Colors.Green);
-            border.BorderThickness = new Thickness(2);
-            status.Text = "✓ Done";
-        }
-
-        private void ActivateCurrentStep()
-        {
-            switch (_currentStep)
-            {
-                case 2:
-                    ActivateStep(Step2Border, CaptureStep2Button);
-                    CurrentInstruction.Text = "Turn head to the left and click CAPTURE";
-                    break;
-                case 3:
-                    ActivateStep(Step3Border, CaptureStep3Button);
-                    CurrentInstruction.Text = "Turn head to the right and click CAPTURE";
-                    break;
-                case 4:
-                    ActivateStep(Step4Border, CaptureStep4Button);
-                    CurrentInstruction.Text = "Look slightly upward and click CAPTURE";
-                    break;
-            }
-        }
-
-        private void UpdateProgress()
-        {
-            Dispatcher.Invoke(() =>
-            {
-                ProgressText.Text = $"Step {_currentStep} of {_totalSteps}";
+            Dispatcher.Invoke(() => {
+                CurrentInstruction.Text = $"DEBUG: Workflow service says step {stepNumber} completed";
             });
+
+            // Wait a moment so user can see the message
+            System.Threading.Tasks.Task.Delay(1000).Wait();
+
+            // This is the key event that drives step progression!
+            OnStepCaptured(stepNumber, success);
         }
 
-        private void CompleteTraining()
+        private void OnWorkflowTrainingCompleted()
         {
             Dispatcher.Invoke(() =>
             {
-                CompletionBorder.Visibility = Visibility.Visible;
-                ProgressText.Text = "Complete!";
                 CurrentInstruction.Text = "All face angles captured successfully!";
+
                 // Unsubscribe from workflow events to prevent further updates
-                if (_workflowService != null)
-                {
-                    _workflowService.StatusChanged -= OnWorkflowStatusChanged;
-                    _workflowService.TrainingCompleted -= OnWorkflowTrainingCompleted;
-                    _workflowService.ErrorOccurred -= OnWorkflowError;
-                }
-                Visibility = Visibility.Collapsed; // Hide the entire control
+                UnsubscribeFromWorkflowEvents();
+
+                // Hide the entire control
+                Visibility = Visibility.Collapsed;
+
+                // Notify parent that training is complete
                 TrainingCompleted?.Invoke();
             });
         }
@@ -245,14 +218,16 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
         private async void CaptureStep1_Click(object sender, RoutedEventArgs e)
         {
-            CurrentInstruction.Text = "Capturing straight pose...";
+            CurrentInstruction.Text = "DEBUG: Step 1 button clicked - calling workflow service";
             if (_workflowService != null)
             {
+                CurrentInstruction.Text = "DEBUG: About to call ProcessCaptureRequestAsync(1)";
                 await _workflowService.ProcessCaptureRequestAsync(1);
+                CurrentInstruction.Text = "DEBUG: ProcessCaptureRequestAsync(1) returned";
             }
             else
             {
-                CaptureRequested?.Invoke(1);
+                CurrentInstruction.Text = "DEBUG: ERROR - workflow service is null!";
             }
         }
 
@@ -263,10 +238,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             {
                 await _workflowService.ProcessCaptureRequestAsync(2);
             }
-            else
-            {
-                CaptureRequested?.Invoke(2);
-            }
+            // REMOVED: CaptureRequested?.Invoke(2) - we only use workflow service now
         }
 
         private async void CaptureStep3_Click(object sender, RoutedEventArgs e)
@@ -276,10 +248,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             {
                 await _workflowService.ProcessCaptureRequestAsync(3);
             }
-            else
-            {
-                CaptureRequested?.Invoke(3);
-            }
+            // REMOVED: CaptureRequested?.Invoke(3) - we only use workflow service now
         }
 
         private async void CaptureStep4_Click(object sender, RoutedEventArgs e)
@@ -288,13 +257,122 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             if (_workflowService != null)
             {
                 await _workflowService.ProcessCaptureRequestAsync(4);
-                CompleteTraining();
             }
-            else
+            // REMOVED: CaptureRequested?.Invoke(4) - we only use workflow service now
+        }
+
+        #endregion
+
+        #region Helper Methods
+
+        private void ResetStep(Border border, Button button, TextBlock status)
+        {
+            border.Background = Brushes.LightGray;
+            border.BorderBrush = Brushes.Gray;
+            border.BorderThickness = new Thickness(1);
+            button.IsEnabled = false;
+            button.Background = Brushes.LightGray;
+            status.Text = "";
+        }
+
+        private void ActivateStep(Border border, Button button)
+        {
+            border.Background = Brushes.LightBlue;
+            border.BorderBrush = Brushes.Blue;
+            border.BorderThickness = new Thickness(2);
+            button.IsEnabled = true;
+            button.Background = Brushes.LightBlue;
+        }
+
+        private void ActivateNextStep(int stepNumber)
+        {
+            // First, deactivate all steps to ensure clean state
+            DeactivateAllSteps();
+
+            // Then activate only the requested step
+            switch (stepNumber)
             {
-                CaptureRequested?.Invoke(4);
-                CompleteTraining();
+                case 1:
+                    ActivateStep(Step1Border, CaptureStep1Button);
+                    break;
+                case 2:
+                    ActivateStep(Step2Border, CaptureStep2Button);
+                    break;
+                case 3:
+                    ActivateStep(Step3Border, CaptureStep3Button);
+                    break;
+                case 4:
+                    ActivateStep(Step4Border, CaptureStep4Button);
+                    break;
             }
+        }
+
+        private void DeactivateAllSteps()
+        {
+            // Deactivate all steps (but don't reset them - keep completed status)
+            DeactivateStep(Step1Border, CaptureStep1Button);
+            DeactivateStep(Step2Border, CaptureStep2Button);
+            DeactivateStep(Step3Border, CaptureStep3Button);
+            DeactivateStep(Step4Border, CaptureStep4Button);
+        }
+
+        private void DeactivateStep(Border border, Button button)
+        {
+            // Only deactivate if it's not already marked as complete (green)
+            if (border.Background != Brushes.LightGreen)
+            {
+                border.Background = Brushes.LightGray;
+                border.BorderBrush = Brushes.Gray;
+                border.BorderThickness = new Thickness(1);
+            }
+            button.IsEnabled = false;
+            if (button.Background != Brushes.LightGreen) // Don't change completed buttons
+            {
+                button.Background = Brushes.LightGray;
+            }
+        }
+
+        private void MarkStepComplete(int stepNumber)
+        {
+            switch (stepNumber)
+            {
+                case 1:
+                    Step1Border.Background = Brushes.LightGreen;
+                    Step1Status.Text = "✓";
+                    break;
+                case 2:
+                    Step2Border.Background = Brushes.LightGreen;
+                    Step2Status.Text = "✓";
+                    break;
+                case 3:
+                    Step3Border.Background = Brushes.LightGreen;
+                    Step3Status.Text = "✓";
+                    break;
+                case 4:
+                    Step4Border.Background = Brushes.LightGreen;
+                    Step4Status.Text = "✓";
+                    break;
+                default:
+                    // Ignore invalid step numbers (ghost process protection)
+                    return;
+            }
+        }
+
+        private void UpdateProgress()
+        {
+            ProgressText.Text = $"Step {_currentStep} of {_totalSteps}";
+        }
+
+        private string GetStepInstruction(int step)
+        {
+            return step switch
+            {
+                1 => "Position face straight and click CAPTURE",
+                2 => "Turn head left and click CAPTURE",
+                3 => "Turn head right and click CAPTURE",
+                4 => "Tilt head up slightly and click CAPTURE",
+                _ => "Follow the steps above"
+            };
         }
 
         #endregion
