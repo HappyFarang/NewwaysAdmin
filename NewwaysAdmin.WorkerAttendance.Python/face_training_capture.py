@@ -1,26 +1,35 @@
-# File: NewwaysAdmin.WorkerAttendance.Python/face_training_capture.py
-# Purpose: Python script for face training with live video feed and capture commands
+# File: face_training_capture.py
+# Purpose: Face training with unified JSON communication (same as unified_video_detection.py)
 
 import cv2
 import sys
 import base64
-import io
+import json
+import time
 import face_recognition
 import numpy as np
-from PIL import Image
+import threading
 
 class FaceTrainingCapture:
     def __init__(self):
         self.camera = None
         self.is_running = False
         
+    def send_message(self, msg_type, **kwargs):
+        """Send JSON message to C# - SAME FORMAT as unified_video_detection.py"""
+        message = {"type": msg_type, "timestamp": time.time(), **kwargs}
+        print(json.dumps(message))
+        sys.stdout.flush()
+        
     def start_training(self):
         """Initialize camera and start training session"""
         try:
+            self.send_message("status", message="Initializing camera for face training...")
+            
             # Initialize camera
             self.camera = cv2.VideoCapture(0)
             if not self.camera.isOpened():
-                self.send_error("Cannot access camera")
+                self.send_message("error", message="Cannot access camera")
                 return False
                 
             # Set camera properties for better quality
@@ -29,11 +38,11 @@ class FaceTrainingCapture:
             self.camera.set(cv2.CAP_PROP_FPS, 30)
             
             self.is_running = True
-            self.send_status("Camera initialized - training session ready")
+            self.send_message("status", message="Face training camera ready")
             return True
             
         except Exception as e:
-            self.send_error(f"Failed to initialize camera: {str(e)}")
+            self.send_message("error", message=f"Failed to initialize camera: {str(e)}")
             return False
     
     def capture_frame(self):
@@ -43,7 +52,7 @@ class FaceTrainingCapture:
             
         ret, frame = self.camera.read()
         if not ret:
-            self.send_error("Failed to capture frame")
+            self.send_message("error", message="Failed to capture frame")
             return None
             
         # Flip frame horizontally for mirror effect
@@ -66,11 +75,11 @@ class FaceTrainingCapture:
             # Draw rectangles around detected faces
             for (top, right, bottom, left) in face_locations:
                 cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
-                cv2.putText(frame, "Face Detected", (left, top-10), 
+                cv2.putText(frame, "Face Ready for Training", (left, top-10), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             # Add training instructions overlay
-            cv2.putText(frame, "Look at camera and click CAPTURE", (10, 30), 
+            cv2.putText(frame, "TRAINING MODE - Click CAPTURE when ready", (10, 30), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             cv2.putText(frame, f"Faces detected: {len(face_locations)}", (10, 60), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -78,92 +87,83 @@ class FaceTrainingCapture:
             return frame
             
         except Exception as e:
-            self.send_error(f"Face detection error: {str(e)}")
+            self.send_message("error", message=f"Error in face detection: {str(e)}")
             return frame
     
-    def capture_face_encoding(self):
-        """Capture current frame and extract face encoding"""
+    def send_frame(self, frame):
+        """Send video frame to C# as base64 JSON message"""
         try:
-            ret, frame = self.camera.read()
-            if not ret:
-                self.send_error("Failed to capture frame for encoding")
+            _, buffer = cv2.imencode('.jpg', frame)
+            frame_base64 = base64.b64encode(buffer).decode('utf-8')
+            
+            # Send frame using same format as unified_video_detection.py
+            self.send_message("frame", data=frame_base64)
+            
+        except Exception as e:
+            self.send_message("error", message=f"Error encoding frame: {str(e)}")
+    
+    def capture_face_encoding(self):
+        """Capture face encoding from current frame"""
+        try:
+            if not self.camera:
+                self.send_message("error", message="Camera not initialized")
                 return None
                 
-            # Flip frame horizontally for consistency
-            frame = cv2.flip(frame, 1)
+            # Capture frame
+            ret, frame = self.camera.read()
+            if not ret:
+                self.send_message("error", message="Failed to capture frame for encoding")
+                return None
             
-            # Convert BGR to RGB
+            # Convert to RGB for face_recognition
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            # Find face locations and encodings
+            # Get face encodings
             face_locations = face_recognition.face_locations(rgb_frame)
-            
-            if len(face_locations) == 0:
-                self.send_error("No face detected - please position your face in the camera")
-                return None
-            
-            if len(face_locations) > 1:
-                self.send_error("Multiple faces detected - ensure only one person is in frame")
-                return None
-            
-            # Get face encoding
             face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
             
-            if len(face_encodings) == 0:
-                self.send_error("Failed to generate face encoding")
+            if not face_encodings:
+                self.send_message("error", message="No face found for encoding")
                 return None
             
-            self.send_status("Face encoding captured successfully!")
-            return face_encodings[0].tobytes()
+            if len(face_encodings) > 1:
+                self.send_message("status", message="Multiple faces detected, using first one")
+            
+            # Return the first face encoding
+            encoding = face_encodings[0]
+            self.send_message("status", message="Face encoding captured successfully")
+            return encoding.tobytes()
             
         except Exception as e:
-            self.send_error(f"Face encoding error: {str(e)}")
+            self.send_message("error", message=f"Error capturing face encoding: {str(e)}")
             return None
     
-    def frame_to_base64(self, frame):
-        """Convert OpenCV frame to base64 string"""
+    def read_commands(self):
+        """Background thread to read commands from stdin"""
         try:
-            # Convert BGR to RGB
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Convert to PIL Image
-            pil_image = Image.fromarray(rgb_frame)
-            
-            # Convert to base64
-            buffer = io.BytesIO()
-            pil_image.save(buffer, format='JPEG', quality=85)
-            img_bytes = buffer.getvalue()
-            
-            return base64.b64encode(img_bytes).decode('utf-8')
-            
+            for line in sys.stdin:
+                if not self.is_running:
+                    break
+                command = line.strip()
+                if command:
+                    self.send_message("status", message=f"Received command: {command}")
+                    self.process_command(command)
+        except EOFError:
+            # Normal when stdin is closed
+            pass
         except Exception as e:
-            self.send_error(f"Frame encoding error: {str(e)}")
-            return None
-    
-    def send_frame(self, frame):
-        """Send frame data to C# application"""
-        base64_frame = self.frame_to_base64(frame)
-        if base64_frame:
-            print(f"FRAME:{base64_frame}", flush=True)
-    
-    def send_status(self, message):
-        """Send status message to C# application"""
-        print(f"STATUS:{message}", flush=True)
-    
-    def send_error(self, message):
-        """Send error message to C# application"""
-        print(f"ERROR:{message}", flush=True)
-    
-    def send_face_encoding(self, encoding_bytes):
-        """Send face encoding to C# application"""
-        if encoding_bytes:
-            encoded = base64.b64encode(encoding_bytes).decode('utf-8')
-            print(f"ENCODING:{encoded}", flush=True)
+            self.send_message("error", message=f"Error reading commands: {str(e)}")
     
     def run_training_loop(self):
-        """Main training loop"""
+        """Main training loop with JSON communication"""
         if not self.start_training():
             return
+        
+        # Start command reading thread
+        command_thread = threading.Thread(target=self.read_commands, daemon=True)
+        command_thread.start()
+        
+        self.send_message("status", message="Training loop started - ready for commands")
             
         try:
             while self.is_running:
@@ -172,49 +172,35 @@ class FaceTrainingCapture:
                 if frame is not None:
                     self.send_frame(frame)
                 
-                # Check for commands from C#
-                try:
-                    # Non-blocking read attempt
-                    import select
-                    import sys
-                    
-                    if sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-                        command = input().strip()
-                        self.process_command(command)
-                        
-                except (EOFError, KeyboardInterrupt):
-                    break
-                except:
-                    # select not available on Windows, use simpler approach
-                    pass
-                
                 # Small delay to prevent overwhelming the system
-                cv2.waitKey(30)
+                time.sleep(0.1)  # 10 FPS
                 
         except Exception as e:
-            self.send_error(f"Training loop error: {str(e)}")
+            self.send_message("error", message=f"Training loop error: {str(e)}")
         finally:
             self.cleanup()
     
     def process_command(self, command):
         """Process commands from C# application"""
         if command == "CAPTURE":
-            self.send_status("Processing capture request...")
+            self.send_message("status", message="Processing capture request...")
             encoding = self.capture_face_encoding()
             if encoding:
-                self.send_face_encoding(encoding)
+                # Send encoding as base64 in JSON format
+                encoded = base64.b64encode(encoding).decode('utf-8')
+                self.send_message("encoding", data=encoded)
         elif command == "STOP":
             self.is_running = False
-            self.send_status("Training session stopped")
+            self.send_message("status", message="Training session stopped")
         else:
-            self.send_error(f"Unknown command: {command}")
+            self.send_message("error", message=f"Unknown command: {command}")
     
     def cleanup(self):
         """Clean up resources"""
         if self.camera:
             self.camera.release()
         cv2.destroyAllWindows()
-        self.send_status("Training session ended")
+        self.send_message("status", message="Training session ended")
 
 def main():
     """Main entry point"""
@@ -222,7 +208,9 @@ def main():
         trainer = FaceTrainingCapture()
         trainer.run_training_loop()
     except Exception as e:
-        print(f"ERROR:Fatal error: {str(e)}", flush=True)
+        # Send error in JSON format
+        error_msg = {"type": "error", "message": f"Fatal error: {str(e)}", "timestamp": time.time()}
+        print(json.dumps(error_msg))
         sys.exit(1)
 
 if __name__ == "__main__":

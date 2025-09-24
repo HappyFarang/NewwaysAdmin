@@ -25,6 +25,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         private WorkerStorageService _workerStorageService;
         private readonly ILoggerFactory _loggerFactory; 
         private FaceTrainingService _faceTrainingService;
+        private FaceTrainingWorkflowService _faceTrainingWorkflowService;
 
 
 
@@ -36,14 +37,14 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             InitializeComponent();
 
-            // Set up logging factory
+            // Set up logging factory (existing code)
             _loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder.AddConsole().SetMinimumLevel(LogLevel.Information);
             });
             _logger = _loggerFactory.CreateLogger<MainWindow>();
 
-            // Python and Arduino setup
+            // Python and Arduino setup (existing code)
             string pythonBasePath = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..",
@@ -51,34 +52,69 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             );
 
             string unifiedScript = Path.Combine(pythonBasePath, "unified_video_detection.py");
+            string faceTrainingScript = Path.Combine(pythonBasePath, "face_training_capture.py");
 
             _arduinoService = new ArduinoService();
             _videoService = new VideoFeedService(unifiedScript);
 
-            string faceTrainingScript = Path.Combine(pythonBasePath, "face_training_capture.py");
             var trainingLogger = _loggerFactory.CreateLogger<FaceTrainingService>();
             _faceTrainingService = new FaceTrainingService(faceTrainingScript, trainingLogger);
-
-
-            // Wire up events
+                        
+            // Wire up existing events (keep existing code)
             _arduinoService.ButtonPressed += OnButtonPressed;
             _arduinoService.StatusChanged += OnArduinoStatusChanged;
             _videoService.FrameReceived += OnFrameReceived;
             _videoService.StatusChanged += OnVideoServiceStatusChanged;
             _videoService.DetectionComplete += OnDetectionComplete;
 
-            // Wire up face training events
             _faceTrainingService.StatusChanged += OnFaceTrainingStatusChanged;
             _faceTrainingService.ErrorOccurred += OnFaceTrainingError;
+            
+
+            Instructions.CaptureRequested += OnCaptureRequested;
+
+            // Wire up events with Dispatcher for UI updates
+            _faceTrainingService.StatusChanged += (msg) =>
+                Dispatcher.Invoke(() => UpdateStatus($"[TRAINING] {msg}"));
+            _faceTrainingService.ErrorOccurred += (msg) =>
+                Dispatcher.Invoke(() => UpdateStatus($"[TRAINING ERROR] {msg}"));
             _faceTrainingService.FaceEncodingReceived += OnFaceEncodingReceived;
             _faceTrainingService.FrameReceived += OnTrainingFrameReceived;
+
 
             // Start services
             _arduinoService.TryConnect();
             _ = StartVideoFeedAsync();
+            //_ = TestFaceTrainingAtStartup();
+
+
 
             // Initialize storage after UI is loaded
             this.Loaded += MainWindow_Loaded;
+        }
+
+        private async Task TestFaceTrainingAtStartup()
+        {
+            try
+            {
+                UpdateStatus("Testing face training at startup...");
+
+                // Start face training instead of normal video
+                bool success = await _faceTrainingService.StartTrainingSessionAsync();
+
+                if (success)
+                {
+                    UpdateStatus("Face training started successfully at startup!");
+                }
+                else
+                {
+                    UpdateStatus("Face training FAILED at startup");
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Face training startup exception: {ex.Message}");
+            }
         }
 
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -90,6 +126,16 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 _storageFactory = new EnhancedStorageFactory(_logger);
                 WorkerAttendanceStorageConfiguration.ConfigureStorageFolders(_storageFactory, _logger);
                 _workerStorageService = new WorkerStorageService(_storageFactory, storageLogger);
+
+                // Create workflow service with storage ready
+                var workflowLogger = _loggerFactory.CreateLogger<FaceTrainingWorkflowService>();
+                _faceTrainingWorkflowService = new FaceTrainingWorkflowService(
+                    _faceTrainingService,
+                    _workerStorageService,
+                    workflowLogger);
+
+                // Initialize the training control - direct access since it's named in XAML
+                Instructions.FaceTrainingInstructions?.Initialize(_faceTrainingWorkflowService);
 
                 // Initialize registration component with storage service
                 WorkerRegistration.Initialize(_workerStorageService);
@@ -162,66 +208,77 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
         private async void OnFaceTrainingRequested()
         {
-            // Make sure this calls the right method
-            Instructions.StartFaceTraining();
+            UpdateStatus("Starting face training session...");
 
-            UpdateStatus("Testing Python directly...");
+            // Get worker name from registration control
+            string workerName = WorkerRegistration.GetWorkerName(); // You might need to add this method
 
-            try
+            if (string.IsNullOrEmpty(workerName))
             {
-                // Test Python version
-                var pythonTest = new ProcessStartInfo
-                {
-                    FileName = "python",
-                    Arguments = "--version",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
+                UpdateStatus("ERROR: Worker name is required");
+                return;
+            }
 
-                using var process = Process.Start(pythonTest);
-                if (process != null)
-                {
-                    var output = await process.StandardOutput.ReadToEndAsync();
-                    var error = await process.StandardError.ReadToEndAsync();
-                    await process.WaitForExitAsync();
+            // Stop the normal video feed
+            _videoService.StopVideoFeed();
+            UpdateStatus("Normal video feed stopped");
 
-                    UpdateStatus($"Python test: {output.Trim()} {error}");
+            // Wait for cleanup
+            await Task.Delay(500);
+
+            // Kill any remaining processes if needed
+            var pythonProcesses = Process.GetProcessesByName("python");
+            var aliveProcesses = pythonProcesses.Where(p => !p.HasExited).ToList();
+
+            if (aliveProcesses.Any())
+            {
+                UpdateStatus($"Terminating {aliveProcesses.Count} Python processes...");
+                foreach (var proc in aliveProcesses)
+                {
+                    try
+                    {
+                        proc.Kill();
+                        await proc.WaitForExitAsync();
+                    }
+                    catch { /* ignore */ }
                 }
-                else
-                {
-                    UpdateStatus("Python process failed to start");
-                }
-            }
-            catch (Exception ex)
-            {
-                UpdateStatus($"Python error: {ex.Message}");
             }
 
-            // Check script file
-            try
-            {
-                string scriptPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..",
-                    "NewwaysAdmin.WorkerAttendance.Python",
-                    "face_training_capture.py");
+            await Task.Delay(300);
 
-                bool exists = File.Exists(scriptPath);
-                UpdateStatus($"Script exists: {exists} at {scriptPath}");
-            }
-            catch (Exception ex)
+            // Start face training process
+            bool success = await _faceTrainingService.StartTrainingSessionAsync();
+
+            if (success)
             {
-                UpdateStatus($"Path error: {ex.Message}");
+                // Switch to visual instructions AND start the workflow
+                Instructions.StartFaceTraining();
+
+                // Start the workflow with the worker name
+                Instructions.FaceTrainingInstructions?.StartTrainingForWorker(workerName);
+
+                UpdateStatus($"Face training ready for {workerName} - follow the visual instructions");
+            }
+            else
+            {
+                UpdateStatus("FAILED to start Python training process");
             }
         }
 
+
         private async void OnCaptureRequested(int stepNumber)
         {
-            UpdateStatus($"Capturing face step {stepNumber}...");
-            Instructions.UpdateTrainingStatus("Hold still - capturing...");
+            // Debugging message (UI-safe since triggered from UI)
+            MessageBox.Show($"MainWindow received capture request for step {stepNumber}!");
 
-            // Tell Python to capture current frame
+            // Ensure UI updates are on the UI thread
+            Dispatcher.Invoke(() =>
+            {
+                UpdateStatus($"Capturing face step {stepNumber}...");
+                Instructions.UpdateTrainingStatus("Hold still - capturing...");
+            });
+
+            // Send capture command (non-UI, safe on any thread)
             await _faceTrainingService.RequestFaceCaptureAsync();
         }
         #endregion
@@ -243,7 +300,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             UpdateStatus("Training mode activated - register new worker");
         }
 
-        private void SwitchToNormalMode()
+        private async void SwitchToNormalMode()
         {
             _isInTrainingMode = false;
 
@@ -252,7 +309,57 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             Instructions.TrainingCompleted -= OnTrainingCompleted;
             Instructions.TrainingCancelled -= OnTrainingCancelled;
 
-            // Rest of your existing code...
+            UpdateStatus("Switching back to normal mode...");
+
+            // Stop face training process properly
+            try
+            {
+                await _faceTrainingService.StopTrainingSessionAsync();
+                UpdateStatus("Face training stop command sent");
+
+                // Give time for Python to cleanup properly (camera.release(), etc.)
+                await Task.Delay(1500);
+
+                // Only kill processes if they haven't exited cleanly
+                var pythonProcesses = Process.GetProcessesByName("python");
+                var aliveProcesses = pythonProcesses.Where(p => !p.HasExited).ToList();
+
+                if (aliveProcesses.Any())
+                {
+                    UpdateStatus($"Found {aliveProcesses.Count} Python processes still running - terminating...");
+
+                    foreach (var proc in aliveProcesses)
+                    {
+                        try
+                        {
+                            proc.Kill();
+                            await proc.WaitForExitAsync();
+                            UpdateStatus($"Terminated process {proc.Id}");
+                        }
+                        catch (Exception ex)
+                        {
+                            UpdateStatus($"Could not kill process {proc.Id}: {ex.Message}");
+                        }
+                    }
+                }
+                else
+                {
+                    UpdateStatus("All Python processes exited cleanly");
+                }
+
+                await Task.Delay(300); // Brief delay for resource cleanup
+
+                // Restart normal video feed
+                UpdateStatus("Restarting normal video feed...");
+                await _videoService.StartVideoFeedAsync();
+
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Error during mode switch: {ex.Message}");
+            }
+
+            // Update UI
             Instructions.ShowNormalMode();
             WorkerRegistration.Visibility = Visibility.Collapsed;
             WorkerManagement.Visibility = Visibility.Visible;
@@ -420,23 +527,29 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         #endregion
         private void OnFaceTrainingStatusChanged(string status)
         {
-            UpdateStatus($"Training: {status}");
+            Dispatcher.Invoke(() => UpdateStatus($"Training: {status}"));
         }
 
         private void OnFaceTrainingError(string error)
         {
-            UpdateStatus($"Training Error: {error}");
+            Dispatcher.Invoke(() => UpdateStatus($"Training Error: {error}"));
         }
 
         private void OnFaceEncodingReceived(byte[] encoding)
         {
-            // Notify UI component that step was captured successfully
-            Instructions.OnStepCaptured(_currentTrainingStep, true);
+            Dispatcher.Invoke(() =>
+            {
+                // Notify UI component that step was captured successfully
+                Instructions.OnStepCaptured(_currentTrainingStep, true);
 
-            // Move to next step
-            _currentTrainingStep++;
+                // Move to next step
+                _currentTrainingStep++;
 
-            // Store the encoding for later use
+                // Optional: Update status to reflect progress
+                UpdateStatus($"Captured face encoding for step {_currentTrainingStep - 1}");
+            });
+
+            // Store the encoding for later use (non-UI, safe outside Dispatcher)
             // TODO: Add to worker's face encodings list
         }
 
@@ -486,6 +599,80 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             // Handle training cancellation
             SwitchToNormalMode();
             UpdateStatus("Face training cancelled");
+        }
+
+        private async void TestPythonProcess()
+        {
+            try
+            {
+                UpdateStatus("Testing basic Python process...");
+
+                // Test 1: Try basic python version check
+                var testInfo = new ProcessStartInfo
+                {
+                    FileName = @"C:\Python312\python.exe",
+                    Arguments = "--version",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                };
+
+                UpdateStatus("Attempting python --version...");
+                var process = Process.Start(testInfo);
+
+                if (process != null)
+                {
+                    await process.WaitForExitAsync();
+                    var output = await process.StandardOutput.ReadToEndAsync();
+                    UpdateStatus($"Python version test SUCCESS: {output.Trim()}");
+                }
+                else
+                {
+                    UpdateStatus("Python version test FAILED - process is null");
+                    return;
+                }
+
+                // Test 2: Try running our script with just import test
+                var scriptPath = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..",
+                    "NewwaysAdmin.WorkerAttendance.Python",
+                    "face_training_capture.py"
+                );
+
+                UpdateStatus($"Script path: {scriptPath}");
+                UpdateStatus($"Script exists: {File.Exists(scriptPath)}");
+
+                var scriptInfo = new ProcessStartInfo
+                {
+                    FileName = @"C:\Python312\python.exe",
+                    Arguments = $"-c \"print('Python can execute')\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                UpdateStatus("Testing basic Python execution...");
+                var scriptProcess = Process.Start(scriptInfo);
+
+                if (scriptProcess != null)
+                {
+                    await scriptProcess.WaitForExitAsync();
+                    var stdout = await scriptProcess.StandardOutput.ReadToEndAsync();
+                    var stderr = await scriptProcess.StandardError.ReadToEndAsync();
+
+                    UpdateStatus($"Basic Python test - Exit code: {scriptProcess.ExitCode}");
+                    UpdateStatus($"Stdout: {stdout.Trim()}");
+                    if (!string.IsNullOrEmpty(stderr))
+                        UpdateStatus($"Stderr: {stderr.Trim()}");
+                }
+
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Python test EXCEPTION: {ex.GetType().Name} - {ex.Message}");
+            }
         }
     }
 }

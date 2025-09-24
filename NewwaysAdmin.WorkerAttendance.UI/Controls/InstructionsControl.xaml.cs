@@ -8,6 +8,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 {
     public partial class InstructionsControl : UserControl
     {
+
         // Events for training workflow
         public event Action<int>? CaptureRequested;
         public event Action? TrainingCompleted;
@@ -129,10 +130,13 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         /// </summary>
         public void OnStepCaptured(int stepNumber, bool success)
         {
-            if (FaceTrainingInstructions != null)
+            Dispatcher.Invoke(() =>
             {
-                FaceTrainingInstructions.OnStepCaptured(success);
-            }
+                if (FaceTrainingInstructions != null)
+                {
+                    FaceTrainingInstructions.OnStepCaptured(stepNumber, success);
+                }
+            });
         }
 
         /// <summary>

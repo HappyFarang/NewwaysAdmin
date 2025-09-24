@@ -42,12 +42,9 @@ namespace NewwaysAdmin.WorkerAttendance.Services
                     return true;
                 }
 
-                _logger.LogInformation("Starting face training session with script: {Script}", _pythonScript);
-                StatusChanged?.Invoke("Starting face training session...");
-
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = "python",
+                    FileName = "python",  // Changed back to "python"
                     Arguments = $"\"{_pythonScript}\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -55,6 +52,10 @@ namespace NewwaysAdmin.WorkerAttendance.Services
                     RedirectStandardError = true,
                     CreateNoWindow = true
                 };
+
+                _logger.LogInformation("Starting face training session with script: {Script}", _pythonScript);
+                _logger.LogInformation("Using Python executable: {PythonPath}", startInfo.FileName);
+                _logger.LogInformation("Full command: {Command} {Args}", startInfo.FileName, startInfo.Arguments);
 
                 _trainingProcess = Process.Start(startInfo);
 
@@ -65,7 +66,7 @@ namespace NewwaysAdmin.WorkerAttendance.Services
                     return false;
                 }
 
-                _isRunning = true;
+                _isRunning = true;  // Set AFTER successful process start
 
                 // Start reading messages from Python in background
                 _ = Task.Run(ReadTrainingMessages);
@@ -121,36 +122,66 @@ namespace NewwaysAdmin.WorkerAttendance.Services
             try
             {
                 if (!_isRunning)
+                {
+                    _logger.LogInformation("Training session not running - nothing to stop");
                     return;
+                }
 
                 _logger.LogInformation("Stopping training session");
                 StatusChanged?.Invoke("Stopping training session...");
 
-                if (_trainingProcess?.StandardInput != null)
+                // Check if process exists before trying to access it
+                if (_trainingProcess != null)
                 {
-                    // Send STOP command to Python
-                    await _trainingProcess.StandardInput.WriteLineAsync("STOP");
-                    await _trainingProcess.StandardInput.FlushAsync();
+                    if (_trainingProcess.StandardInput != null && !_trainingProcess.HasExited)
+                    {
+                        try
+                        {
+                            // Send STOP command to Python
+                            await _trainingProcess.StandardInput.WriteLineAsync("STOP");
+                            await _trainingProcess.StandardInput.FlushAsync();
+                            _logger.LogInformation("STOP command sent to Python");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to send STOP command to Python process");
+                        }
+                    }
+
+                    // Wait a moment for graceful shutdown
+                    try
+                    {
+                        if (!_trainingProcess.HasExited)
+                        {
+                            bool exited = _trainingProcess.WaitForExit(2000); // 2 second timeout
+                            if (!exited)
+                            {
+                                _logger.LogWarning("Training process did not exit gracefully, will be terminated");
+                                _trainingProcess.Kill();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error during process shutdown");
+                    }
+
+                    _trainingProcess.Dispose();
+                    _trainingProcess = null;
+                }
+                else
+                {
+                    _logger.LogWarning("Training process was already null when trying to stop");
                 }
 
-                // Give process time to cleanup gracefully
-                await Task.Delay(1000);
-
-                if (_trainingProcess?.HasExited == false)
-                {
-                    _trainingProcess.Kill();
-                }
-
-                _trainingProcess?.Dispose();
-                _trainingProcess = null;
                 _isRunning = false;
-
-                _logger.LogInformation("Training session stopped successfully");
+                _logger.LogInformation("Training session stopped");
                 StatusChanged?.Invoke("Training session stopped");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error stopping training session");
+                _isRunning = false; // Force reset the flag
                 ErrorOccurred?.Invoke($"Error stopping training: {ex.Message}");
             }
         }
@@ -158,28 +189,95 @@ namespace NewwaysAdmin.WorkerAttendance.Services
         /// <summary>
         /// Read messages from Python training script
         /// </summary>
+        // Replace the ReadTrainingMessages method in FaceTrainingService.cs:
+
         private async Task ReadTrainingMessages()
         {
             if (_trainingProcess?.StandardOutput == null) return;
 
             try
             {
-                _logger.LogInformation("Started reading training messages from Python");
+                _logger.LogInformation("Starting to read Python JSON messages...");
 
-                while (!_trainingProcess.HasExited && _isRunning)
+                // Store a local reference to avoid null reference issues
+                var process = _trainingProcess;
+
+                while (process != null && !process.HasExited && _isRunning)
                 {
-                    var line = await _trainingProcess.StandardOutput.ReadLineAsync();
+                    // Double-check process is still valid
+                    if (process.StandardOutput == null)
+                        break;
+
+                    var line = await process.StandardOutput.ReadLineAsync();
+                    _logger.LogInformation("Raw Python output: '{Line}'", line ?? "NULL");
+
                     if (string.IsNullOrEmpty(line)) continue;
 
-                    // Parse the message format from face_training_capture.py
-                    ProcessTrainingMessage(line);
+                    try
+                    {
+                        // Parse JSON message (same as VideoFeedService)
+                        var message = JsonConvert.DeserializeObject<PythonMessage>(line);
+                        if (message == null) continue;
+
+                        _logger.LogInformation("Parsed message type: {Type}", message.Type);
+
+                        switch (message.Type)
+                        {
+                            case "frame":
+                                if (!string.IsNullOrEmpty(message.Data))
+                                {
+                                    byte[] frameBytes = Convert.FromBase64String(message.Data);
+                                    FrameReceived?.Invoke(frameBytes);
+                                }
+                                break;
+
+                            case "status":
+                                _logger.LogInformation("Python status: {Status}", message.Message);
+                                StatusChanged?.Invoke(message.Message ?? "Unknown status");
+                                break;
+
+                            case "error":
+                                _logger.LogWarning("Python error: {Error}", message.Message);
+                                ErrorOccurred?.Invoke(message.Message ?? "Unknown error");
+                                break;
+
+                            case "encoding":
+                                if (!string.IsNullOrEmpty(message.Data))
+                                {
+                                    byte[] encodingBytes = Convert.FromBase64String(message.Data);
+                                    _logger.LogInformation("Received face encoding: {Size} bytes", encodingBytes.Length);
+                                    FaceEncodingReceived?.Invoke(encodingBytes);
+                                    StatusChanged?.Invoke("Face encoding captured successfully!");
+                                }
+                                break;
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogWarning("Failed to parse JSON message: {Line}, Error: {Error}", line, ex.Message);
+                        // Treat non-JSON lines as status messages
+                        StatusChanged?.Invoke(line);
+                    }
+
+                    // Re-check if process is still the same instance (in case it was replaced)
+                    if (_trainingProcess != process)
+                        break;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error reading training messages");
-                ErrorOccurred?.Invoke($"Error reading training messages: {ex.Message}");
+                ErrorOccurred?.Invoke($"Error reading messages: {ex.Message}");
             }
+        }
+
+        // Also add the PythonMessage class if it's not already in this file:
+        public class PythonMessage
+        {
+            public string? Type { get; set; }
+            public string? Data { get; set; }
+            public string? Message { get; set; }
+            public double Timestamp { get; set; }
         }
 
         /// <summary>

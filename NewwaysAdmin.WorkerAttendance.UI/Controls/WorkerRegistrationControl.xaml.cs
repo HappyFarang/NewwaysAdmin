@@ -168,11 +168,40 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             WorkerSaved?.Invoke();
         }
 
+        public string GetWorkerName()
+        {
+            return WorkerNameInput.Text?.Trim() ?? "";
+        }
+
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
-            ResetForm();
-            StatusChanged?.Invoke("Worker registration cancelled");
-            RegistrationCancelled?.Invoke();
+            if (_isTrainingInProgress)
+            {
+                // Face training is active - need to stop it properly
+                var result = MessageBox.Show(
+                    "Face training is in progress. Cancelling will stop the training and return to normal mode.\n\nAre you sure you want to cancel?",
+                    "Cancel Face Training",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    // Reset form state
+                    ResetForm();
+                    StatusChanged?.Invoke("Face training cancelled - returning to normal mode");
+
+                    // Fire event to trigger SwitchToNormalMode in MainWindow
+                    RegistrationCancelled?.Invoke();
+                }
+                // If No, do nothing - stay in training mode
+            }
+            else
+            {
+                // No training active - simple cancellation
+                ResetForm();
+                StatusChanged?.Invoke("Worker registration cancelled");
+                RegistrationCancelled?.Invoke();
+            }
         }
     }
 }
