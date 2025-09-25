@@ -90,6 +90,17 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             _videoService.SignInUnknown += OnSignInUnknown;
             _videoService.SignInConfirmed += OnSignInConfirmed;
 
+            // NEW: Wire up worker recognition events for confirmation flow
+            _videoService.SignInRecognition += OnWorkerSignInRecognized;
+            _videoService.SignInConfirmed += OnWorkerSignInConfirmed;
+
+            // NEW: Initialize InstructionsControl with VideoService for worker recognition
+            Instructions.Initialize(_videoService);
+
+            _faceTrainingService.StatusChanged += OnFaceTrainingStatusChanged;
+            _faceTrainingService.ErrorOccurred += OnFaceTrainingError;
+
+            Instructions.CaptureRequested += OnCaptureRequested;
 
             // Start services
             _arduinoService.TryConnect();
@@ -656,13 +667,6 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             bitmap.Freeze();
             return bitmap;
         }
-        protected override void OnClosed(EventArgs e)
-        {
-            _videoService.StopVideoFeed();
-            _arduinoService.Disconnect();
-            _loggerFactory?.Dispose();
-            base.OnClosed(e);
-        }        
 
         private void OnTrainingCompleted()
         {
@@ -750,6 +754,74 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             {
                 UpdateStatus($"Python test EXCEPTION: {ex.GetType().Name} - {ex.Message}");
             }
+        }
+        /// <summary>
+        /// Handle worker recognition during sign-in process
+        /// </summary>
+        private void OnWorkerSignInRecognized(string workerName, double confidence, string workerId)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _currentState = ApplicationState.WaitingForConfirmation;
+                UpdateState("Worker Recognized!");
+                UpdateStatus($"Worker recognized: {workerName} - Press CONFIRM to sign in");
+
+                // InstructionsControl will automatically show the confirmation panel
+                // via the WorkerRecognized event - no need to manually update UI here
+            });
+        }
+
+        /// <summary>
+        /// Handle worker sign-in confirmation
+        /// </summary>
+        private void OnWorkerSignInConfirmed(string workerName, double confidence, string workerId)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _currentState = ApplicationState.Processing;
+                UpdateState("Processing...");
+                UpdateStatus($"Sign-in confirmed for {workerName}");
+
+                // Hide the confirmation panel
+                Instructions.HideWorkerConfirmation();
+
+                // TODO: Save attendance record to database
+
+                // Reset to ready state after brief delay
+                Task.Delay(2000).ContinueWith(_ =>
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        _currentState = ApplicationState.Ready;
+                        UpdateState("Ready");
+                        UpdateStatus($"Welcome {workerName}! Sign-in successful.");
+                    });
+                });
+            });
+        }
+        protected override void OnClosed(EventArgs e)
+        {
+            try
+            {
+                // Clean up InstructionsControl event subscriptions
+                Instructions.Cleanup();
+
+                // Stop services
+                _videoService.StopVideoFeed();
+
+                // Stop training service synchronously (fire-and-forget)
+                _ = Task.Run(async () => await _faceTrainingService.StopTrainingSessionAsync());
+
+                // Dispose logger factory
+                _loggerFactory?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't throw during cleanup
+                System.Diagnostics.Debug.WriteLine($"Cleanup error: {ex.Message}");
+            }
+
+            base.OnClosed(e);
         }
     }
 }

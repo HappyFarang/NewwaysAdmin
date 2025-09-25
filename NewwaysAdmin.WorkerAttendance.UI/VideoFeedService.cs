@@ -23,6 +23,9 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         public event Action<string>? SignInUnknown;
         public event Action<string, double, string>? SignInConfirmed; // worker_name, confidence, worker_id
 
+        // NEW: Add WorkerRecognized event for InstructionsControl
+        public event Action<string>? WorkerRecognized; // Just worker name for the confirmation panel
+
 
         public VideoFeedService(string pythonScript)
         {
@@ -155,14 +158,19 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                             case "error":
                                 StatusChanged?.Invoke($"Python error: {message.Message}");
                                 break;
+
                             case "signin_recognition":
                                 if (message.Worker_Name != null && message.Worker_Id != null)
                                 {
+                                    // Fire existing event for MainWindow compatibility
                                     SignInRecognition?.Invoke(
                                         message.Worker_Name,
                                         message.Confidence,
                                         message.Worker_Id
                                     );
+
+                                    // NEW: Fire simple event for InstructionsControl
+                                    WorkerRecognized?.Invoke(message.Worker_Name);
                                 }
                                 break;
 
@@ -244,6 +252,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 StatusChanged?.Invoke($"Error stopping video: {ex.Message}");
             }
         }
+
         public async Task ConfirmSignInAsync()
         {
             try

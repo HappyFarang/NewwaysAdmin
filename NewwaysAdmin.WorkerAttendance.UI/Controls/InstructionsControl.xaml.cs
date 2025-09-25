@@ -3,6 +3,7 @@
 
 using System.Windows;
 using System.Windows.Controls;
+using NewwaysAdmin.WorkerAttendance.UI;  // ADD this using for VideoFeedService
 
 namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 {
@@ -14,9 +15,69 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         public event Action? TrainingCompleted;
         public event Action? TrainingCancelled;
 
+        // NEW: Reference to video service for worker recognition
+        private VideoFeedService? _videoService;
+
         public InstructionsControl()
         {
             InitializeComponent();
+        }
+
+        /// <summary>
+        /// Initialize with video service to listen for worker recognition
+        /// </summary>
+        public void Initialize(VideoFeedService videoService)
+        {
+            _videoService = videoService;
+
+            // Subscribe to worker recognition event
+            if (_videoService != null)
+            {
+                _videoService.WorkerRecognized += OnWorkerRecognized;
+            }
+        }
+
+        /// <summary>
+        /// Handle when worker is recognized - show confirmation panel
+        /// </summary>
+        private void OnWorkerRecognized(string workerName)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Show the worker confirmation panel
+                WorkerConfirmation.SetWorkerInfo(workerName);
+                WorkerConfirmation.Visibility = Visibility.Visible;
+
+                // Hide normal instructions temporarily
+                NormalInstructions.Visibility = Visibility.Collapsed;
+            });
+        }
+
+        /// <summary>
+        /// Hide worker confirmation panel (called when user confirms or cancels)
+        /// </summary>
+        public void HideWorkerConfirmation()
+        {
+            WorkerConfirmation.Visibility = Visibility.Collapsed;
+            WorkerConfirmation.Clear();
+
+            // Show normal instructions again
+            if (TrainingInstructions.Visibility != Visibility.Visible)
+            {
+                NormalInstructions.Visibility = Visibility.Visible;
+            }
+        }
+
+        /// <summary>
+        /// Clean up event subscriptions
+        /// </summary>
+        public void Cleanup()
+        {
+            if (_videoService != null)
+            {
+                _videoService.WorkerRecognized -= OnWorkerRecognized;
+                _videoService = null;
+            }
         }
 
         /// <summary>
@@ -27,6 +88,9 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             InstructionsHeader.Text = "Instructions";
             NormalInstructions.Visibility = Visibility.Visible;
             TrainingInstructions.Visibility = Visibility.Collapsed;
+
+            // Hide confirmation panel when switching modes
+            HideWorkerConfirmation();
         }
 
         /// <summary>
@@ -43,6 +107,9 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             FaceTrainingInstructionsPanel.Visibility = Visibility.Collapsed;
 
             CurrentTrainingInstruction.Text = "Enter worker information and start face training";
+
+            // Hide confirmation panel when switching modes
+            HideWorkerConfirmation();
         }
 
         /// <summary>

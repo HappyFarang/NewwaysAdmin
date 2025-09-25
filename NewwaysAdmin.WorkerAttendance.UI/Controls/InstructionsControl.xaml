@@ -30,6 +30,11 @@
                        TextWrapping="Wrap"/>
         </StackPanel>
 
+        <!-- NEW: Worker Confirmation Panel (Hidden by default) -->
+        <controls:WorkerConfirmationControl x:Name="WorkerConfirmation" 
+                                            Visibility="Collapsed"
+                                            Margin="5"/>
+
         <!-- Training Mode Instructions -->
         <StackPanel x:Name="TrainingInstructions" Visibility="Collapsed">
             <TextBlock Text="Worker Registration" 

@@ -1,0 +1,43 @@
+﻿<!-- File: NewwaysAdmin.WorkerAttendance.UI/Controls/WorkerConfirmationControl.xaml -->
+<!-- Purpose: Simple component to display worker name confirmation in large, clear text -->
+
+<UserControl x:Class="NewwaysAdmin.WorkerAttendance.UI.Controls.WorkerConfirmationControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Border Background="LightBlue" 
+            BorderBrush="DarkBlue" 
+            BorderThickness="2" 
+            CornerRadius="8" 
+            Padding="15,10,15,10"
+            Margin="5">
+
+        <StackPanel HorizontalAlignment="Center">
+            <!-- Header -->
+            <TextBlock Text="พบพนักงาน" 
+                       FontSize="14" 
+                       FontWeight="Bold" 
+                       HorizontalAlignment="Center"
+                       Foreground="DarkBlue"
+                       Margin="0,0,0,8"/>
+
+            <!-- Worker Name - Large and Clear -->
+            <TextBlock x:Name="WorkerNameText"
+                       Text="[ชื่อพนักงาน]" 
+                       FontSize="24" 
+                       FontWeight="Bold" 
+                       HorizontalAlignment="Center"
+                       Foreground="DarkBlue"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,15"/>
+
+            <!-- Instruction -->
+            <TextBlock Text="กดปุ่ม CONFIRM เพื่อบันทึกเวลาเข้างาน" 
+                       FontSize="12" 
+                       FontStyle="Italic"
+                       HorizontalAlignment="Center"
+                       Foreground="DarkBlue"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+    </Border>
+</UserControl>
