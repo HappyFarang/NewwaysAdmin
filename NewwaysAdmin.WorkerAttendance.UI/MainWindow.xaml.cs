@@ -9,6 +9,7 @@ using NewwaysAdmin.WorkerAttendance.Models;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO.Structure;
 using System.Diagnostics;
+using NewwaysAdmin.WorkerAttendance.UI.Windows;
 
 namespace NewwaysAdmin.WorkerAttendance.UI
 {
@@ -161,8 +162,27 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
         private void OnManageWorkersRequested()
         {
-            // No password check - already done in WorkerManagementControl
-            MessageBox.Show("Worker management will be implemented here", "Manage Workers");
+            try
+            {
+                // Create logger for the management window
+                var managementLogger = _loggerFactory.CreateLogger<WorkerManagementWindow>();
+
+                // Create and show the worker management window
+                var managementWindow = new WorkerManagementWindow(_workerStorageService, managementLogger)
+                {
+                    Owner = this // Set this window as the owner for proper modal behavior
+                };
+
+                UpdateStatus("Opening worker management window...");
+                managementWindow.ShowDialog(); // Show as modal dialog
+                UpdateStatus("Worker management window closed");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error opening worker management window");
+                UpdateStatus($"Error opening management window: {ex.Message}");
+                MessageBox.Show($"Error opening worker management:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         // Worker Registration Component Events

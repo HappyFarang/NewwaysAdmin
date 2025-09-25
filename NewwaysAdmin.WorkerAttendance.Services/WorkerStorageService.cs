@@ -53,6 +53,20 @@ namespace NewwaysAdmin.WorkerAttendance.Services
             _logger.LogInformation("Saved worker: {WorkerName} (ID: {WorkerId})", worker.Name, worker.Id);
         }
 
+        public async Task DeleteWorkerAsync(int workerId)
+        {
+            try
+            {
+                await _workerStorage.DeleteAsync(workerId.ToString());
+                _logger.LogInformation("Deleted worker with ID: {WorkerId}", workerId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting worker with ID: {WorkerId}", workerId);
+                throw;
+            }
+        }
+
         public async Task RecordAttendanceAsync(AttendanceRecord record)
         {
             var fileName = $"{DateTime.Now:yyyy-MM-dd}_{record.Id}";

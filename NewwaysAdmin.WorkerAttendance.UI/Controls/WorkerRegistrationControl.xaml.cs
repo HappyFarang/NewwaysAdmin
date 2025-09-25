@@ -14,6 +14,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         private FaceTrainingWorkflowService? _faceTrainingWorkflowService;
         private bool _faceDataCaptured = false;
         private bool _isTrainingInProgress = false;
+        private int _savedWorkerId = 0; // Track the ID of the automatically saved worker
 
         // Events to communicate with parent window
         public event Action<string>? StatusChanged;
@@ -56,11 +57,16 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             WorkerNameInput.Text = "";
             _faceDataCaptured = false;
             _isTrainingInProgress = false;
+            _savedWorkerId = 0;
             ValidationMessage.Text = "";
             TrainingStatus.Text = "";
             TrainingInstructions.Text = "Click 'Start Face Training' to begin";
             ScanFaceButton.Content = "Start Face Training";
             ScanFaceButton.Background = System.Windows.Media.Brushes.LightBlue;
+
+            // Reset buttons to initial state
+            SaveButton.Content = "Save Worker";
+            SaveButton.Background = System.Windows.Media.Brushes.LightGreen;
         }
 
         private void ScanFaceButton_Click(object sender, RoutedEventArgs e)
@@ -112,7 +118,14 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 ScanFaceButton.Content = "Face Training Complete ✓";
                 ScanFaceButton.Background = System.Windows.Media.Brushes.LightGreen;
                 TrainingInstructions.Text = "Face training completed successfully!";
-                TrainingStatus.Text = "Ready to save worker";
+                TrainingStatus.Text = "Worker has been saved automatically";
+
+                // Change Save button to OK since worker is already saved
+                SaveButton.Content = "OK";
+                SaveButton.Background = System.Windows.Media.Brushes.LightBlue;
+
+                // Get the saved worker ID for potential deletion
+                GetSavedWorkerId();
             }
             else
             {
@@ -123,135 +136,115 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             }
         }
 
-        private async void SaveButton_Click(object sender, RoutedEventArgs e)
+        private async void GetSavedWorkerId()
         {
-            if (!ValidateForm())
-                return;
-
             try
             {
-                await SaveWorker();
-                // Call cleanup after successful save
-                Cleanup();
+                if (_storageService == null) return;
+
+                // Get the most recently saved worker (highest ID)
+                var existingWorkers = await _storageService.GetAllWorkersAsync();
+                if (existingWorkers.Count > 0)
+                {
+                    _savedWorkerId = existingWorkers.Max(w => w.Id);
+                }
             }
             catch (Exception ex)
             {
-                ValidationMessage.Text = $"Error saving worker: {ex.Message}";
-                StatusChanged?.Invoke($"Save error: {ex.Message}");
+                StatusChanged?.Invoke($"Error getting saved worker ID: {ex.Message}");
             }
         }
 
-        private bool ValidateForm()
+        private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            ValidationMessage.Text = "";
-
-            if (string.IsNullOrWhiteSpace(WorkerNameInput.Text))
-            {
-                ValidationMessage.Text = "Worker name is required";
-                return false;
-            }
-
             if (!_faceDataCaptured)
             {
                 ValidationMessage.Text = "Please complete face training first";
-                return false;
-            }
-
-            return true;
-        }
-
-        private async Task SaveWorker()
-        {
-            if (_storageService == null)
-            {
-                ValidationMessage.Text = "Storage service not available";
                 return;
             }
 
-            string workerName = WorkerNameInput.Text.Trim();
-            StatusChanged?.Invoke($"Saving worker '{workerName}'...");
-
-            // Generate next worker ID
-            var existingWorkers = await _storageService.GetAllWorkersAsync();
-            int nextId = existingWorkers.Count > 0 ? existingWorkers.Max(w => w.Id) + 1 : 1;
-
-            // Create new worker
-            var worker = new Worker
+            try
             {
-                Id = nextId,
-                Name = workerName,
-                IsActive = true,
-                CreatedDate = DateTime.Now,
-                FaceEncodings = new List<byte[]>() // TODO: Add actual face data from training
-            };
-
-            // Save using IO Manager
-            await _storageService.SaveWorkerAsync(worker);
-
-            StatusChanged?.Invoke($"Worker '{workerName}' saved successfully with ID {nextId}!");
-            WorkerSaved?.Invoke();
-        }
-
-        public string GetWorkerName()
-        {
-            return WorkerNameInput.Text?.Trim() ?? "";
-        }
-
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_isTrainingInProgress)
-            {
-                // Face training is active - need to stop it properly
-                var result = MessageBox.Show(
-                    "Face training is in progress. Cancelling will stop the training and return to normal mode.\n\nAre you sure you want to cancel?",
-                    "Cancel Face Training",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question);
-
-                if (result == MessageBoxResult.Yes)
-                {
-                    // Call cleanup which handles unsubscribing and reset
-                    Cleanup();
-                    StatusChanged?.Invoke("Face training cancelled - returning to normal mode");
-
-                    // Fire event to trigger SwitchToNormalMode in MainWindow
-                    RegistrationCancelled?.Invoke();
-                }
-                // If No, do nothing - stay in training mode
-            }
-            else
-            {
-                // No training active - simple cancellation
+                // If training is complete, this is now an "OK" button
+                // Worker is already saved, so just clean up and exit
+                StatusChanged?.Invoke("Worker registration completed successfully!");
                 Cleanup();
-                StatusChanged?.Invoke("Worker registration cancelled");
+                WorkerSaved?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                ValidationMessage.Text = $"Error completing registration: {ex.Message}";
+                StatusChanged?.Invoke($"Error: {ex.Message}");
+            }
+        }
+
+        private async void CancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // If a worker was automatically saved, delete it
+                if (_faceDataCaptured && _savedWorkerId > 0 && _storageService != null)
+                {
+                    StatusChanged?.Invoke("Cancelling registration and deleting saved worker...");
+
+                    // Delete the automatically saved worker file
+                    await DeleteSavedWorker(_savedWorkerId);
+
+                    StatusChanged?.Invoke("Registration cancelled - saved worker deleted");
+                }
+                else
+                {
+                    StatusChanged?.Invoke("Registration cancelled");
+                }
+
+                Cleanup();
                 RegistrationCancelled?.Invoke();
             }
+            catch (Exception ex)
+            {
+                ValidationMessage.Text = $"Error cancelling registration: {ex.Message}";
+                StatusChanged?.Invoke($"Cancel error: {ex.Message}");
+            }
         }
 
-        /// <summary>
-        /// Dedicated cleanup function - unsubscribes from events and resets ALL face training state
-        /// Called from both Save and Cancel operations
-        /// </summary>
-        private void Cleanup()
+        private async Task DeleteSavedWorker(int workerId)
         {
-            // 1. Cancel any active face training workflow
-            if (_faceTrainingWorkflowService != null && _faceTrainingWorkflowService.IsTrainingActive)
+            try
             {
-                _faceTrainingWorkflowService.CancelTraining();
-            }
+                if (_storageService == null) return;
 
-            // 2. Unsubscribe from events to prevent memory leaks
+                // Get the worker to confirm it exists and get the name for logging
+                var worker = await _storageService.GetWorkerByIdAsync(workerId);
+                if (worker != null)
+                {
+                    // Delete using the clean delete method
+                    await _storageService.DeleteWorkerAsync(workerId);
+                    StatusChanged?.Invoke($"Deleted worker '{worker.Name}' (ID: {workerId})");
+                }
+                else
+                {
+                    StatusChanged?.Invoke($"Worker with ID {workerId} not found for deletion");
+                }
+            }
+            catch (Exception ex)
+            {
+                StatusChanged?.Invoke($"Error deleting worker: {ex.Message}");
+                throw; // Re-throw so caller can handle
+            }
+        }
+
+        public void Cleanup()
+        {
+            // Unsubscribe from events to prevent memory leaks
             if (_faceTrainingWorkflowService != null)
             {
                 _faceTrainingWorkflowService.TrainingCompleted -= OnWorkflowTrainingCompleted;
             }
+        }
 
-            // 3. CRITICAL: Reset MainWindow's training step counter (the ghost!)
-            // We need to notify MainWindow to reset its _currentTrainingStep
-            StatusChanged?.Invoke("RESET_TRAINING_STEP");
-
-            // 4. Reset form state
-            ResetForm();
+        public string GetWorkerName()
+        {
+            return WorkerNameInput.Text?.Trim() ?? string.Empty;
         }
     }
 }

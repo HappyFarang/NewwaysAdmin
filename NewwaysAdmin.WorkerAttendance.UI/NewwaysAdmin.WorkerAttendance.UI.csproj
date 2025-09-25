@@ -16,9 +16,6 @@
     <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Services\NewwaysAdmin.WorkerAttendance.Services.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Folder Include="Windows\" />
-  </ItemGroup>
-  <ItemGroup>
     <Resource Include="Controls\Assets\icons\face_front.png">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Resource>

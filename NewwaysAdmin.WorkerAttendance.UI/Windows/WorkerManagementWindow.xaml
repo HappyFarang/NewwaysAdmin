@@ -1,0 +1,59 @@
+<!-- File: NewwaysAdmin.WorkerAttendance.UI/Windows/WorkerManagementWindow.xaml -->
+<!-- Purpose: Simple window for managing registered workers - delete functionality -->
+
+<Window x:Class="NewwaysAdmin.WorkerAttendance.UI.Windows.WorkerManagementWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Manage Registered Workers" 
+        Height="500" Width="450"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize">
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0" 
+                   Text="Registered Workers" 
+                   FontSize="16" 
+                   FontWeight="Bold" 
+                   HorizontalAlignment="Center" 
+                   Margin="0,0,0,15"
+                   Foreground="DarkBlue"/>
+
+        <!-- Worker List -->
+        <ScrollViewer Grid.Row="1" 
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="WorkerListPanel">
+                <!-- Worker items will be added here programmatically -->
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Status Message -->
+        <TextBlock Grid.Row="2"
+                   x:Name="StatusMessage"
+                   Text=""
+                   FontSize="11"
+                   Foreground="Blue"
+                   HorizontalAlignment="Center"
+                   Margin="0,10,0,10"
+                   TextWrapping="Wrap"/>
+
+        <!-- Close Button -->
+        <Button Grid.Row="3"
+                x:Name="CloseButton"
+                Content="Close"
+                Width="80"
+                Height="30"
+                FontSize="12"
+                Background="LightGray"
+                HorizontalAlignment="Center"
+                Click="CloseButton_Click"/>
+    </Grid>
+</Window>
