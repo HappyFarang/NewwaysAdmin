@@ -33,7 +33,7 @@ namespace NewwaysAdmin.WorkerAttendance.Services
             {
                 Name = "Workers",
                 Description = "Worker profiles with face recognition data",
-                Type = StorageType.Binary,      // Face encodings are binary data
+                Type = StorageType.Json,      // Face encodings are json data so python can read it
                 Path = "WorkerAttendance",      // Subfolder organization
                 IsShared = true,                // Can sync with main NewwaysAdmin later
                 CreateBackups = true,
