@@ -34,6 +34,9 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         private bool _isInTrainingMode = false;
         private int _currentTrainingStep = 1;
 
+
+        private RecognizedWorkerInfo? _recognizedWorker;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -83,6 +86,11 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             _faceTrainingService.FrameReceived += OnTrainingFrameReceived;
 
 
+            _videoService.SignInRecognition += OnSignInRecognition;
+            _videoService.SignInUnknown += OnSignInUnknown;
+            _videoService.SignInConfirmed += OnSignInConfirmed;
+
+
             // Start services
             _arduinoService.TryConnect();
             _ = StartVideoFeedAsync();
@@ -94,6 +102,57 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             this.Loaded += MainWindow_Loaded;
         }
 
+        private void OnSignInRecognition(string workerName, double confidence, string workerId)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _recognizedWorker = new RecognizedWorkerInfo
+                {
+                    Name = workerName,
+                    Id = workerId,
+                    Confidence = confidence
+                };
+
+                _currentState = ApplicationState.WaitingForConfirmation;
+                UpdateState("Face Detected!");
+                UpdateStatus($"Recognized: {workerName} ({confidence:F1}%) - Press CONFIRM to sign in");
+            });
+        }
+
+        private void OnSignInUnknown(string message)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _currentState = ApplicationState.Ready;
+                UpdateState("Ready");
+                UpdateStatus("Unknown person detected. Try again.");
+            });
+        }
+
+        private void OnSignInConfirmed(string workerName, double confidence, string workerId)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _currentState = ApplicationState.Processing;
+                UpdateState("Processing...");
+                UpdateStatus($"Sign-in confirmed for {workerName}!");
+
+                Task.Run(async () =>
+                {
+                    await Task.Delay(2000);
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        _currentState = ApplicationState.Ready;
+                        _recognizedWorker = null;
+                        _detectedFaces.Clear();
+
+                        UpdateState("Ready");
+                        UpdateStatus("Sign-in completed! Ready for next scan...");
+                    });
+                });
+            });
+        }
         private async Task TestFaceTrainingAtStartup()
         {
             try
@@ -390,17 +449,29 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             await Dispatcher.InvokeAsync(async () =>
             {
-                if (buttonType == "SIGN_IN" && _currentState == ApplicationState.Ready)
+                if (buttonType == "SIGN_IN")
                 {
-                    await StartFaceDetectionAsync();
+                    if (_currentState == ApplicationState.Ready)
+                    {
+                        // Normal case: Start scanning
+                        await StartFaceDetectionAsync();
+                    }
+                    else if (_currentState == ApplicationState.WaitingForConfirmation)
+                    {
+                        // Reset case: Clear confirmation and go back to ready
+                        _recognizedWorker = null;
+                        _currentState = ApplicationState.Ready;
+                        UpdateState("Ready");
+                        UpdateStatus("Scan cancelled. Press SIGN_IN to start new scan.");
+
+                        // IMPORTANT: Tell Python to reset its visual state too
+                        await _videoService.StopDetectionAsync();
+                    }
+                    // Ignore SIGN_IN in other states (Scanning, Processing)
                 }
                 else if (buttonType == "CONFIRM" && _currentState == ApplicationState.WaitingForConfirmation)
                 {
                     await ProcessConfirmationAsync();
-                }
-                else
-                {
-                    UpdateStatus($"Invalid action. Current state: {_currentState}");
                 }
             });
         }
@@ -447,30 +518,33 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             try
             {
+                if (_recognizedWorker == null)
+                {
+                    _currentState = ApplicationState.Ready;
+                    UpdateState("Ready");
+                    return;
+                }
+
                 _currentState = ApplicationState.Processing;
                 UpdateState("Processing...");
+                UpdateStatus($"Confirming sign-in for {_recognizedWorker.Name}...");
 
-                var primaryFace = _detectedFaces[0];
-                UpdateStatus($"Confirmed! Checking in worker: {primaryFace.Id}");
-
-                await _videoService.StopDetectionAsync();
-
-                // TODO: Save attendance record here
-                await Task.Delay(2000);
-
-                _currentState = ApplicationState.Ready;
-                _detectedFaces.Clear();
-                UpdateState("Ready");
-                UpdateStatus("Ready for next scan...");
+                await _videoService.ConfirmSignInAsync();
             }
             catch (Exception ex)
             {
                 _currentState = ApplicationState.Ready;
                 UpdateState("Ready");
-                UpdateStatus($"Error processing confirmation: {ex.Message}");
+                UpdateStatus("Ready for next scan...");
             }
         }
 
+        public class RecognizedWorkerInfo
+        {
+            public string? Name { get; set; }
+            public string? Id { get; set; }
+            public double Confidence { get; set; }
+        }
         private async Task TestStorageSystemAsync()
         {
             try

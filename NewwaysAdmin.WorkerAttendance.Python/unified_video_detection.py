@@ -20,7 +20,7 @@ class VideoDetectionService:
         # Face recognition data
         self.workers = []
         self.recognition_enabled = False
-        self.recognition_tolerance = 0.7  # More lenient - was 0.6
+        self.recognition_tolerance = 0.6  # More lenient - was 0.6
         
     def send_message(self, msg_type, **kwargs):
         """Send JSON message to C#"""
@@ -33,16 +33,13 @@ class VideoDetectionService:
         try:
             workers_folder = r"C:\NewwaysAdmin\WorkerAttendance"
             self.workers = []
-            
-            self.send_message("status", message=f"Looking for workers in: {workers_folder}")
-            
+                        
             if not os.path.exists(workers_folder):
                 self.send_message("error", message=f"Workers folder not found: {workers_folder}")
                 return False
             
             worker_count = 0
             json_files = [f for f in os.listdir(workers_folder) if f.endswith('.json')]
-            self.send_message("status", message=f"Found {len(json_files)} JSON files: {json_files}")
             
             for filename in json_files:
                 filepath = os.path.join(workers_folder, filename)

@@ -19,6 +19,11 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         public event Action<string>? StatusChanged;
         public event Action<FaceDetectionResult>? DetectionComplete;
 
+        public event Action<string, double, string>? SignInRecognition; // worker_name, confidence, worker_id
+        public event Action<string>? SignInUnknown;
+        public event Action<string, double, string>? SignInConfirmed; // worker_name, confidence, worker_id
+
+
         public VideoFeedService(string pythonScript)
         {
             _pythonScript = pythonScript;
@@ -150,6 +155,31 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                             case "error":
                                 StatusChanged?.Invoke($"Python error: {message.Message}");
                                 break;
+                            case "signin_recognition":
+                                if (message.Worker_Name != null && message.Worker_Id != null)
+                                {
+                                    SignInRecognition?.Invoke(
+                                        message.Worker_Name,
+                                        message.Confidence,
+                                        message.Worker_Id
+                                    );
+                                }
+                                break;
+
+                            case "signin_unknown":
+                                SignInUnknown?.Invoke(message.Message ?? "Unknown person detected");
+                                break;
+
+                            case "signin_confirmed":
+                                if (message.Worker_Name != null && message.Worker_Id != null)
+                                {
+                                    SignInConfirmed?.Invoke(
+                                        message.Worker_Name,
+                                        message.Confidence,
+                                        message.Worker_Id
+                                    );
+                                }
+                                break;
                         }
                     }
                     catch (JsonException)
@@ -214,17 +244,39 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 StatusChanged?.Invoke($"Error stopping video: {ex.Message}");
             }
         }
+        public async Task ConfirmSignInAsync()
+        {
+            try
+            {
+                StatusChanged?.Invoke("Sending confirmation command...");
+
+                string commandFile = Path.Combine(Path.GetTempPath(), "face_detection_command.txt");
+                await File.WriteAllTextAsync(commandFile, "confirm_signin");
+
+                StatusChanged?.Invoke("Confirmation command sent");
+            }
+            catch (Exception ex)
+            {
+                StatusChanged?.Invoke($"Error sending confirmation: {ex.Message}");
+            }
+        }
     }
 
     // Updated message classes for unified communication
     public class PythonMessage
     {
+        // Keep existing properties:
         public string? Type { get; set; }
         public string? Data { get; set; }
         public string? Message { get; set; }
         public string? Status { get; set; }
         public double Timestamp { get; set; }
         public List<PythonFace>? Faces { get; set; }
+
+        // ADD these new properties:
+        public string? Worker_Name { get; set; }
+        public string? Worker_Id { get; set; }
+        public double Confidence { get; set; }
     }
 
     public class PythonFace
