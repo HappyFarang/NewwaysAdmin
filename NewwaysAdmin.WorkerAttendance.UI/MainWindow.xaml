@@ -72,6 +72,9 @@
                            FontWeight="Bold" 
                            Margin="10,5"
                            Foreground="Green"/>
+                <Rectangle Height="10" Fill="Transparent"/>
+                <!-- Small spacer -->
+                <controls:ActiveWorkersControl x:Name="ActiveWorkers"/>
             </StackPanel>
         </Grid>
     </Grid>

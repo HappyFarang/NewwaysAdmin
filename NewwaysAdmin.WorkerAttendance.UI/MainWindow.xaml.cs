@@ -11,6 +11,7 @@ using NewwaysAdmin.Shared.IO.Structure;
 using System.Diagnostics;
 using NewwaysAdmin.WorkerAttendance.UI.Windows;
 
+
 namespace NewwaysAdmin.WorkerAttendance.UI
 {
     public partial class MainWindow : Window
@@ -51,8 +52,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             // Python and Arduino setup (existing code)
             string pythonBasePath = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..",
-                "NewwaysAdmin.WorkerAttendance.Python"
+                "Python"
             );
 
             string unifiedScript = Path.Combine(pythonBasePath, "unified_video_detection.py");
@@ -213,6 +213,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
                 // Test storage system
                 await TestStorageSystemAsync();
+
+                ActiveWorkers.Initialize(_storageFactory, _loggerFactory);
             }
             catch (Exception ex)
             {
@@ -234,24 +236,31 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             try
             {
+                // Hide active workers list FIRST
+                ActiveWorkers.Visibility = Visibility.Collapsed;
+
                 // Create logger for the management window
                 var managementLogger = _loggerFactory.CreateLogger<WorkerManagementWindow>();
-
                 // Create and show the worker management window
                 var managementWindow = new WorkerManagementWindow(_workerStorageService, managementLogger)
                 {
                     Owner = this // Set this window as the owner for proper modal behavior
                 };
-
                 UpdateStatus("Opening worker management window...");
                 managementWindow.ShowDialog(); // Show as modal dialog
                 UpdateStatus("Worker management window closed");
+
+                // Show active workers list again AFTER dialog closes
+                ActiveWorkers.Visibility = Visibility.Visible;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error opening worker management window");
                 UpdateStatus($"Error opening management window: {ex.Message}");
                 MessageBox.Show($"Error opening worker management:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                // Make sure to show it again even if there's an error
+                ActiveWorkers.Visibility = Visibility.Visible;
             }
         }
 
@@ -691,7 +700,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 // Test 1: Try basic python version check
                 var testInfo = new ProcessStartInfo
                 {
-                    FileName = @"C:\Python312\python.exe",
+                    FileName = "python.exe",
                     Arguments = "--version",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -726,7 +735,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
                 var scriptInfo = new ProcessStartInfo
                 {
-                    FileName = @"C:\Python312\python.exe",
+                    FileName = "python.exe",
                     Arguments = $"-c \"print('Python can execute')\"",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
@@ -774,7 +783,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         /// <summary>
         /// Handle worker sign-in confirmation
         /// </summary>
-        private void OnWorkerSignInConfirmed(string workerName, double confidence, string workerId)
+        private async void OnWorkerSignInConfirmed(string workerName, double confidence, string workerId)
         {
             Dispatcher.Invoke(() =>
             {
@@ -785,7 +794,27 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 // Hide the confirmation panel
                 Instructions.HideWorkerConfirmation();
 
-                // TODO: Save attendance record to database
+                // Save attendance record to daily work cycle
+                try
+                {
+                    // Create the correct logger type for AttendanceCycleService
+                    var attendanceLogger = _loggerFactory.CreateLogger<AttendanceCycleService>();
+                    var attendanceService = new AttendanceCycleService(_storageFactory, attendanceLogger);
+
+                    // Use Task.Run to avoid making the whole method async
+                    var record = Task.Run(async () => await attendanceService.ProcessWorkerActionAsync(
+                        int.Parse(workerId),
+                        workerName,
+                        confidence
+                    )).Result;
+
+                    _logger.LogInformation("Attendance recorded: {Type} for {WorkerName} in {Cycle} cycle",
+                        record.Type, workerName, record.WorkCycle);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to save attendance record for {WorkerName}", workerName);
+                }
 
                 // Reset to ready state after brief delay
                 Task.Delay(2000).ContinueWith(_ =>
@@ -798,6 +827,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                     });
                 });
             });
+
+            ActiveWorkers.TriggerRefresh();
         }
         protected override void OnClosed(EventArgs e)
         {

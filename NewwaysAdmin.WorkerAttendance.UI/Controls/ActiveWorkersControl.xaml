@@ -1,0 +1,52 @@
+<!-- NewwaysAdmin.WorkerAttendance.UI/Controls/ActiveWorkersControl.xaml -->
+<!-- Purpose: Display list of currently checked-in workers -->
+
+<UserControl x:Class="NewwaysAdmin.WorkerAttendance.UI.Controls.ActiveWorkersControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel>
+        <!-- Header -->
+        <TextBlock Text="Active Workers" 
+                   FontSize="14" 
+                   FontWeight="Bold" 
+                   Margin="10,5,10,10"
+                   HorizontalAlignment="Center"/>
+
+        <!-- Active Workers List -->
+        <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="WorkersList" Margin="5">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="LightGreen" 
+                                CornerRadius="5" 
+                                Padding="8" 
+                                Margin="3">
+                            <StackPanel>
+                                <TextBlock Text="{Binding WorkerName}" 
+                                          FontWeight="Bold" 
+                                          FontSize="12"/>
+                                <TextBlock Text="{Binding Status}" 
+                                          FontSize="10" 
+                                          Foreground="DarkGreen"/>
+                                <TextBlock Text="{Binding CheckInTime, StringFormat='In: {0:HH:mm}'}" 
+                                          FontSize="9" 
+                                          Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- No active workers message -->
+        <TextBlock x:Name="NoWorkersMessage"
+                   Text="No workers currently checked in"
+                   FontStyle="Italic"
+                   Foreground="Gray"
+                   HorizontalAlignment="Center"
+                   Margin="10"
+                   Visibility="Collapsed"/>
+    </StackPanel>
+
+</UserControl>
