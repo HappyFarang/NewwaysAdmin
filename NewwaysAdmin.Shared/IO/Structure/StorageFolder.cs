@@ -22,6 +22,15 @@ namespace NewwaysAdmin.Shared.IO.Structure
         public bool IndexContent { get; set; } = false;                        // For OCR/text search
         public TimeSpan? IndexCacheLifetime { get; set; }                      // Performance tuning
 
+        // NEW: PassThrough mode for external file synchronization
+        /// <summary>
+        /// When true, bypasses serialization and copies files directly.
+        /// Useful for syncing external JSON files that are already properly serialized by another IO Manager.
+        /// Only applicable to StorageType.Json folders.
+        /// Default: false (backwards compatible)
+        /// </summary>
+        public bool PassThroughMode { get; set; } = false;
+
         // Existing computed property
         public string UniqueId => string.IsNullOrEmpty(Path)
             ? Name

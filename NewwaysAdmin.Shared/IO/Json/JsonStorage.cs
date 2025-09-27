@@ -11,14 +11,22 @@ namespace NewwaysAdmin.Shared.IO.Json
         private readonly StorageOptions _options;
         private readonly JsonSerializerSettings _serializerSettings;
         private readonly SemaphoreSlim _lock = new(1, 1);
+        private readonly bool _passThroughMode; // NEW: PassThrough mode flag
 
-        public JsonStorage(StorageOptions options)
+        // Existing constructor (backwards compatible)
+        public JsonStorage(StorageOptions options) : this(options, false)
+        {
+        }
+
+        // NEW: Constructor with PassThrough mode support
+        public JsonStorage(StorageOptions options, bool passThroughMode = false)
         {
             ArgumentNullException.ThrowIfNull(options);
             ArgumentException.ThrowIfNullOrEmpty(options.BasePath);
             ArgumentException.ThrowIfNullOrEmpty(options.FileExtension);
 
             _options = options;
+            _passThroughMode = passThroughMode;
             Directory.CreateDirectory(options.BasePath);
 
             _serializerSettings = new JsonSerializerSettings
@@ -29,6 +37,51 @@ namespace NewwaysAdmin.Shared.IO.Json
             };
         }
 
+        // NEW: Property to check if this storage is in passthrough mode
+        public bool IsPassThroughMode => _passThroughMode;
+
+        // NEW: Method for copying files directly (passthrough mode only)
+        /// <summary>
+        /// Copies a file directly without serialization. Only available in PassThrough mode.
+        /// Used for syncing external JSON files that are already properly serialized.
+        /// </summary>
+        /// <param name="sourceFilePath">Path to the source file to copy</param>
+        /// <param name="identifier">Storage identifier for the target file</param>
+        public async Task CopyFileDirectlyAsync(string sourceFilePath, string identifier)
+        {
+            if (!_passThroughMode)
+                throw new InvalidOperationException("CopyFileDirectlyAsync is only available in PassThrough mode");
+
+            if (!File.Exists(sourceFilePath))
+                throw new FileNotFoundException($"Source file not found: {sourceFilePath}");
+
+            var targetPath = GetFilePath(identifier);
+            await _lock.WaitAsync();
+            try
+            {
+                // Create backup if file exists and backups are enabled
+                if (_options.CreateBackups && File.Exists(targetPath))
+                {
+                    await CreateBackupAsync(targetPath);
+                }
+
+                // Ensure target directory exists
+                var targetDir = Path.GetDirectoryName(targetPath);
+                if (!string.IsNullOrEmpty(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
+                // Copy file as-is, preserving original JSON content
+                File.Copy(sourceFilePath, targetPath, overwrite: true);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        // Existing LoadAsync method (works in both modes)
         public async Task<T> LoadAsync(string identifier)
         {
             var filePath = GetFilePath(identifier);
@@ -42,11 +95,16 @@ namespace NewwaysAdmin.Shared.IO.Json
                 var data = JsonConvert.DeserializeObject<T>(json, _serializerSettings);
                 if (data == null)
                     throw new StorageException("Failed to deserialize data", identifier, StorageOperation.Load);
+
                 return data;
             }
             catch (JsonException ex)
             {
                 throw new StorageException("Invalid JSON format", identifier, StorageOperation.Load, ex);
+            }
+            catch (Exception ex)
+            {
+                throw new StorageException("Failed to load data", identifier, StorageOperation.Load, ex);
             }
             finally
             {
@@ -54,56 +112,36 @@ namespace NewwaysAdmin.Shared.IO.Json
             }
         }
 
+        // Updated SaveAsync method (respects PassThrough mode)
         public async Task SaveAsync(string identifier, T data)
         {
-            var filePath = GetFilePath(identifier);
-            var tempPath = filePath + ".tmp";
+            if (_passThroughMode)
+            {
+                throw new InvalidOperationException(
+                    "SaveAsync is not supported in PassThrough mode. Use CopyFileDirectlyAsync instead.");
+            }
 
+            var filePath = GetFilePath(identifier);
             await _lock.WaitAsync();
             try
             {
+                // Create backup if file exists and backups are enabled
                 if (_options.CreateBackups && File.Exists(filePath))
                 {
-                    await CreateBackupAsync(filePath, identifier);
+                    await CreateBackupAsync(filePath);
                 }
 
-                // Serialize to temporary file
                 var json = JsonConvert.SerializeObject(data, _serializerSettings);
-                await File.WriteAllTextAsync(tempPath, json);
+                await File.WriteAllTextAsync(filePath, json);
 
-                // Validate if enabled
+                // Validate after save if enabled
                 if (_options.ValidateAfterSave)
                 {
-                    var verifyJson = await File.ReadAllTextAsync(tempPath);
-                    var verifyData = JsonConvert.DeserializeObject<T>(verifyJson, _serializerSettings);
-
-                    if (verifyData == null)
-                        throw new StorageException("Data validation failed", identifier, StorageOperation.Save);
-                }
-
-                // Move file to final location
-                if (File.Exists(filePath))
-                {
-                    File.Replace(tempPath, filePath, null);
-                }
-                else
-                {
-                    File.Move(tempPath, filePath);
+                    await ValidateFileAsync(filePath);
                 }
             }
             catch (Exception ex)
             {
-                if (File.Exists(tempPath))
-                {
-                    try
-                    {
-                        File.Delete(tempPath);
-                    }
-                    catch
-                    {
-                        // Best effort cleanup
-                    }
-                }
                 throw new StorageException("Failed to save data", identifier, StorageOperation.Save, ex);
             }
             finally
@@ -112,32 +150,46 @@ namespace NewwaysAdmin.Shared.IO.Json
             }
         }
 
-        public Task<bool> ExistsAsync(string identifier)
+        // Existing methods remain unchanged...
+        public async Task<bool> ExistsAsync(string identifier)
         {
-            return Task.FromResult(File.Exists(GetFilePath(identifier)));
+            var filePath = GetFilePath(identifier);
+            return File.Exists(filePath);
         }
 
-        public Task<IEnumerable<string>> ListIdentifiersAsync()
+        public async Task<IEnumerable<string>> ListIdentifiersAsync()
         {
-            var files = Directory.GetFiles(_options.BasePath, $"*{_options.FileExtension}")
-                .Select(f => Path.GetFileNameWithoutExtension(f));
-            return Task.FromResult(files);
+            await _lock.WaitAsync();
+            try
+            {
+                if (!Directory.Exists(_options.BasePath))
+                    return Enumerable.Empty<string>();
+
+                return Directory.GetFiles(_options.BasePath, $"*{_options.FileExtension}")
+                    .Select(f => Path.GetFileNameWithoutExtension(f))
+                    .ToList();
+            }
+            finally
+            {
+                _lock.Release();
+            }
         }
 
         public async Task DeleteAsync(string identifier)
         {
             var filePath = GetFilePath(identifier);
-
             await _lock.WaitAsync();
             try
             {
-                if (_options.CreateBackups)
-                {
-                    await CreateBackupAsync(filePath, identifier);
-                }
-
                 if (File.Exists(filePath))
+                {
+                    // Create backup before deletion if enabled
+                    if (_options.CreateBackups)
+                    {
+                        await CreateBackupAsync(filePath);
+                    }
                     File.Delete(filePath);
+                }
             }
             catch (Exception ex)
             {
@@ -149,42 +201,59 @@ namespace NewwaysAdmin.Shared.IO.Json
             }
         }
 
+        // Private helper methods (existing)
         private string GetFilePath(string identifier)
         {
-            var safeIdentifier = string.Join("_", identifier.Split(Path.GetInvalidFileNameChars()));
-            return Path.Combine(_options.BasePath, $"{safeIdentifier}{_options.FileExtension}");
+            return Path.Combine(_options.BasePath, $"{identifier}{_options.FileExtension}");
         }
 
-        private async Task CreateBackupAsync(string filePath, string identifier)
+        private async Task CreateBackupAsync(string filePath)
         {
             if (!File.Exists(filePath)) return;
 
-            var backupDir = Path.Combine(_options.BasePath, "backups", identifier);
+            var backupDir = Path.Combine(Path.GetDirectoryName(filePath)!, "Backups");
             Directory.CreateDirectory(backupDir);
 
-            var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-            var backupPath = Path.Combine(backupDir, $"{timestamp}{_options.FileExtension}");
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var fileName = Path.GetFileName(filePath);
+            var backupPath = Path.Combine(backupDir, $"{timestamp}_{fileName}");
 
-            await Task.Run(() => File.Copy(filePath, backupPath, true));
+            File.Copy(filePath, backupPath);
 
-            // Cleanup old backups if we exceed MaxBackupCount
-            if (_options.MaxBackupCount > 0)
+            // Clean up old backups
+            await CleanupOldBackupsAsync(backupDir);
+        }
+
+        private async Task CleanupOldBackupsAsync(string backupDir)
+        {
+            if (!Directory.Exists(backupDir)) return;
+
+            var backupFiles = Directory.GetFiles(backupDir)
+                .Select(f => new FileInfo(f))
+                .OrderByDescending(f => f.CreationTime)
+                .ToList();
+
+            // Remove files beyond the max backup count
+            if (backupFiles.Count > _options.MaxBackupCount)
             {
-                var backups = Directory.GetFiles(backupDir)
-                    .OrderByDescending(f => f)
-                    .Skip(_options.MaxBackupCount);
-
-                foreach (var oldBackup in backups)
+                for (int i = _options.MaxBackupCount; i < backupFiles.Count; i++)
                 {
-                    try
-                    {
-                        File.Delete(oldBackup);
-                    }
-                    catch
-                    {
-                        // Best effort cleanup
-                    }
+                    backupFiles[i].Delete();
                 }
+            }
+        }
+
+        private async Task ValidateFileAsync(string filePath)
+        {
+            try
+            {
+                var json = await File.ReadAllTextAsync(filePath);
+                JsonConvert.DeserializeObject<T>(json, _serializerSettings);
+            }
+            catch (JsonException ex)
+            {
+                throw new StorageException("File validation failed after save",
+                    Path.GetFileNameWithoutExtension(filePath), StorageOperation.Save, ex);
             }
         }
     }

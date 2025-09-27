@@ -85,7 +85,7 @@ namespace NewwaysAdmin.Shared.IO.Structure
             }
         }
 
-        // Existing synchronous GetStorage method
+        // Existing synchronous GetStorage method (UPDATED)
         public IDataStorage<T> GetStorage<T>(string folderName) where T : class, new()
         {
             var folder = _config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
@@ -130,15 +130,17 @@ namespace NewwaysAdmin.Shared.IO.Structure
                 MaxBackupCount = folder.MaxBackupCount
             };
 
+            // UPDATED: Pass PassThroughMode flag to JsonStorage constructor
             IDataStorage<T> storage = folder.Type == StorageType.Json
-                ? new JsonStorage<T>(options)
+                ? new JsonStorage<T>(options, folder.PassThroughMode)  // NEW: Pass the PassThroughMode flag
                 : new BinaryStorage<T>(options);
 
             _storageCache[cacheKey] = storage;
             return storage;
         }
 
-        // Async method
+
+        // Async method (UPDATED)
         public async Task<IDataStorage<T>> GetStorageAsync<T>(string folderName) where T : class, new()
         {
             await _lock.WaitAsync();
@@ -185,8 +187,9 @@ namespace NewwaysAdmin.Shared.IO.Structure
                     MaxBackupCount = folder.MaxBackupCount
                 };
 
+                // UPDATED: Pass PassThroughMode flag to JsonStorage constructor
                 IDataStorage<T> storage = folder.Type == StorageType.Json
-                    ? new JsonStorage<T>(options)
+                    ? new JsonStorage<T>(options, folder.PassThroughMode)  // NEW: Pass the PassThroughMode flag
                     : new BinaryStorage<T>(options);
 
                 _storageCache[cacheKey] = storage;
