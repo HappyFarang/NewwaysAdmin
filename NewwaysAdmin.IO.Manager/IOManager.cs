@@ -426,7 +426,148 @@ namespace NewwaysAdmin.IO.Manager
                 _logger.LogError(ex, "Error processing pending transfers");
             }
         }
+        /// <summary>
+        /// Syncs files from a remote path to a local storage folder using PassThrough mode.
+        /// Only copies files that are new or have changed based on file size comparison.
+        /// Uses the storage system's indexing to track what files we already have.
+        /// </summary>
+        /// <param name="remotePath">Full path to remote folder (e.g., "N:\\WorkerAttendance")</param>
+        /// <param name="localFolderName">Name of the local storage folder (e.g., "WorkerAttendance")</param>
+        /// <param name="cancellationToken">Cancellation token for async operation</param>
+        public async Task SyncRemotePathAsync(string remotePath, string localFolderName, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                // Check if remote path exists
+                if (!Directory.Exists(remotePath))
+                {
+                    _logger.LogWarning("Remote path not found (machine may be offline): {RemotePath}", remotePath);
+                    return;
+                }
 
+                // Get the storage instance for the local folder
+                // We need a dummy type for the generic - we'll use object since we're just copying files
+                var storage = await _storageFactory.GetStorageAsync<object>(localFolderName);
+
+                // Check if this is a JSON storage in PassThrough mode (our local storage must support this)
+                if (storage is not NewwaysAdmin.Shared.IO.Json.JsonStorage<object> jsonStorage || !jsonStorage.IsPassThroughMode)
+                {
+                    _logger.LogError("Local storage folder {FolderName} does not support PassThrough mode", localFolderName);
+                    return;
+                }
+
+                // Get all files from remote path
+                var remoteFiles = Directory.GetFiles(remotePath, "*.*", SearchOption.AllDirectories);
+                int newFileCount = 0;
+                int updatedFileCount = 0;
+                int errorCount = 0;
+
+                foreach (var remoteFile in remoteFiles)
+                {
+                    if (cancellationToken.IsCancellationRequested) break;
+
+                    try
+                    {
+                        // Get relative path and create identifier for storage
+                        var relativePath = GetRelativePath(remoteFile, remotePath);
+                        var fileName = Path.GetFileName(remoteFile);
+                        var remoteFileInfo = new FileInfo(remoteFile);
+
+                        // Create identifier for local storage (use relative path to maintain folder structure)
+                        var storageIdentifier = relativePath.Replace(Path.DirectorySeparatorChar, '_').Replace(Path.AltDirectorySeparatorChar, '_');
+
+                        // Check if we already have this file locally
+                        var localFileExists = await storage.ExistsAsync(storageIdentifier);
+                        bool shouldCopy = false;
+
+                        if (!localFileExists)
+                        {
+                            shouldCopy = true;
+                            newFileCount++;
+                            _logger.LogDebug("New file detected: {FileName}", fileName);
+                        }
+                        else
+                        {
+                            // Compare file sizes to detect changes
+                            // Get the local file path to check its size
+                            var localFolderPath = GetLocalStoragePath(localFolderName);
+                            var localFilePath = Path.Combine(localFolderPath, storageIdentifier + ".json");
+
+                            if (File.Exists(localFilePath))
+                            {
+                                var localFileInfo = new FileInfo(localFilePath);
+                                if (localFileInfo.Length != remoteFileInfo.Length)
+                                {
+                                    shouldCopy = true;
+                                    updatedFileCount++;
+                                    _logger.LogDebug("File size mismatch for {FileName}: Local={LocalSize}, Remote={RemoteSize}",
+                                        fileName, localFileInfo.Length, remoteFileInfo.Length);
+                                }
+                            }
+                            else
+                            {
+                                // File exists in storage but not on disk - copy it
+                                shouldCopy = true;
+                                updatedFileCount++;
+                            }
+                        }
+
+                        if (shouldCopy)
+                        {
+                            // Use PassThrough mode to copy file directly
+                            await jsonStorage.CopyFileDirectlyAsync(remoteFile, storageIdentifier);
+                            _logger.LogDebug("Synced file: {FileName} -> {StorageId}", fileName, storageIdentifier);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errorCount++;
+                        _logger.LogWarning(ex, "Error syncing file {RemoteFile}", remoteFile);
+                    }
+                }
+
+                // Log summary (only if there was activity)
+                if (newFileCount > 0 || updatedFileCount > 0 || errorCount > 0)
+                {
+                    _logger.LogInformation("Sync completed for {FolderName}: {NewFiles} new, {UpdatedFiles} updated, {Errors} errors",
+                        localFolderName, newFileCount, updatedFileCount, errorCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error syncing remote path {RemotePath} to local folder {LocalFolder}",
+                    remotePath, localFolderName);
+            }
+        }
+
+        /// <summary>
+        /// Helper method to get the local storage path for a folder
+        /// </summary>
+        private string GetLocalStoragePath(string folderName)
+        {
+            // This follows the same pattern as EnhancedStorageFactory
+            // We need to find the folder configuration to get its path
+            var config = new NewwaysAdmin.Shared.IO.Structure.StorageConfiguration();
+            var configPath = Path.Combine(LocalBaseFolder, "Config", "storage-registry.json");
+
+            if (File.Exists(configPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(configPath);
+                    config = Newtonsoft.Json.JsonConvert.DeserializeObject<NewwaysAdmin.Shared.IO.Structure.StorageConfiguration>(json) ?? config;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not read storage configuration");
+                }
+            }
+
+            var folder = config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
+            var folderPath = folder?.Path ?? folderName;
+
+            return Path.Combine(NewwaysAdmin.Shared.IO.Structure.StorageConfiguration.DEFAULT_BASE_DIRECTORY, folderPath);
+        }
         public async Task<IDataStorage<T>> GetStorageAsync<T>(string folderName) where T : class, new()
         {
             return await _storageFactory.GetStorageAsync<T>(folderName);

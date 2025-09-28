@@ -35,6 +35,7 @@ using NewwaysAdmin.WebAdmin.Middleware;
 using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates;
 using NewwaysAdmin.SharedModels.Services.Parsing;
+using NewwaysAdmin.WebAdmin.Services.Background;
 
 
 namespace NewwaysAdmin.WebAdmin;
@@ -83,6 +84,7 @@ public class Program
             throw; // Re-throw to see in debugger
         }
         app.Services.ConfigureExternalFileProcessors();
+        app.Services.ConfigurePassThroughSyncPaths();
 
         await ConfigureApplication(app);
 
@@ -243,6 +245,8 @@ public class Program
         services.AddModuleRegistry();
 
         services.AddExternalFileProcessing();
+        services.AddPassThroughSyncService();
+
 
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig

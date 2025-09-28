@@ -105,5 +105,19 @@ public static class StorageFolderConfiguration
             IndexFiles = true,                // Enable indexing for fast date range queries
             IndexedExtensions = [".bin"]      // Only index our scan result files
         });
+        // WorkerAttendance folder for synced remote data
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "WorkerAttendance",
+            Description = "Synced worker attendance and registration data from remote face scan machines",
+            Type = StorageType.Json,
+            Path = "WorkerAttendance",
+            IsShared = true,                  // Multiple users can access attendance data
+            CreateBackups = true,
+            MaxBackupCount = 50,              // Keep many backups for employee data
+            IndexFiles = true,                // Enable indexing for smart differential sync
+            IndexedExtensions = [".json"],    // Index all JSON files in the folder
+            PassThroughMode = true            // Key: files already serialized by remote IO Manager
+        });
     }
 }
