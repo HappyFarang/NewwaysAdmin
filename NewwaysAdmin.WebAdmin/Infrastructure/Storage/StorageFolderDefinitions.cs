@@ -211,6 +211,44 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     Path = "Ocr",
                     CreateBackups = true,
                     MaxBackupCount = 10  // More backups since patterns are valuable
+                },
+                // ExternalFileIndexes (required by system)
+                new StorageFolder
+                {
+                    Name = "ExternalFileIndexes",
+                    Description = "Index data for external file collections (NAS, network drives)",
+                    Type = StorageType.Json,
+                    Path = "FileIndexing/External",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 10,
+                    IndexFiles = false
+                },
+                // WorkerAttendance Index (NEW - for internal indexing system)
+                new StorageFolder
+                {
+                    Name = "WorkerAttendance_Index",
+                    Description = "Index data for WorkerAttendance folder",
+                    Type = StorageType.Json,
+                    Path = "WorkerAttendance_Index",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 10,
+                    IndexFiles = false  // Don't index the index files themselves
+                },
+                // WorkerAttendance (NEW)
+                new StorageFolder
+                {
+                    Name = "WorkerAttendance",
+                    Description = "Synced worker attendance and registration data from remote face scan machines",
+                    Type = StorageType.Json,
+                    Path = "WorkerAttendance",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 50,
+                    IndexFiles = true,
+                    IndexedExtensions = [".json"],
+                    PassThroughMode = true  // Key: files already serialized by remote IO Manager
                 }
 
             // Add new folders here as needed...

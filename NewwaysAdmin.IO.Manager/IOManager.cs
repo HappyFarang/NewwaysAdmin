@@ -426,7 +426,7 @@ namespace NewwaysAdmin.IO.Manager
                 _logger.LogError(ex, "Error processing pending transfers");
             }
         }
-        /// <summary>
+        // <summary>
         /// Syncs files from a remote path to a local storage folder using PassThrough mode.
         /// Only copies files that are new or have changed based on file size comparison.
         /// Uses the storage system's indexing to track what files we already have.
@@ -456,8 +456,10 @@ namespace NewwaysAdmin.IO.Manager
                     return;
                 }
 
-                // Get all files from remote path
-                var remoteFiles = Directory.GetFiles(remotePath, "*.*", SearchOption.AllDirectories);
+                // Get all files from remote path, excluding backup directories
+                var remoteFiles = Directory.GetFiles(remotePath, "*.*", SearchOption.AllDirectories)
+                    .Where(file => !IsInBackupDirectory(file, remotePath))
+                    .ToArray();
                 int newFileCount = 0;
                 int updatedFileCount = 0;
                 int errorCount = 0;
@@ -474,7 +476,14 @@ namespace NewwaysAdmin.IO.Manager
                         var remoteFileInfo = new FileInfo(remoteFile);
 
                         // Create identifier for local storage (use relative path to maintain folder structure)
+                        // For PassThrough mode, remove the file extension to prevent double extensions
                         var storageIdentifier = relativePath.Replace(Path.DirectorySeparatorChar, '_').Replace(Path.AltDirectorySeparatorChar, '_');
+
+                        // Remove extension for PassThrough mode to prevent .json.json
+                        if (jsonStorage.IsPassThroughMode && storageIdentifier.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                        {
+                            storageIdentifier = storageIdentifier.Substring(0, storageIdentifier.Length - 5);
+                        }
 
                         // Check if we already have this file locally
                         var localFileExists = await storage.ExistsAsync(storageIdentifier);
@@ -526,11 +535,17 @@ namespace NewwaysAdmin.IO.Manager
                     }
                 }
 
-                // Log summary (only if there was activity)
+                // Log summary and trigger indexing if there was activity
                 if (newFileCount > 0 || updatedFileCount > 0 || errorCount > 0)
                 {
                     _logger.LogInformation("Sync completed for {FolderName}: {NewFiles} new, {UpdatedFiles} updated, {Errors} errors",
                         localFolderName, newFileCount, updatedFileCount, errorCount);
+
+                    // Trigger indexing for the folder if files were added/updated
+                    if (newFileCount > 0 || updatedFileCount > 0)
+                    {
+                        await TriggerFolderIndexingAsync(localFolderName, cancellationToken);
+                    }
                 }
             }
             catch (Exception ex)
@@ -568,6 +583,111 @@ namespace NewwaysAdmin.IO.Manager
 
             return Path.Combine(NewwaysAdmin.Shared.IO.Structure.StorageConfiguration.DEFAULT_BASE_DIRECTORY, folderPath);
         }
+
+        /// <summary>
+        /// Check if a file is in a backup directory that should be excluded from sync
+        /// </summary>
+        private bool IsInBackupDirectory(string filePath, string remotePath)
+        {
+            var relativePath = GetRelativePath(filePath, remotePath);
+            var pathParts = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Check if any part of the path contains common backup directory names
+            return pathParts.Any(part =>
+                string.Equals(part, "Backups", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(part, "Backup", StringComparison.OrdinalIgnoreCase) ||
+                part.StartsWith("backup", StringComparison.OrdinalIgnoreCase) ||
+                part.StartsWith("bak", StringComparison.OrdinalIgnoreCase));
+        }
+
+
+        /// <summary>
+        /// Trigger indexing for a storage folder after files have been synced
+        /// </summary>
+        private async Task TriggerFolderIndexingAsync(string folderName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation("Triggering internal indexing system for folder: {FolderName}", folderName);
+
+                // Get the folder configuration
+                var folder = await GetFolderConfigurationAsync(folderName);
+                if (folder == null)
+                {
+                    _logger.LogWarning("Could not find folder configuration for: {FolderName}", folderName);
+                    return;
+                }
+
+                if (!folder.IndexFiles)
+                {
+                    _logger.LogDebug("Indexing not enabled for folder: {FolderName}", folderName);
+                    return;
+                }
+
+                // Get the actual folder path
+                var folderPath = GetLocalStoragePath(folderName);
+                if (!Directory.Exists(folderPath))
+                {
+                    _logger.LogWarning("Folder path not found for indexing: {FolderPath}", folderPath);
+                    return;
+                }
+
+                _logger.LogInformation("Using built-in indexing system for folder: {FolderName} at path: {FolderPath}",
+                    folderName, folderPath);
+
+                // Use the built-in internal indexing system
+                var indexEngine = new NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexEngine(
+                    _logger as ILogger<NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexEngine>,
+                    _storageFactory);
+
+                var indexManager = new NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexManager(
+                    _logger as ILogger<NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexManager>,
+                    _storageFactory,
+                    indexEngine);
+
+                // Trigger the built-in indexing - this should create WorkerAttendance_Index folder
+                var success = await indexManager.IndexFolderAsync(folder, folderPath);
+                if (success)
+                {
+                    _logger.LogInformation("Successfully triggered built-in indexing for folder: {FolderName}", folderName);
+                }
+                else
+                {
+                    _logger.LogWarning("Built-in indexing failed for folder: {FolderName}", folderName);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error triggering built-in indexing for folder: {FolderName}", folderName);
+            }
+        }
+
+        /// <summary>
+        /// Get folder configuration for indexing
+        /// </summary>
+        private async Task<NewwaysAdmin.Shared.IO.Structure.StorageFolder?> GetFolderConfigurationAsync(string folderName)
+        {
+            try
+            {
+                // Try to get from storage factory's registered folders
+                var config = new NewwaysAdmin.Shared.IO.Structure.StorageConfiguration();
+                var configPath = Path.Combine(LocalBaseFolder, "Config", "storage-registry.json");
+
+                if (File.Exists(configPath))
+                {
+                    var json = await File.ReadAllTextAsync(configPath);
+                    config = Newtonsoft.Json.JsonConvert.DeserializeObject<NewwaysAdmin.Shared.IO.Structure.StorageConfiguration>(json) ?? config;
+                }
+
+                return config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting folder configuration for: {FolderName}", folderName);
+                return null;
+            }
+        }
+
         public async Task<IDataStorage<T>> GetStorageAsync<T>(string folderName) where T : class, new()
         {
             return await _storageFactory.GetStorageAsync<T>(folderName);
