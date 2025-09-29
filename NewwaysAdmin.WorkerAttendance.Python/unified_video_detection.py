@@ -1,3 +1,7 @@
+# File: unified_video_detection.py
+# Purpose: Face detection and recognition with improved best-match logic
+# UPDATED: Fixed recognize_face to compare ALL workers before deciding
+
 import cv2
 import base64
 import json
@@ -13,14 +17,18 @@ class VideoDetectionService:
         self.cap = None
         self.face_cascade = None
         self.running = False
-        self.detection_mode = "idle"  # Changed: Use string states ("idle", "detecting", "confirmation") for clarity
+        self.detection_mode = "idle"  # States: "idle", "detecting", "confirmation"
         self.detection_count = 0
         self.detection_threshold = 5
         self.recognition_result = None  # Store current recognition result for confirmation
+        
         # Face recognition data
         self.workers = []
         self.recognition_enabled = False
-        self.recognition_tolerance = 0.6  # More lenient - was 0.6
+        
+        # UPDATED: Strict thresholds to prevent false positives
+        self.min_confidence_distance = 0.45  # Maximum distance (55% minimum confidence)
+        self.ambiguity_threshold = 0.15      # Minimum gap between 1st and 2nd place (15%)
         
     def send_message(self, msg_type, **kwargs):
         """Send JSON message to C#"""
@@ -82,22 +90,79 @@ class VideoDetectionService:
             return False
     
     def recognize_face(self, face_encoding):
-        """Try to recognize a face against stored worker encodings"""
+        """
+        UPDATED: Find the BEST match across ALL workers with strict validation.
+        
+        This method now:
+        1. Compares against ALL workers (not just first match)
+        2. Uses the best encoding per worker
+        3. Applies strict confidence threshold (55% minimum)
+        4. Rejects ambiguous matches (top 2 must differ by 15%+)
+        """
         if not self.recognition_enabled or not self.workers:
             return None
             
         try:
+            # Step 1: Collect ALL matches with their distances
+            all_matches = []
+            
             for worker in self.workers:
-                for stored_encoding in worker['encodings']:
+                # Find BEST encoding match for THIS worker (not just first encoding)
+                best_distance = float('inf')
+                best_encoding_index = -1
+                
+                for idx, stored_encoding in enumerate(worker['encodings']):
                     distance = face_recognition.face_distance([stored_encoding], face_encoding)[0]
-                    if distance <= self.recognition_tolerance:
-                        confidence = (1.0 - distance) * 100
-                        return {
-                            'worker_name': worker['name'],
-                            'confidence': round(confidence, 1),
-                            'worker_id': worker['id']
-                        }
-            return None
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_encoding_index = idx
+                
+                # Record this worker's best match
+                confidence = round((1.0 - best_distance) * 100, 1)
+                all_matches.append({
+                    'worker': worker,
+                    'distance': best_distance,
+                    'confidence': confidence,
+                    'encoding_index': best_encoding_index
+                })
+            
+            # Step 2: Sort by distance (ascending = best matches first)
+            all_matches.sort(key=lambda x: x['distance'])
+            
+            # Step 3: Get best and second-best matches
+            best_match = all_matches[0]
+            second_best = all_matches[1] if len(all_matches) > 1 else None
+            
+            # Step 4: Apply strict validation thresholds
+            
+            # Reject if best match is not confident enough (below 55% confidence)
+            if best_match['distance'] > self.min_confidence_distance:
+                self.send_message("status", 
+                    message=f"Match too weak: Best was {best_match['worker']['name']} at {best_match['confidence']}% (minimum 55%)")
+                return None
+            
+            # Reject if too close between top 2 matches (ambiguous result)
+            if second_best:
+                distance_gap = second_best['distance'] - best_match['distance']
+                if distance_gap < self.ambiguity_threshold:
+                    self.send_message("status", 
+                        message=f"Ambiguous match: {best_match['worker']['name']} ({best_match['confidence']}%) vs {second_best['worker']['name']} ({second_best['confidence']}%) - gap only {distance_gap:.2f}")
+                    return None
+            
+            # Step 5: Clear winner - return best match with extra info for logging
+            self.send_message("status", 
+                message=f"Clear match: {best_match['worker']['name']} at {best_match['confidence']}%")
+            
+            return {
+                'worker_name': best_match['worker']['name'],
+                'confidence': best_match['confidence'],
+                'worker_id': best_match['worker']['id'],
+                'distance': best_match['distance'],
+                'encoding_used': best_match['encoding_index'],
+                'second_best_name': second_best['worker']['name'] if second_best else None,
+                'second_best_confidence': second_best['confidence'] if second_best else 0,
+                'distance_gap': (second_best['distance'] - best_match['distance']) if second_best else 1.0
+            }
             
         except Exception as e:
             self.send_message("error", message=f"Recognition error: {str(e)}")
@@ -130,15 +195,25 @@ class VideoDetectionService:
             self.send_message("error", message="Failed to read frame")
             return None
         
-        if self.recognition_enabled:
+        # PERFORMANCE FIX: Only use slow dlib detector when actually recognizing
+        # In idle mode, use fast Haar Cascade for smooth frame rate
+        use_dlib_detector = self.recognition_enabled and (
+            self.detection_mode == "detecting" or 
+            self.detection_mode == "confirmation"
+        )
+        
+        if use_dlib_detector:
+            # Slow but accurate dlib detector (for recognition)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             face_locations = face_recognition.face_locations(rgb_frame)
             faces = [(left, top, right-left, bottom-top) for (top, right, bottom, left) in face_locations]
         else:
+            # Fast Haar Cascade detector (for idle preview)
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             face_locations_cv = self.face_cascade.detectMultiScale(gray, 1.3, 5)
             faces = face_locations_cv
             face_locations = []
+            rgb_frame = None  # Not needed in idle mode
         
         # Handle detection mode for sign-in
         if self.detection_mode == "detecting":
@@ -158,6 +233,9 @@ class VideoDetectionService:
                 if self.detection_count >= self.detection_threshold:
                     recognition_result = None
                     if self.recognition_enabled and face_locations:
+                        # Convert to RGB for recognition if not already done
+                        if rgb_frame is None:
+                            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
                         if face_encodings:
                             recognition_result = self.recognize_face(face_encodings[0])  # First face only
@@ -168,7 +246,7 @@ class VideoDetectionService:
                                         confidence=recognition_result['confidence'],
                                         worker_id=recognition_result['worker_id'])
                         
-                        # Change: Move to confirmation state, stop counting
+                        # Move to confirmation state, stop counting
                         self.detection_mode = "confirmation"
                         self.recognition_result = recognition_result
                         self.send_message("status", message=f"Waiting for confirmation: {recognition_result['worker_name']}")
@@ -182,7 +260,7 @@ class VideoDetectionService:
                             })
                         
                         self.send_message("signin_unknown", 
-                                        message="Unknown person detected",
+                                        message="Face not recognized - please try again",
                                         faces=face_data)
                         
                         # Reset to idle
@@ -196,52 +274,26 @@ class VideoDetectionService:
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         
         elif self.detection_mode == "confirmation":
-            # New: Show confirmation UI, don't increment count
+            # Show confirmation UI, don't increment count
             if len(faces) > 0:
                 for (x, y, w, h) in faces:
                     cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 255), 3)  # Purple for confirmation
                     cv2.putText(frame, f"CONFIRM: {self.recognition_result['worker_name']} ({self.recognition_result['confidence']:.0f}%)", 
                                (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
-                
+              
                 cv2.putText(frame, "WAITING FOR CONFIRMATION", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
             else:
                 cv2.putText(frame, "CONFIRMATION: No face visible", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
         
-        else:  # idle mode (real-time preview)
-            if self.recognition_enabled and face_locations:
-                try:
-                    self.send_message("status", message=f"Attempting recognition on {len(face_locations)} faces")
-                    face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
-                    self.send_message("status", message=f"Got {len(face_encodings)} face encodings")
-                    
-                    for i, (face_encoding, (x, y, w, h)) in enumerate(zip(face_encodings, faces)):
-                        recognition_result = self.recognize_face(face_encoding)
-                        
-                        if recognition_result:
-                            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-                            label = f"{recognition_result['worker_name']} ({recognition_result['confidence']:.0f}%)"
-                            cv2.putText(frame, label, (x, y-10), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                            self.send_message("status", message=f"Recognized: {recognition_result['worker_name']}")
-                        else:
-                            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                            cv2.putText(frame, "Unknown", (x, y-10), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                            self.send_message("status", message="Face not recognized")
-                except Exception as e:
-                    self.send_message("error", message=f"Recognition failed: {str(e)}")
-                    for (x, y, w, h) in faces:
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                        cv2.putText(frame, "FACE (Recognition Error)", (x, y-10), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            else:
-                recognition_status = "No Recognition" if not self.recognition_enabled else "No Faces"
-                for (x, y, w, h) in faces:
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                    cv2.putText(frame, f"FACE ({recognition_status})", (x, y-10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        else:  # idle mode (real-time preview - NO RECOGNITION for performance)
+            # OPTIMIZATION: Skip recognition in idle mode to maintain good frame rate
+            # Recognition only happens when user presses SIGN IN button (detecting mode)
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
+                cv2.putText(frame, "FACE DETECTED", (x, y-10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             
             # Status display
             if len(faces) > 0:

@@ -1,5 +1,6 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.UI/Controls/WorkerRegistrationControl.xaml.cs
 // Purpose: Worker registration component logic - clean and focused
+// FIXED: Manual save only, proper cancel, can train multiple workers
 
 using System.Windows;
 using System.Windows.Controls;
@@ -14,7 +15,6 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         private FaceTrainingWorkflowService? _faceTrainingWorkflowService;
         private bool _faceDataCaptured = false;
         private bool _isTrainingInProgress = false;
-        private int _savedWorkerId = 0; // Track the ID of the automatically saved worker
 
         // Events to communicate with parent window
         public event Action<string>? StatusChanged;
@@ -32,23 +32,48 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             _storageService = storageService;
             _faceTrainingWorkflowService = workflowService;
 
-            // Subscribe to training completion - this is our direct connection!
+            // Subscribe to workflow events
             if (_faceTrainingWorkflowService != null)
             {
-                _faceTrainingWorkflowService.TrainingCompleted += OnWorkflowTrainingCompleted;
+                // CHANGED: Subscribe to AllStepsCompleted instead of TrainingCompleted
+                _faceTrainingWorkflowService.AllStepsCompleted += OnAllStepsCompleted;
+                _faceTrainingWorkflowService.WorkerSaved += OnWorkerSaved;
             }
 
             ResetForm();
         }
 
-        private void OnWorkflowTrainingCompleted()
+        /// <summary>
+        /// CHANGED: Called when all 4 steps captured, but NOT yet saved
+        /// </summary>
+        private void OnAllStepsCompleted()
         {
-            // Direct connection from workflow service to registration control
-            // This bypasses all the MainWindow complexity!
+            Dispatcher.Invoke(() =>
+            {
+                _isTrainingInProgress = false;
+                _faceDataCaptured = true;
 
-            // Use Dispatcher to ensure UI updates happen on UI thread
-            Dispatcher.Invoke(() => {
-                OnFaceTrainingCompleted(true);
+                ScanFaceButton.Content = "Face Training Complete ✓";
+                ScanFaceButton.Background = System.Windows.Media.Brushes.LightGreen;
+                TrainingInstructions.Text = "All poses captured! Click SAVE to store worker.";
+                TrainingStatus.Text = "Ready to save - or click CANCEL to discard";
+
+                // Save button remains "Save Worker" - user must click it
+                SaveButton.IsEnabled = true;
+                ValidationMessage.Text = "";
+            });
+        }
+
+        /// <summary>
+        /// NEW: Called after worker actually saved to storage
+        /// </summary>
+        private void OnWorkerSaved()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                StatusChanged?.Invoke("Worker saved successfully!");
+                Cleanup();
+                WorkerSaved?.Invoke();
             });
         }
 
@@ -57,16 +82,17 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             WorkerNameInput.Text = "";
             _faceDataCaptured = false;
             _isTrainingInProgress = false;
-            _savedWorkerId = 0;
             ValidationMessage.Text = "";
             TrainingStatus.Text = "";
             TrainingInstructions.Text = "Click 'Start Face Training' to begin";
             ScanFaceButton.Content = "Start Face Training";
             ScanFaceButton.Background = System.Windows.Media.Brushes.LightBlue;
+            ScanFaceButton.IsEnabled = true;
 
             // Reset buttons to initial state
             SaveButton.Content = "Save Worker";
             SaveButton.Background = System.Windows.Media.Brushes.LightGreen;
+            SaveButton.IsEnabled = false;  // Disabled until training complete
         }
 
         private void ScanFaceButton_Click(object sender, RoutedEventArgs e)
@@ -90,6 +116,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             _isTrainingInProgress = true;
             ScanFaceButton.Content = "Training in Progress...";
             ScanFaceButton.Background = System.Windows.Media.Brushes.Orange;
+            ScanFaceButton.IsEnabled = false;  // Disable during training
             TrainingInstructions.Text = "Look directly at the camera";
             TrainingStatus.Text = "Starting face training...";
             ValidationMessage.Text = "";
@@ -117,44 +144,23 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             {
                 ScanFaceButton.Content = "Face Training Complete ✓";
                 ScanFaceButton.Background = System.Windows.Media.Brushes.LightGreen;
-                TrainingInstructions.Text = "Face training completed successfully!";
-                TrainingStatus.Text = "Worker has been saved automatically";
-
-                // Change Save button to OK since worker is already saved
-                SaveButton.Content = "OK";
-                SaveButton.Background = System.Windows.Media.Brushes.LightBlue;
-
-                // Get the saved worker ID for potential deletion
-                GetSavedWorkerId();
+                TrainingInstructions.Text = "All poses captured! Click SAVE to store worker.";
+                TrainingStatus.Text = "Ready to save - or click CANCEL to discard";
+                SaveButton.IsEnabled = true;
             }
             else
             {
                 ScanFaceButton.Content = "Training Failed - Retry";
                 ScanFaceButton.Background = System.Windows.Media.Brushes.LightCoral;
+                ScanFaceButton.IsEnabled = true;  // Allow retry
                 TrainingInstructions.Text = "Face training failed. Click to try again.";
                 TrainingStatus.Text = "Training unsuccessful";
             }
         }
 
-        private async void GetSavedWorkerId()
-        {
-            try
-            {
-                if (_storageService == null) return;
-
-                // Get the most recently saved worker (highest ID)
-                var existingWorkers = await _storageService.GetAllWorkersAsync();
-                if (existingWorkers.Count > 0)
-                {
-                    _savedWorkerId = existingWorkers.Max(w => w.Id);
-                }
-            }
-            catch (Exception ex)
-            {
-                StatusChanged?.Invoke($"Error getting saved worker ID: {ex.Message}");
-            }
-        }
-
+        /// <summary>
+        /// CHANGED: Now explicitly saves the worker (doesn't auto-save)
+        /// </summary>
         private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_faceDataCaptured)
@@ -165,36 +171,43 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
             try
             {
-                // If training is complete, this is now an "OK" button
-                // Worker is already saved, so just clean up and exit
-                StatusChanged?.Invoke("Worker registration completed successfully!");
-                Cleanup();
-                WorkerSaved?.Invoke();
+                StatusChanged?.Invoke("Saving worker...");
+                SaveButton.IsEnabled = false;  // Prevent double-click
+
+                // CHANGED: Explicitly call SaveWorkerAsync
+                if (_faceTrainingWorkflowService != null)
+                {
+                    bool success = await _faceTrainingWorkflowService.SaveWorkerAsync();
+
+                    if (!success)
+                    {
+                        ValidationMessage.Text = "Failed to save worker";
+                        SaveButton.IsEnabled = true;  // Re-enable on failure
+                    }
+                    // Success is handled by OnWorkerSaved event
+                }
             }
             catch (Exception ex)
             {
-                ValidationMessage.Text = $"Error completing registration: {ex.Message}";
+                ValidationMessage.Text = $"Error saving worker: {ex.Message}";
                 StatusChanged?.Invoke($"Error: {ex.Message}");
+                SaveButton.IsEnabled = true;  // Re-enable on error
             }
         }
 
-        private async void CancelButton_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// FIXED: Cancel now works correctly - discards data without saving
+        /// </summary>
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // If a worker was automatically saved, delete it
-                if (_faceDataCaptured && _savedWorkerId > 0 && _storageService != null)
-                {
-                    StatusChanged?.Invoke("Cancelling registration and deleting saved worker...");
+                StatusChanged?.Invoke("Registration cancelled");
 
-                    // Delete the automatically saved worker file
-                    await DeleteSavedWorker(_savedWorkerId);
-
-                    StatusChanged?.Invoke("Registration cancelled - saved worker deleted");
-                }
-                else
+                // CHANGED: Call CancelTraining to discard data
+                if (_faceTrainingWorkflowService != null)
                 {
-                    StatusChanged?.Invoke("Registration cancelled");
+                    _faceTrainingWorkflowService.CancelTraining();
                 }
 
                 Cleanup();
@@ -202,34 +215,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             }
             catch (Exception ex)
             {
-                ValidationMessage.Text = $"Error cancelling registration: {ex.Message}";
+                ValidationMessage.Text = $"Error cancelling: {ex.Message}";
                 StatusChanged?.Invoke($"Cancel error: {ex.Message}");
-            }
-        }
-
-        private async Task DeleteSavedWorker(int workerId)
-        {
-            try
-            {
-                if (_storageService == null) return;
-
-                // Get the worker to confirm it exists and get the name for logging
-                var worker = await _storageService.GetWorkerByIdAsync(workerId);
-                if (worker != null)
-                {
-                    // Delete using the clean delete method
-                    await _storageService.DeleteWorkerAsync(workerId);
-                    StatusChanged?.Invoke($"Deleted worker '{worker.Name}' (ID: {workerId})");
-                }
-                else
-                {
-                    StatusChanged?.Invoke($"Worker with ID {workerId} not found for deletion");
-                }
-            }
-            catch (Exception ex)
-            {
-                StatusChanged?.Invoke($"Error deleting worker: {ex.Message}");
-                throw; // Re-throw so caller can handle
             }
         }
 
@@ -238,7 +225,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             // Unsubscribe from events to prevent memory leaks
             if (_faceTrainingWorkflowService != null)
             {
-                _faceTrainingWorkflowService.TrainingCompleted -= OnWorkflowTrainingCompleted;
+                _faceTrainingWorkflowService.AllStepsCompleted -= OnAllStepsCompleted;
+                _faceTrainingWorkflowService.WorkerSaved -= OnWorkerSaved;
             }
         }
 

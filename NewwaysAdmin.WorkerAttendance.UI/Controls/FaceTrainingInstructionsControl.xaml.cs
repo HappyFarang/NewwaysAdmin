@@ -1,5 +1,6 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.UI/Controls/FaceTrainingInstructionsControl.xaml.cs
 // Purpose: Standalone visual face training instructions component logic
+// FIXED: Updated event names to match new FaceTrainingWorkflowService
 
 using NewwaysAdmin.WorkerAttendance.Services;
 using System.Windows;
@@ -41,19 +42,44 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 return;
             }
 
-            // CRITICAL: Re-subscribe to events in case we unsubscribed after previous training
+            // CRITICAL FIX: Force complete reset - important for second+ worker
+            // The control might be hidden with old completion state still visible
+            ForceCompleteReset();
+
+            // Re-subscribe to events in case we unsubscribed after previous training
             SubscribeToWorkflowEvents();
 
-            // Make sure the control is visible (in case it was hidden)
+            // Make sure the control is visible
             Visibility = Visibility.Visible;
 
-            // IMPORTANT: Reset UI to ensure clean state
-            ResetToStep1();
-
-            // Start the workflow - should be clean thanks to Cleanup() in WorkerRegistrationControl
+            // Start the workflow
             _workflowService.StartTrainingWorkflow(workerName);
 
             CurrentInstruction.Text = $"Training {workerName} - Position face straight and click CAPTURE";
+        }
+
+        /// <summary>
+        /// NEW: Force a complete reset of the control - clears ALL state including completion
+        /// </summary>
+        public void ForceCompleteReset()
+        {
+            _currentStep = 1;
+
+            // Reset all step visuals
+            ResetStep(Step1Border, CaptureStep1Button, Step1Status);
+            ResetStep(Step2Border, CaptureStep2Button, Step2Status);
+            ResetStep(Step3Border, CaptureStep3Button, Step3Status);
+            ResetStep(Step4Border, CaptureStep4Button, Step4Status);
+
+            // Activate step 1
+            ActivateStep(Step1Border, CaptureStep1Button);
+
+            // CRITICAL: Hide completion border (might be visible from previous training)
+            CompletionBorder.Visibility = Visibility.Collapsed;
+
+            // Reset progress display
+            UpdateProgress();
+            CurrentInstruction.Text = "Position face in camera and click CAPTURE";
         }
 
         /// <summary>
@@ -68,7 +94,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
             // Now subscribe to all relevant events
             _workflowService.StatusChanged += OnWorkflowStatusChanged;
-            _workflowService.TrainingCompleted += OnWorkflowTrainingCompleted;
+            _workflowService.AllStepsCompleted += OnWorkflowAllStepsCompleted;  // CHANGED: was TrainingCompleted
             _workflowService.ErrorOccurred += OnWorkflowError;
 
             // CRITICAL: Subscribe to StepCompleted to handle individual step progression
@@ -83,7 +109,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             if (_workflowService == null) return;
 
             _workflowService.StatusChanged -= OnWorkflowStatusChanged;
-            _workflowService.TrainingCompleted -= OnWorkflowTrainingCompleted;
+            _workflowService.AllStepsCompleted -= OnWorkflowAllStepsCompleted;  // CHANGED: was TrainingCompleted
             _workflowService.ErrorOccurred -= OnWorkflowError;
             _workflowService.StepCompleted -= OnWorkflowStepCompleted;
         }
@@ -101,7 +127,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             // Activate step 1
             ActivateStep(Step1Border, CaptureStep1Button);
 
-            // Hide completion
+            // CRITICAL FIX: Always hide completion border when resetting
             CompletionBorder.Visibility = Visibility.Collapsed;
 
             // Update UI
@@ -113,15 +139,6 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         {
             Dispatcher.Invoke(() =>
             {
-                // DEBUG: Let's see the call stack and what's calling this
-                var stackTrace = new System.Diagnostics.StackTrace(true);
-                var caller = stackTrace.GetFrame(1)?.GetMethod()?.Name ?? "Unknown";
-
-                CurrentInstruction.Text = $"DEBUG: OnStepCaptured called with step {stepNumber} from {caller}";
-
-                // Give user time to read the debug message
-                System.Threading.Thread.Sleep(1000);
-
                 if (!success)
                 {
                     CurrentInstruction.Text = $"Capture failed for step {stepNumber}. Please try again.";
@@ -184,22 +201,19 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
         private void OnWorkflowStepCompleted(int stepNumber, bool success)
         {
-            Dispatcher.Invoke(() => {
-                CurrentInstruction.Text = $"DEBUG: Workflow service says step {stepNumber} completed";
-            });
-
-            // Wait a moment so user can see the message
-            System.Threading.Tasks.Task.Delay(1000).Wait();
-
             // This is the key event that drives step progression!
             OnStepCaptured(stepNumber, success);
         }
 
-        private void OnWorkflowTrainingCompleted()
+        /// <summary>
+        /// CHANGED: Renamed from OnWorkflowTrainingCompleted
+        /// Called when all 4 steps are captured (but not yet saved)
+        /// </summary>
+        private void OnWorkflowAllStepsCompleted()
         {
             Dispatcher.Invoke(() =>
             {
-                CurrentInstruction.Text = "All face angles captured successfully!";
+                CurrentInstruction.Text = "All face angles captured! Click SAVE to store worker.";
 
                 // Unsubscribe from workflow events to prevent further updates
                 UnsubscribeFromWorkflowEvents();
@@ -218,47 +232,34 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
         private async void CaptureStep1_Click(object sender, RoutedEventArgs e)
         {
-            CurrentInstruction.Text = "DEBUG: Step 1 button clicked - calling workflow service";
             if (_workflowService != null)
             {
-                CurrentInstruction.Text = "DEBUG: About to call ProcessCaptureRequestAsync(1)";
                 await _workflowService.ProcessCaptureRequestAsync(1);
-                CurrentInstruction.Text = "DEBUG: ProcessCaptureRequestAsync(1) returned";
-            }
-            else
-            {
-                CurrentInstruction.Text = "DEBUG: ERROR - workflow service is null!";
             }
         }
 
         private async void CaptureStep2_Click(object sender, RoutedEventArgs e)
         {
-            CurrentInstruction.Text = "Capturing left pose...";
             if (_workflowService != null)
             {
                 await _workflowService.ProcessCaptureRequestAsync(2);
             }
-            // REMOVED: CaptureRequested?.Invoke(2) - we only use workflow service now
         }
 
         private async void CaptureStep3_Click(object sender, RoutedEventArgs e)
         {
-            CurrentInstruction.Text = "Capturing right pose...";
             if (_workflowService != null)
             {
                 await _workflowService.ProcessCaptureRequestAsync(3);
             }
-            // REMOVED: CaptureRequested?.Invoke(3) - we only use workflow service now
         }
 
         private async void CaptureStep4_Click(object sender, RoutedEventArgs e)
         {
-            CurrentInstruction.Text = "Capturing upward pose...";
             if (_workflowService != null)
             {
                 await _workflowService.ProcessCaptureRequestAsync(4);
             }
-            // REMOVED: CaptureRequested?.Invoke(4) - we only use workflow service now
         }
 
         #endregion
@@ -284,17 +285,37 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             button.Background = Brushes.LightBlue;
         }
 
-        private void ActivateNextStep(int stepNumber)
+        private void MarkStepComplete(int stepNumber)
         {
-            // First, deactivate all steps to ensure clean state
-            DeactivateAllSteps();
-
-            // Then activate only the requested step
             switch (stepNumber)
             {
                 case 1:
-                    ActivateStep(Step1Border, CaptureStep1Button);
+                    Step1Border.Background = Brushes.LightGreen;
+                    Step1Status.Text = "✓";
+                    CaptureStep1Button.IsEnabled = false;
                     break;
+                case 2:
+                    Step2Border.Background = Brushes.LightGreen;
+                    Step2Status.Text = "✓";
+                    CaptureStep2Button.IsEnabled = false;
+                    break;
+                case 3:
+                    Step3Border.Background = Brushes.LightGreen;
+                    Step3Status.Text = "✓";
+                    CaptureStep3Button.IsEnabled = false;
+                    break;
+                case 4:
+                    Step4Border.Background = Brushes.LightGreen;
+                    Step4Status.Text = "✓";
+                    CaptureStep4Button.IsEnabled = false;
+                    break;
+            }
+        }
+
+        private void ActivateNextStep(int stepNumber)
+        {
+            switch (stepNumber)
+            {
                 case 2:
                     ActivateStep(Step2Border, CaptureStep2Button);
                     break;
@@ -307,72 +328,21 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             }
         }
 
-        private void DeactivateAllSteps()
-        {
-            // Deactivate all steps (but don't reset them - keep completed status)
-            DeactivateStep(Step1Border, CaptureStep1Button);
-            DeactivateStep(Step2Border, CaptureStep2Button);
-            DeactivateStep(Step3Border, CaptureStep3Button);
-            DeactivateStep(Step4Border, CaptureStep4Button);
-        }
-
-        private void DeactivateStep(Border border, Button button)
-        {
-            // Only deactivate if it's not already marked as complete (green)
-            if (border.Background != Brushes.LightGreen)
-            {
-                border.Background = Brushes.LightGray;
-                border.BorderBrush = Brushes.Gray;
-                border.BorderThickness = new Thickness(1);
-            }
-            button.IsEnabled = false;
-            if (button.Background != Brushes.LightGreen) // Don't change completed buttons
-            {
-                button.Background = Brushes.LightGray;
-            }
-        }
-
-        private void MarkStepComplete(int stepNumber)
-        {
-            switch (stepNumber)
-            {
-                case 1:
-                    Step1Border.Background = Brushes.LightGreen;
-                    Step1Status.Text = "✓";
-                    break;
-                case 2:
-                    Step2Border.Background = Brushes.LightGreen;
-                    Step2Status.Text = "✓";
-                    break;
-                case 3:
-                    Step3Border.Background = Brushes.LightGreen;
-                    Step3Status.Text = "✓";
-                    break;
-                case 4:
-                    Step4Border.Background = Brushes.LightGreen;
-                    Step4Status.Text = "✓";
-                    break;
-                default:
-                    // Ignore invalid step numbers (ghost process protection)
-                    return;
-            }
-        }
-
-        private void UpdateProgress()
-        {
-            ProgressText.Text = $"Step {_currentStep} of {_totalSteps}";
-        }
-
         private string GetStepInstruction(int step)
         {
             return step switch
             {
                 1 => "Position face straight and click CAPTURE",
-                2 => "Turn head left and click CAPTURE",
-                3 => "Turn head right and click CAPTURE",
-                4 => "Tilt head up slightly and click CAPTURE",
-                _ => "Follow the steps above"
+                2 => "Turn face LEFT and click CAPTURE",
+                3 => "Turn face RIGHT and click CAPTURE",
+                4 => "Look UPWARD and click CAPTURE",
+                _ => "Unknown step"
             };
+        }
+
+        private void UpdateProgress()
+        {
+            ProgressText.Text = $"Step {_currentStep} of {_totalSteps}";
         }
 
         #endregion

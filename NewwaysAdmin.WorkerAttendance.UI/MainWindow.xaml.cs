@@ -42,74 +42,61 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         {
             InitializeComponent();
 
-            // Set up logging factory (existing code)
+            // ===== LOGGING SETUP =====
             _loggerFactory = LoggerFactory.Create(builder =>
             {
                 builder.AddConsole().SetMinimumLevel(LogLevel.Information);
             });
             _logger = _loggerFactory.CreateLogger<MainWindow>();
 
-            // Python and Arduino setup (existing code)
+            // ===== PYTHON SCRIPT PATHS =====
             string pythonBasePath = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
                 "Python"
             );
-
             string unifiedScript = Path.Combine(pythonBasePath, "unified_video_detection.py");
             string faceTrainingScript = Path.Combine(pythonBasePath, "face_training_capture.py");
 
+            // ===== CREATE SERVICES =====
             _arduinoService = new ArduinoService();
             _videoService = new VideoFeedService(unifiedScript);
 
             var trainingLogger = _loggerFactory.CreateLogger<FaceTrainingService>();
             _faceTrainingService = new FaceTrainingService(faceTrainingScript, trainingLogger);
-                        
-            // Wire up existing events (keep existing code)
+
+            // ===== SUBSCRIBE TO EVENTS (ONCE EACH) =====
+
+            // Arduino events
             _arduinoService.ButtonPressed += OnButtonPressed;
             _arduinoService.StatusChanged += OnArduinoStatusChanged;
+
+            // Video service events
             _videoService.FrameReceived += OnFrameReceived;
             _videoService.StatusChanged += OnVideoServiceStatusChanged;
             _videoService.DetectionComplete += OnDetectionComplete;
-
-            _faceTrainingService.StatusChanged += OnFaceTrainingStatusChanged;
-            _faceTrainingService.ErrorOccurred += OnFaceTrainingError;
-            
-
-            Instructions.CaptureRequested += OnCaptureRequested;
-
-            // Wire up events with Dispatcher for UI updates
-            _faceTrainingService.StatusChanged += (msg) =>
-                Dispatcher.Invoke(() => UpdateStatus($"[TRAINING] {msg}"));
-            _faceTrainingService.ErrorOccurred += (msg) =>
-                Dispatcher.Invoke(() => UpdateStatus($"[TRAINING ERROR] {msg}"));
-            _faceTrainingService.FaceEncodingReceived += OnFaceEncodingReceived;
-            _faceTrainingService.FrameReceived += OnTrainingFrameReceived;
-
-
             _videoService.SignInRecognition += OnSignInRecognition;
             _videoService.SignInUnknown += OnSignInUnknown;
             _videoService.SignInConfirmed += OnSignInConfirmed;
-
-            // NEW: Wire up worker recognition events for confirmation flow
             _videoService.SignInRecognition += OnWorkerSignInRecognized;
             _videoService.SignInConfirmed += OnWorkerSignInConfirmed;
 
-            // NEW: Initialize InstructionsControl with VideoService for worker recognition
-            Instructions.Initialize(_videoService);
-
+            // Face training service events
             _faceTrainingService.StatusChanged += OnFaceTrainingStatusChanged;
             _faceTrainingService.ErrorOccurred += OnFaceTrainingError;
+            _faceTrainingService.FaceEncodingReceived += OnFaceEncodingReceived;
+            _faceTrainingService.FrameReceived += OnTrainingFrameReceived;
 
+            // Instructions events
             Instructions.CaptureRequested += OnCaptureRequested;
 
-            // Start services
+            // ===== INITIALIZE COMPONENTS =====
+            Instructions.Initialize(_videoService);
+
+            // ===== START SERVICES =====
             _arduinoService.TryConnect();
             _ = StartVideoFeedAsync();
-            //_ = TestFaceTrainingAtStartup();
 
-
-
-            // Initialize storage after UI is loaded
+            // ===== LATE INITIALIZATION =====
             this.Loaded += MainWindow_Loaded;
         }
 

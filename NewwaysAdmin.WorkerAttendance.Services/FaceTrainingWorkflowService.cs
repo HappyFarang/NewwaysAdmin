@@ -1,10 +1,9 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.Services/FaceTrainingWorkflowService.cs
 // Purpose: Manages the 4-pose face training workflow and encoding collection
+// FIXED: No auto-save, proper reset, cancel works correctly
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.WorkerAttendance.Models;
-using System.Windows;
-using System.Threading.Tasks;
 
 namespace NewwaysAdmin.WorkerAttendance.Services
 {
@@ -23,10 +22,12 @@ namespace NewwaysAdmin.WorkerAttendance.Services
         // Events for UI communication
         public event Action<int, bool>? StepCompleted;        // stepNumber, success
         public event Action<string>? StatusChanged;
-        public event Action? TrainingCompleted;
+        public event Action? AllStepsCompleted;               // CHANGED: renamed from TrainingCompleted
+        public event Action? WorkerSaved;                     // NEW: fired after actual save
         public event Action<string>? ErrorOccurred;
 
         public bool IsTrainingActive { get; private set; }
+        public bool AreAllStepsComplete { get; private set; }  // NEW: track if all 4 steps done
         public int CurrentStep => _currentStep;
         public int TotalSteps => _totalSteps;
 
@@ -46,18 +47,28 @@ namespace NewwaysAdmin.WorkerAttendance.Services
 
         public void StartTrainingWorkflow(string workerName)
         {
-            if (IsTrainingActive)
-            {
-                _logger.LogWarning("Training workflow already active");
-                return;
-            }
+            // Write to Debug Output window
+            System.Diagnostics.Debug.WriteLine("╔═══════════════════════════════════════════════════════════");
+            System.Diagnostics.Debug.WriteLine("║ START TRAINING WORKFLOW");
+            System.Diagnostics.Debug.WriteLine($"║ BEFORE RESET: _currentStep={_currentStep}, _capturedEncodings.Count={_capturedEncodings.Count}, IsTrainingActive={IsTrainingActive}");
 
-            _workerName = workerName;
+            // FORCE complete reset
+            IsTrainingActive = false;
             _currentStep = 1;
             _capturedEncodings.Clear();
+            _workerName = null;
+            AreAllStepsComplete = false;
+
+            System.Diagnostics.Debug.WriteLine($"║ AFTER RESET: _currentStep={_currentStep}, _capturedEncodings.Count={_capturedEncodings.Count}, IsTrainingActive={IsTrainingActive}");
+
+            // Now set new values
+            _workerName = workerName;
             IsTrainingActive = true;
 
-            _logger.LogInformation("Started face training workflow for worker: {WorkerName}", workerName);
+            System.Diagnostics.Debug.WriteLine($"║ NEW WORKER: {workerName}");
+            System.Diagnostics.Debug.WriteLine($"║ FINAL STATE: _currentStep={_currentStep}, _capturedEncodings.Count={_capturedEncodings.Count}, IsTrainingActive={IsTrainingActive}");
+            System.Diagnostics.Debug.WriteLine("╚═══════════════════════════════════════════════════════════");
+
             StatusChanged?.Invoke($"Starting face training for {workerName} - Step 1 of {_totalSteps}");
         }
 
@@ -87,29 +98,50 @@ namespace NewwaysAdmin.WorkerAttendance.Services
 
         private void OnFaceEncodingReceived(byte[] encoding)
         {
-            if (!IsTrainingActive) return;
+            System.Diagnostics.Debug.WriteLine("┌───────────────────────────────────────────────────────────");
+            System.Diagnostics.Debug.WriteLine("│ ENCODING RECEIVED EVENT");
+            System.Diagnostics.Debug.WriteLine($"│ IsTrainingActive: {IsTrainingActive}");
+            System.Diagnostics.Debug.WriteLine($"│ _currentStep: {_currentStep}");
+            System.Diagnostics.Debug.WriteLine($"│ _capturedEncodings.Count BEFORE: {_capturedEncodings.Count}");
 
-            _logger.LogInformation("Received face encoding for step {Step}: {Size} bytes",
-                _currentStep, encoding.Length);
+            if (!IsTrainingActive)
+            {
+                System.Diagnostics.Debug.WriteLine("│ ❌ REJECTED - Training not active!");
+                System.Diagnostics.Debug.WriteLine("└───────────────────────────────────────────────────────────");
+                return;
+            }
 
             // Store the encoding
             _capturedEncodings.Add(encoding);
 
+            System.Diagnostics.Debug.WriteLine($"│ _capturedEncodings.Count AFTER: {_capturedEncodings.Count}");
+            System.Diagnostics.Debug.WriteLine($"│ Encoding size: {encoding.Length} bytes");
+
             // Notify UI of successful capture
+            System.Diagnostics.Debug.WriteLine($"│ ✓ Invoking StepCompleted for step {_currentStep}");
             StepCompleted?.Invoke(_currentStep, true);
             StatusChanged?.Invoke($"Step {_currentStep} captured successfully!");
 
-            // Advance to next step or complete training (MainWindow will control step progression)
+            // Advance to next step or mark as complete
             if (_currentStep < _totalSteps)
             {
+                int oldStep = _currentStep;
                 _currentStep++;
+                System.Diagnostics.Debug.WriteLine($"│ ➜ ADVANCED from step {oldStep} to step {_currentStep}");
                 StatusChanged?.Invoke($"Ready for step {_currentStep} of {_totalSteps}");
             }
             else
             {
-                // All steps completed - save worker
-                _ = Task.Run(CompleteTrainingAsync);
+                // All steps completed
+                AreAllStepsComplete = true;
+                System.Diagnostics.Debug.WriteLine("│ ★ ALL STEPS COMPLETE");
+                System.Diagnostics.Debug.WriteLine($"│ Total encodings collected: {_capturedEncodings.Count}");
+                System.Diagnostics.Debug.WriteLine($"│ Worker: {_workerName}");
+                StatusChanged?.Invoke($"All {_totalSteps} poses captured! Ready to save.");
+                AllStepsCompleted?.Invoke();
             }
+
+            System.Diagnostics.Debug.WriteLine("└───────────────────────────────────────────────────────────");
         }
 
         private void OnTrainingServiceError(string error)
@@ -121,17 +153,27 @@ namespace NewwaysAdmin.WorkerAttendance.Services
             ErrorOccurred?.Invoke($"Step {_currentStep} failed: {error}");
         }
 
-        private async Task CompleteTrainingAsync()
+        /// <summary>
+        /// NEW: Explicitly save the worker - called by UI when user clicks Save/OK
+        /// </summary>
+        public async Task<bool> SaveWorkerAsync()
         {
+            if (!AreAllStepsComplete)
+            {
+                _logger.LogWarning("Cannot save - not all steps completed");
+                ErrorOccurred?.Invoke("Cannot save - training not complete");
+                return false;
+            }
+
             try
             {
                 if (string.IsNullOrEmpty(_workerName))
                 {
                     ErrorOccurred?.Invoke("Worker name is missing");
-                    return;
+                    return false;
                 }
 
-                _logger.LogInformation("Completing training for {WorkerName} with {Count} encodings",
+                _logger.LogInformation("Saving worker {WorkerName} with {Count} encodings",
                     _workerName, _capturedEncodings.Count);
 
                 StatusChanged?.Invoke("Saving worker data...");
@@ -158,32 +200,51 @@ namespace NewwaysAdmin.WorkerAttendance.Services
 
                 StatusChanged?.Invoke($"Worker '{_workerName}' saved successfully!");
 
-                // Reset state
+                // Reset state for next worker
                 ResetTrainingState();
 
-                // Notify completion
-                TrainingCompleted?.Invoke();
+                // Notify that worker was saved
+                WorkerSaved?.Invoke();
+
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error completing training for worker {WorkerName}", _workerName);
+                _logger.LogError(ex, "Error saving worker {WorkerName}", _workerName);
                 ErrorOccurred?.Invoke($"Failed to save worker: {ex.Message}");
+                return false;
             }
         }
 
+        /// <summary>
+        /// IMPROVED: Cancel training and clear all data without saving
+        /// </summary>
         public void CancelTraining()
         {
-            if (!IsTrainingActive) return;
+            if (!IsTrainingActive && !AreAllStepsComplete)
+            {
+                _logger.LogInformation("Nothing to cancel - training not active");
+                return;
+            }
 
-            _logger.LogInformation("Training workflow cancelled for worker {WorkerName}", _workerName);
-            StatusChanged?.Invoke("Training cancelled");
+            _logger.LogInformation("Training cancelled for worker {WorkerName} (had {Count} encodings)",
+                _workerName ?? "Unknown", _capturedEncodings.Count);
 
+            StatusChanged?.Invoke("Training cancelled - no data saved");
+
+            // Reset everything without saving
             ResetTrainingState();
         }
 
+        /// <summary>
+        /// IMPROVED: Clean reset for next worker
+        /// </summary>
         private void ResetTrainingState()
         {
+            _logger.LogInformation("Resetting training workflow state");
+
             IsTrainingActive = false;
+            AreAllStepsComplete = false;
             _currentStep = 1;
             _capturedEncodings.Clear();
             _workerName = null;
