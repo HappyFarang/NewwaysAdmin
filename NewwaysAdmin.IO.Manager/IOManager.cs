@@ -426,7 +426,7 @@ namespace NewwaysAdmin.IO.Manager
                 _logger.LogError(ex, "Error processing pending transfers");
             }
         }
-        // <summary>
+        /// <summary>
         /// Syncs files from a remote path to a local storage folder using PassThrough mode.
         /// Only copies files that are new or have changed based on file size comparison.
         /// Uses the storage system's indexing to track what files we already have.
@@ -542,6 +542,7 @@ namespace NewwaysAdmin.IO.Manager
                         localFolderName, newFileCount, updatedFileCount, errorCount);
 
                     // Trigger indexing for the folder if files were added/updated
+                    // Pass the actual folder configuration from StorageFactory's registered folders
                     if (newFileCount > 0 || updatedFileCount > 0)
                     {
                         await TriggerFolderIndexingAsync(localFolderName, cancellationToken);
@@ -600,7 +601,6 @@ namespace NewwaysAdmin.IO.Manager
                 part.StartsWith("bak", StringComparison.OrdinalIgnoreCase));
         }
 
-
         /// <summary>
         /// Trigger indexing for a storage folder after files have been synced
         /// </summary>
@@ -608,15 +608,18 @@ namespace NewwaysAdmin.IO.Manager
         {
             try
             {
-                _logger.LogInformation("Triggering internal indexing system for folder: {FolderName}", folderName);
+                _logger.LogInformation("=== INDEXING TRIGGER START === for folder: {FolderName}", folderName);
 
                 // Get the folder configuration
-                var folder = await GetFolderConfigurationAsync(folderName);
+                var folder = GetFolderConfigurationFromFactory(folderName);
                 if (folder == null)
                 {
                     _logger.LogWarning("Could not find folder configuration for: {FolderName}", folderName);
                     return;
                 }
+
+                _logger.LogInformation("Found folder config - IndexFiles: {IndexFiles}, IndexedExtensions: {Extensions}",
+                    folder.IndexFiles, string.Join(", ", folder.IndexedExtensions ?? Array.Empty<string>()));
 
                 if (!folder.IndexFiles)
                 {
@@ -635,55 +638,96 @@ namespace NewwaysAdmin.IO.Manager
                 _logger.LogInformation("Using built-in indexing system for folder: {FolderName} at path: {FolderPath}",
                     folderName, folderPath);
 
+                // Create loggers properly using LoggerFactory pattern
+                var loggerFactory = Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+                var indexEngineLogger = loggerFactory.CreateLogger<NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexEngine>();
+                var indexManagerLogger = loggerFactory.CreateLogger<NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexManager>();
+
                 // Use the built-in internal indexing system
                 var indexEngine = new NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexEngine(
-                    _logger as ILogger<NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexEngine>,
+                    indexEngineLogger,
                     _storageFactory);
 
                 var indexManager = new NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexManager(
-                    _logger as ILogger<NewwaysAdmin.Shared.IO.FileIndexing.Core.FileIndexManager>,
+                    indexManagerLogger,
                     _storageFactory,
                     indexEngine);
 
+                _logger.LogInformation("Created indexing components, calling IndexFolderAsync...");
+
                 // Trigger the built-in indexing - this should create WorkerAttendance_Index folder
                 var success = await indexManager.IndexFolderAsync(folder, folderPath);
+
+                _logger.LogInformation("IndexFolderAsync returned: {Success}", success);
+
                 if (success)
                 {
-                    _logger.LogInformation("Successfully triggered built-in indexing for folder: {FolderName}", folderName);
+                    _logger.LogInformation("=== INDEXING SUCCESS === for folder: {FolderName}", folderName);
                 }
                 else
                 {
-                    _logger.LogWarning("Built-in indexing failed for folder: {FolderName}", folderName);
+                    _logger.LogWarning("=== INDEXING FAILED === for folder: {FolderName}", folderName);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error triggering built-in indexing for folder: {FolderName}", folderName);
+                _logger.LogError(ex, "=== INDEXING ERROR === for folder: {FolderName} - {Error}", folderName, ex.Message);
             }
         }
 
         /// <summary>
         /// Get folder configuration for indexing
         /// </summary>
-        private async Task<NewwaysAdmin.Shared.IO.Structure.StorageFolder?> GetFolderConfigurationAsync(string folderName)
+        private NewwaysAdmin.Shared.IO.Structure.StorageFolder? GetFolderConfigurationFromFactory(string folderName)
         {
             try
             {
-                // Try to get from storage factory's registered folders
-                var config = new NewwaysAdmin.Shared.IO.Structure.StorageConfiguration();
+                // Try to access the StorageFactory's internal _config directly
+                // Use reflection as a last resort since we can't get it any other way
+                var configField = _storageFactory.GetType().GetField("_config",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+                if (configField != null)
+                {
+                    var config = configField.GetValue(_storageFactory) as NewwaysAdmin.Shared.IO.Structure.StorageConfiguration;
+                    if (config != null)
+                    {
+                        var folder = config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
+                        if (folder != null)
+                        {
+                            _logger.LogInformation("Found folder {FolderName} in StorageFactory's memory - IndexFiles: {IndexFiles}",
+                                folderName, folder.IndexFiles);
+                            return folder;
+                        }
+                    }
+                }
+
+                // Fallback: read from file
                 var configPath = Path.Combine(LocalBaseFolder, "Config", "storage-registry.json");
 
                 if (File.Exists(configPath))
                 {
-                    var json = await File.ReadAllTextAsync(configPath);
-                    config = Newtonsoft.Json.JsonConvert.DeserializeObject<NewwaysAdmin.Shared.IO.Structure.StorageConfiguration>(json) ?? config;
+                    var json = File.ReadAllText(configPath);
+                    var fileConfig = Newtonsoft.Json.JsonConvert.DeserializeObject<NewwaysAdmin.Shared.IO.Structure.StorageConfiguration>(json);
+
+                    if (fileConfig != null)
+                    {
+                        var folder = fileConfig.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
+                        if (folder != null)
+                        {
+                            _logger.LogInformation("Found folder {FolderName} in registry - IndexFiles: {IndexFiles}",
+                                folderName, folder.IndexFiles);
+                            return folder;
+                        }
+                    }
                 }
 
-                return config.RegisteredFolders.FirstOrDefault(f => f.Name == folderName);
+                _logger.LogWarning("Could not find folder {FolderName} in registry", folderName);
+                return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting folder configuration for: {FolderName}", folderName);
+                _logger.LogError(ex, "Error getting folder configuration from factory for: {FolderName}", folderName);
                 return null;
             }
         }
