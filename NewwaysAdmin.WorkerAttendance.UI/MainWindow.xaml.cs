@@ -219,9 +219,22 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             SwitchToTrainingMode();
         }
 
+        private async void TestConfirm_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateStatus("TEST: Confirming sign-in...");
+            await _videoService.ConfirmSignInAsync();
+        }
+        private async void TestSignIn_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateStatus("TEST: Starting detection...");
+            await _videoService.StartDetectionAsync();
+
+            // Wait 6 seconds for detection to complete
+            await Task.Delay(6000);
+        }
+
         // MainWindow.xaml.cs - OnManageWorkersRequested method
         // Add refresh AND tell Python to reload workers
-
         private async void OnManageWorkersRequested()
         {
             try
