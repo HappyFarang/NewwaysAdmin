@@ -87,7 +87,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             _faceTrainingService.FrameReceived += OnTrainingFrameReceived;
 
             // Instructions events
-            Instructions.CaptureRequested += OnCaptureRequested;
+            // Instructions.CaptureRequested += OnCaptureRequested;
 
             // ===== INITIALIZE COMPONENTS =====
             Instructions.Initialize(_videoService);
@@ -219,7 +219,10 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             SwitchToTrainingMode();
         }
 
-        private void OnManageWorkersRequested()
+        // MainWindow.xaml.cs - OnManageWorkersRequested method
+        // Add refresh AND tell Python to reload workers
+
+        private async void OnManageWorkersRequested()
         {
             try
             {
@@ -228,17 +231,27 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
                 // Create logger for the management window
                 var managementLogger = _loggerFactory.CreateLogger<WorkerManagementWindow>();
+
                 // Create and show the worker management window
                 var managementWindow = new WorkerManagementWindow(_workerStorageService, managementLogger)
                 {
                     Owner = this // Set this window as the owner for proper modal behavior
                 };
+
                 UpdateStatus("Opening worker management window...");
                 managementWindow.ShowDialog(); // Show as modal dialog
                 UpdateStatus("Worker management window closed");
 
                 // Show active workers list again AFTER dialog closes
                 ActiveWorkers.Visibility = Visibility.Visible;
+
+                // ✅ Refresh the active workers list to reflect any deletions
+                ActiveWorkers.TriggerRefresh();
+
+                // ✅ CRITICAL: Tell Python to reload workers so it knows about deletions
+                UpdateStatus("Reloading worker database in recognition system...");
+                await _videoService.SendCommandAsync("reload_workers");
+                UpdateStatus("Worker database reloaded - changes active");
             }
             catch (Exception ex)
             {
@@ -335,7 +348,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         }
 
 
-        private async void OnCaptureRequested(int stepNumber)
+        /*
+         private async void OnCaptureRequested(int stepNumber)
         {
             // Debugging message (UI-safe since triggered from UI)
             MessageBox.Show($"MainWindow received capture request for step {stepNumber}!");
@@ -350,6 +364,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             // Send capture command (non-UI, safe on any thread)
             await _faceTrainingService.RequestFaceCaptureAsync();
         }
+        */
         #endregion
 
         #region UI Mode Management
@@ -372,11 +387,6 @@ namespace NewwaysAdmin.WorkerAttendance.UI
         private async void SwitchToNormalMode()
         {
             _isInTrainingMode = false;
-
-            // Unwire events
-            Instructions.CaptureRequested -= OnCaptureRequested;
-            Instructions.TrainingCompleted -= OnTrainingCompleted;
-            Instructions.TrainingCancelled -= OnTrainingCancelled;
 
             UpdateStatus("Switching back to normal mode...");
 
@@ -418,10 +428,24 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
                 await Task.Delay(300); // Brief delay for resource cleanup
 
+                // CRITICAL FIX: Force stop the video service first to reset its state
+                UpdateStatus("Ensuring video service is fully stopped...");
+                _videoService.StopVideoFeed(); // This resets _isRunning to false
+
+                await Task.Delay(500); // Give it time to fully stop
+
                 // Restart normal video feed
                 UpdateStatus("Restarting normal video feed...");
-                await _videoService.StartVideoFeedAsync();
+                bool success = await _videoService.StartVideoFeedAsync();
 
+                if (success)
+                {
+                    UpdateStatus("Video feed restarted successfully!");
+                }
+                else
+                {
+                    UpdateStatus("WARNING: Video feed failed to restart");
+                }
             }
             catch (Exception ex)
             {

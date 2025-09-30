@@ -1,76 +1,62 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.UI/Controls/InstructionsControl.xaml.cs
-// Purpose: Clean dynamic instructions component - simplified version
+// Purpose: Main instructions display component
+// CRITICAL FIX: Removed ALL event handler wiring - FaceTrainingInstructions manages itself
 
 using System.Windows;
 using System.Windows.Controls;
-using NewwaysAdmin.WorkerAttendance.UI;  // ADD this using for VideoFeedService
+using NewwaysAdmin.WorkerAttendance.UI;
 
 namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 {
     public partial class InstructionsControl : UserControl
     {
-
-        // Events for training workflow
-        public event Action<int>? CaptureRequested;
-        public event Action? TrainingCompleted;
-        public event Action? TrainingCancelled;
-
-        // NEW: Reference to video service for worker recognition
         private VideoFeedService? _videoService;
+
+        // NO EVENTS EXPOSED - FaceTrainingInstructions handles everything internally
 
         public InstructionsControl()
         {
             InitializeComponent();
         }
 
-        /// <summary>
-        /// Initialize with video service to listen for worker recognition
-        /// </summary>
         public void Initialize(VideoFeedService videoService)
         {
             _videoService = videoService;
 
-            // Subscribe to worker recognition event
             if (_videoService != null)
             {
                 _videoService.WorkerRecognized += OnWorkerRecognized;
             }
         }
 
-        /// <summary>
-        /// Handle when worker is recognized - show confirmation panel
-        /// </summary>
         private void OnWorkerRecognized(string workerName)
         {
             Dispatcher.Invoke(() =>
             {
-                // Show the worker confirmation panel
                 WorkerConfirmation.SetWorkerInfo(workerName);
                 WorkerConfirmation.Visibility = Visibility.Visible;
-
-                // Hide normal instructions temporarily
                 NormalInstructions.Visibility = Visibility.Collapsed;
             });
         }
 
-        /// <summary>
-        /// Hide worker confirmation panel (called when user confirms or cancels)
-        /// </summary>
+        public void ShowWorkerConfirmation(string workerName)
+        {
+            WorkerConfirmation.Visibility = Visibility.Visible;
+            WorkerConfirmation.SetWorkerInfo(workerName);
+            NormalInstructions.Visibility = Visibility.Collapsed;
+        }
+
         public void HideWorkerConfirmation()
         {
             WorkerConfirmation.Visibility = Visibility.Collapsed;
             WorkerConfirmation.Clear();
 
-            // Show normal instructions again
             if (TrainingInstructions.Visibility != Visibility.Visible)
             {
                 NormalInstructions.Visibility = Visibility.Visible;
             }
         }
 
-        /// <summary>
-        /// Clean up event subscriptions
-        /// </summary>
         public void Cleanup()
         {
             if (_videoService != null)
@@ -78,42 +64,33 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 _videoService.WorkerRecognized -= OnWorkerRecognized;
                 _videoService = null;
             }
+
+            // CRITICAL: Cleanup face training control
+            FaceTrainingInstructions?.Cleanup();
         }
 
-        /// <summary>
-        /// Switch to normal attendance scanning mode
-        /// </summary>
         public void ShowNormalMode()
         {
             InstructionsHeader.Text = "Instructions";
             NormalInstructions.Visibility = Visibility.Visible;
             TrainingInstructions.Visibility = Visibility.Collapsed;
-
-            // Hide confirmation panel when switching modes
             HideWorkerConfirmation();
         }
 
-        /// <summary>
-        /// Switch to worker training mode (registration form)
-        /// </summary>
         public void ShowTrainingMode()
         {
             InstructionsHeader.Text = "Worker Registration";
             NormalInstructions.Visibility = Visibility.Collapsed;
             TrainingInstructions.Visibility = Visibility.Visible;
-
-            // Show basic instructions, hide face training
             BasicTrainingInstructions.Visibility = Visibility.Visible;
             FaceTrainingInstructionsPanel.Visibility = Visibility.Collapsed;
-
             CurrentTrainingInstruction.Text = "Enter worker information and start face training";
-
-            // Hide confirmation panel when switching modes
             HideWorkerConfirmation();
         }
 
         /// <summary>
-        /// Start face training workflow (show visual instructions)
+        /// CRITICAL FIX: Just show the control - NO EVENT HANDLERS!
+        /// FaceTrainingInstructions subscribes to workflow events internally via StartTrainingForWorker()
         /// </summary>
         public void StartFaceTraining()
         {
@@ -124,91 +101,40 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             }
 
             InstructionsHeader.Text = "Face Training in Progress";
-
-            // Hide basic instructions, show face training
             BasicTrainingInstructions.Visibility = Visibility.Collapsed;
             FaceTrainingInstructionsPanel.Visibility = Visibility.Visible;
-
-            // CRITICAL: Reset the FaceTrainingInstructions control visibility 
-            // (in case it was hidden after previous training completion)
             FaceTrainingInstructions.Visibility = Visibility.Visible;
 
-            // Reset and wire up the face training component
-            if (FaceTrainingInstructions != null)
-            {
-                FaceTrainingInstructions.ResetToStep1();
-
-                // CRITICAL: Wire up the events
-                FaceTrainingInstructions.CaptureRequested += (step) => {
-                    CaptureRequested?.Invoke(step);
-                };
-                FaceTrainingInstructions.TrainingCompleted += () => {
-                    TrainingCompleted?.Invoke();
-                };
-                FaceTrainingInstructions.TrainingCancelled += () => {
-                    TrainingCancelled?.Invoke();
-                };
-            }
+            // CRITICAL: Just reset the visual state
+            // DON'T wire up any event handlers here!
+            // The FaceTrainingInstructions control will subscribe to workflow when StartTrainingForWorker() is called
+            FaceTrainingInstructions.ResetToStep1();
 
             CurrentTrainingInstruction.Text = "Follow the visual steps below";
         }
 
-        /// <summary>
-        /// Update the current training instruction text
-        /// </summary>
         public void UpdateTrainingInstruction(string instruction)
         {
             CurrentTrainingInstruction.Text = instruction;
         }
 
-        /// <summary>
-        /// Update the training step description (legacy method for compatibility)
-        /// </summary>
         public void UpdateTrainingStep(string step)
         {
             CurrentTrainingInstruction.Text = step;
         }
 
-        #region Face Training Component Event Handlers
-
-        private void OnCaptureRequested(int stepNumber)
-        {
-            // Forward the capture request to parent window
-            CaptureRequested?.Invoke(stepNumber);
-        }
-
-        private void OnTrainingCompleted()
-        {
-            // Forward training completion to parent window
-            TrainingCompleted?.Invoke();
-        }
-
-        private void OnTrainingCancelled()
-        {
-            // Forward training cancellation to parent window
-            TrainingCancelled?.Invoke();
-        }
-
-        #endregion
-
-        #region Public Methods for Face Training Integration
-
         /// <summary>
-        /// Notify that a training step was captured successfully
+        /// NO-OP: FaceTrainingInstructions gets step updates directly from workflow
         /// </summary>
         public void OnStepCaptured(int stepNumber, bool success)
         {
-            FaceTrainingInstructions?.OnStepCaptured(stepNumber, success);
+            // FaceTrainingInstructions subscribes to workflow.StepCompleted directly
+            // This method kept for backwards compatibility but does nothing
         }
 
-        /// <summary>
-        /// Update training status message
-        /// </summary>
         public void UpdateTrainingStatus(string status)
         {
             CurrentTrainingInstruction.Text = status;
         }
-
-        #endregion
     }
 }

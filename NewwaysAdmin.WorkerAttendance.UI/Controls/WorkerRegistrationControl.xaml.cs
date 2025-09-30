@@ -1,6 +1,6 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.UI/Controls/WorkerRegistrationControl.xaml.cs
-// Purpose: Worker registration component logic - clean and focused
-// FIXED: Manual save only, proper cancel, can train multiple workers
+// Purpose: Worker registration component logic
+// FIXED: Proper event cleanup between training sessions
 
 using System.Windows;
 using System.Windows.Controls;
@@ -32,10 +32,13 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             _storageService = storageService;
             _faceTrainingWorkflowService = workflowService;
 
+            // CRITICAL FIX: Unsubscribe first to prevent accumulation
+            // This is called every time we switch to training mode
+            Cleanup(); // Use existing Cleanup method
+
             // Subscribe to workflow events
             if (_faceTrainingWorkflowService != null)
             {
-                // CHANGED: Subscribe to AllStepsCompleted instead of TrainingCompleted
                 _faceTrainingWorkflowService.AllStepsCompleted += OnAllStepsCompleted;
                 _faceTrainingWorkflowService.WorkerSaved += OnWorkerSaved;
             }
@@ -44,7 +47,19 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         }
 
         /// <summary>
-        /// CHANGED: Called when all 4 steps captured, but NOT yet saved
+        /// Cleanup: Unsubscribe from workflow events
+        /// </summary>
+        public void Cleanup()
+        {
+            if (_faceTrainingWorkflowService != null)
+            {
+                _faceTrainingWorkflowService.AllStepsCompleted -= OnAllStepsCompleted;
+                _faceTrainingWorkflowService.WorkerSaved -= OnWorkerSaved;
+            }
+        }
+
+        /// <summary>
+        /// Called when all 4 steps captured, but NOT yet saved
         /// </summary>
         private void OnAllStepsCompleted()
         {
@@ -58,21 +73,21 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 TrainingInstructions.Text = "All poses captured! Click SAVE to store worker.";
                 TrainingStatus.Text = "Ready to save - or click CANCEL to discard";
 
-                // Save button remains "Save Worker" - user must click it
                 SaveButton.IsEnabled = true;
                 ValidationMessage.Text = "";
             });
         }
 
         /// <summary>
-        /// NEW: Called after worker actually saved to storage
+        /// Called after worker actually saved to storage
         /// </summary>
         private void OnWorkerSaved()
         {
             Dispatcher.Invoke(() =>
             {
                 StatusChanged?.Invoke("Worker saved successfully!");
-                Cleanup();
+                // DON'T cleanup here - we want to train more workers!
+                // Cleanup will happen in Initialize() before next worker
                 WorkerSaved?.Invoke();
             });
         }
@@ -89,20 +104,17 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             ScanFaceButton.Background = System.Windows.Media.Brushes.LightBlue;
             ScanFaceButton.IsEnabled = true;
 
-            // Reset buttons to initial state
             SaveButton.Content = "Save Worker";
             SaveButton.Background = System.Windows.Media.Brushes.LightGreen;
-            SaveButton.IsEnabled = false;  // Disabled until training complete
+            SaveButton.IsEnabled = false;
         }
 
         private void ScanFaceButton_Click(object sender, RoutedEventArgs e)
         {
-            // Only allow starting training if not in progress and no data captured yet
             if (!_isTrainingInProgress && !_faceDataCaptured)
             {
                 StartFaceTraining();
             }
-            // If training complete or in progress, button does nothing
         }
 
         private void StartFaceTraining()
@@ -116,12 +128,11 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             _isTrainingInProgress = true;
             ScanFaceButton.Content = "Training in Progress...";
             ScanFaceButton.Background = System.Windows.Media.Brushes.Orange;
-            ScanFaceButton.IsEnabled = false;  // Disable during training
+            ScanFaceButton.IsEnabled = false;
             TrainingInstructions.Text = "Look directly at the camera";
             TrainingStatus.Text = "Starting face training...";
             ValidationMessage.Text = "";
 
-            // Notify parent that face training is requested
             FaceTrainingRequested?.Invoke();
         }
 
@@ -145,22 +156,19 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 ScanFaceButton.Content = "Face Training Complete ✓";
                 ScanFaceButton.Background = System.Windows.Media.Brushes.LightGreen;
                 TrainingInstructions.Text = "All poses captured! Click SAVE to store worker.";
-                TrainingStatus.Text = "Ready to save - or click CANCEL to discard";
+                TrainingStatus.Text = "Ready to save";
                 SaveButton.IsEnabled = true;
             }
             else
             {
-                ScanFaceButton.Content = "Training Failed - Retry";
-                ScanFaceButton.Background = System.Windows.Media.Brushes.LightCoral;
-                ScanFaceButton.IsEnabled = true;  // Allow retry
-                TrainingInstructions.Text = "Face training failed. Click to try again.";
-                TrainingStatus.Text = "Training unsuccessful";
+                ScanFaceButton.Content = "Training Failed";
+                ScanFaceButton.Background = System.Windows.Media.Brushes.Red;
+                TrainingInstructions.Text = "Training failed. Please try again.";
+                TrainingStatus.Text = "Error during training";
+                ScanFaceButton.IsEnabled = true;
             }
         }
 
-        /// <summary>
-        /// CHANGED: Now explicitly saves the worker (doesn't auto-save)
-        /// </summary>
         private async void SaveButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_faceDataCaptured)
@@ -169,65 +177,53 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(WorkerNameInput.Text))
+            {
+                ValidationMessage.Text = "Please enter worker name";
+                return;
+            }
+
+            SaveButton.IsEnabled = false;
+            SaveButton.Content = "Saving...";
+            ValidationMessage.Text = "";
+
             try
             {
-                StatusChanged?.Invoke("Saving worker...");
-                SaveButton.IsEnabled = false;  // Prevent double-click
-
-                // CHANGED: Explicitly call SaveWorkerAsync
                 if (_faceTrainingWorkflowService != null)
                 {
                     bool success = await _faceTrainingWorkflowService.SaveWorkerAsync();
 
-                    if (!success)
+                    if (success)
+                    {
+                        SaveButton.Content = "Saved ✓";
+                        SaveButton.Background = System.Windows.Media.Brushes.Green;
+                        TrainingStatus.Text = "Worker saved successfully!";
+
+                        await Task.Delay(1000);
+
+                        ResetForm();
+                        WorkerSaved?.Invoke();
+                    }
+                    else
                     {
                         ValidationMessage.Text = "Failed to save worker";
-                        SaveButton.IsEnabled = true;  // Re-enable on failure
+                        SaveButton.IsEnabled = true;
+                        SaveButton.Content = "Save Worker";
                     }
-                    // Success is handled by OnWorkerSaved event
                 }
             }
             catch (Exception ex)
             {
-                ValidationMessage.Text = $"Error saving worker: {ex.Message}";
-                StatusChanged?.Invoke($"Error: {ex.Message}");
-                SaveButton.IsEnabled = true;  // Re-enable on error
+                ValidationMessage.Text = $"Error: {ex.Message}";
+                SaveButton.IsEnabled = true;
+                SaveButton.Content = "Save Worker";
             }
         }
 
-        /// <summary>
-        /// FIXED: Cancel now works correctly - discards data without saving
-        /// </summary>
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                StatusChanged?.Invoke("Registration cancelled");
-
-                // CHANGED: Call CancelTraining to discard data
-                if (_faceTrainingWorkflowService != null)
-                {
-                    _faceTrainingWorkflowService.CancelTraining();
-                }
-
-                Cleanup();
-                RegistrationCancelled?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                ValidationMessage.Text = $"Error cancelling: {ex.Message}";
-                StatusChanged?.Invoke($"Cancel error: {ex.Message}");
-            }
-        }
-
-        public void Cleanup()
-        {
-            // Unsubscribe from events to prevent memory leaks
-            if (_faceTrainingWorkflowService != null)
-            {
-                _faceTrainingWorkflowService.AllStepsCompleted -= OnAllStepsCompleted;
-                _faceTrainingWorkflowService.WorkerSaved -= OnWorkerSaved;
-            }
+            ResetForm();
+            RegistrationCancelled?.Invoke();
         }
 
         public string GetWorkerName()

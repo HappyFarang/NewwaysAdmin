@@ -252,7 +252,20 @@ namespace NewwaysAdmin.WorkerAttendance.UI
                 StatusChanged?.Invoke($"Error stopping video: {ex.Message}");
             }
         }
-
+        public async Task SendCommandAsync(string command)
+        {
+            try
+            {
+                StatusChanged?.Invoke($"Sending command: {command}");
+                string commandFile = Path.Combine(Path.GetTempPath(), "face_detection_command.txt");
+                await File.WriteAllTextAsync(commandFile, command);
+                StatusChanged?.Invoke($"Command '{command}' sent successfully");
+            }
+            catch (Exception ex)
+            {
+                StatusChanged?.Invoke($"Error sending command '{command}': {ex.Message}");
+            }
+        }
         public async Task ConfirmSignInAsync()
         {
             try

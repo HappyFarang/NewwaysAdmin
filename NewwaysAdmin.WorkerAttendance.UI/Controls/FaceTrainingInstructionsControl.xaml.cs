@@ -1,6 +1,6 @@
 ﻿// File: NewwaysAdmin.WorkerAttendance.UI/Controls/FaceTrainingInstructionsControl.xaml.cs
 // Purpose: Standalone visual face training instructions component logic
-// FIXED: Updated event names to match new FaceTrainingWorkflowService
+// FIXED: Proper event cleanup to prevent ghost training sessions
 
 using NewwaysAdmin.WorkerAttendance.Services;
 using System.Windows;
@@ -13,8 +13,6 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
     {
         private int _currentStep = 1;
         private const int _totalSteps = 4;
-
-        // Add workflow service reference
         private FaceTrainingWorkflowService? _workflowService;
 
         // Events for parent window communication
@@ -31,7 +29,6 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         public void Initialize(FaceTrainingWorkflowService workflowService)
         {
             _workflowService = workflowService;
-            // Don't subscribe here - let SubscribeToWorkflowEvents handle it
         }
 
         public void StartTrainingForWorker(string workerName)
@@ -42,11 +39,10 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 return;
             }
 
-            // CRITICAL FIX: Force complete reset - important for second+ worker
-            // The control might be hidden with old completion state still visible
+            // CRITICAL: Force complete reset and cleanup
             ForceCompleteReset();
 
-            // Re-subscribe to events in case we unsubscribed after previous training
+            // Re-subscribe to workflow events
             SubscribeToWorkflowEvents();
 
             // Make sure the control is visible
@@ -59,7 +55,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         }
 
         /// <summary>
-        /// NEW: Force a complete reset of the control - clears ALL state including completion
+        /// NEW: Force a complete reset - clears ALL state including completion
         /// </summary>
         public void ForceCompleteReset()
         {
@@ -74,7 +70,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             // Activate step 1
             ActivateStep(Step1Border, CaptureStep1Button);
 
-            // CRITICAL: Hide completion border (might be visible from previous training)
+            // Hide completion border
             CompletionBorder.Visibility = Visibility.Collapsed;
 
             // Reset progress display
@@ -83,35 +79,42 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         }
 
         /// <summary>
-        /// Subscribe to workflow events - can be called multiple times safely
+        /// Subscribe to workflow events - safely handles re-subscription
         /// </summary>
         private void SubscribeToWorkflowEvents()
         {
             if (_workflowService == null) return;
 
-            // Unsubscribe first to avoid double subscription
+            // Unsubscribe first to prevent double subscription
             UnsubscribeFromWorkflowEvents();
 
-            // Now subscribe to all relevant events
+            // Subscribe to workflow events
             _workflowService.StatusChanged += OnWorkflowStatusChanged;
-            _workflowService.AllStepsCompleted += OnWorkflowAllStepsCompleted;  // CHANGED: was TrainingCompleted
+            _workflowService.AllStepsCompleted += OnWorkflowAllStepsCompleted;
             _workflowService.ErrorOccurred += OnWorkflowError;
-
-            // CRITICAL: Subscribe to StepCompleted to handle individual step progression
             _workflowService.StepCompleted += OnWorkflowStepCompleted;
         }
 
         /// <summary>
-        /// Unsubscribe from workflow events - can be called multiple times safely
+        /// Unsubscribe from workflow events
         /// </summary>
         private void UnsubscribeFromWorkflowEvents()
         {
             if (_workflowService == null) return;
 
             _workflowService.StatusChanged -= OnWorkflowStatusChanged;
-            _workflowService.AllStepsCompleted -= OnWorkflowAllStepsCompleted;  // CHANGED: was TrainingCompleted
+            _workflowService.AllStepsCompleted -= OnWorkflowAllStepsCompleted;
             _workflowService.ErrorOccurred -= OnWorkflowError;
             _workflowService.StepCompleted -= OnWorkflowStepCompleted;
+        }
+
+        /// <summary>
+        /// NEW: Public cleanup method to unsubscribe from workflow
+        /// Call this when disposing or hiding the control
+        /// </summary>
+        public void Cleanup()
+        {
+            UnsubscribeFromWorkflowEvents();
         }
 
         public void ResetToStep1()
@@ -127,7 +130,7 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
             // Activate step 1
             ActivateStep(Step1Border, CaptureStep1Button);
 
-            // CRITICAL FIX: Always hide completion border when resetting
+            // Hide completion border
             CompletionBorder.Visibility = Visibility.Collapsed;
 
             // Update UI
@@ -148,14 +151,14 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                 // Mark the completed step as done
                 MarkStepComplete(stepNumber);
 
-                // Sync our internal step counter with the workflow service
+                // Sync our internal step counter
                 _currentStep = stepNumber;
 
                 if (stepNumber < _totalSteps)
                 {
                     // Calculate the NEXT step to activate
                     int nextStep = stepNumber + 1;
-                    _currentStep = nextStep; // Update internal counter to next step
+                    _currentStep = nextStep;
 
                     // Activate the next step in the UI
                     ActivateNextStep(nextStep);
@@ -201,21 +204,16 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
 
         private void OnWorkflowStepCompleted(int stepNumber, bool success)
         {
-            // This is the key event that drives step progression!
             OnStepCaptured(stepNumber, success);
         }
 
-        /// <summary>
-        /// CHANGED: Renamed from OnWorkflowTrainingCompleted
-        /// Called when all 4 steps are captured (but not yet saved)
-        /// </summary>
         private void OnWorkflowAllStepsCompleted()
         {
             Dispatcher.Invoke(() =>
             {
                 CurrentInstruction.Text = "All face angles captured! Click SAVE to store worker.";
 
-                // Unsubscribe from workflow events to prevent further updates
+                // Unsubscribe from workflow events
                 UnsubscribeFromWorkflowEvents();
 
                 // Hide the entire control
@@ -269,20 +267,16 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         private void ResetStep(Border border, Button button, TextBlock status)
         {
             border.Background = Brushes.LightGray;
-            border.BorderBrush = Brushes.Gray;
-            border.BorderThickness = new Thickness(1);
             button.IsEnabled = false;
-            button.Background = Brushes.LightGray;
+            button.Opacity = 0.5;
             status.Text = "";
         }
 
         private void ActivateStep(Border border, Button button)
         {
             border.Background = Brushes.LightBlue;
-            border.BorderBrush = Brushes.Blue;
-            border.BorderThickness = new Thickness(2);
             button.IsEnabled = true;
-            button.Background = Brushes.LightBlue;
+            button.Opacity = 1.0;
         }
 
         private void MarkStepComplete(int stepNumber)
@@ -332,17 +326,17 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         {
             return step switch
             {
-                1 => "Position face straight and click CAPTURE",
+                1 => "Position face STRAIGHT and click CAPTURE",
                 2 => "Turn face LEFT and click CAPTURE",
                 3 => "Turn face RIGHT and click CAPTURE",
-                4 => "Look UPWARD and click CAPTURE",
+                4 => "Tilt face SLIGHTLY UP and click CAPTURE",
                 _ => "Unknown step"
             };
         }
 
         private void UpdateProgress()
         {
-            ProgressText.Text = $"Step {_currentStep} of {_totalSteps}";
+            // This could update a progress bar or text if you have one
         }
 
         #endregion

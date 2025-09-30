@@ -1,12 +1,9 @@
-# File: unified_video_detection.py
-# Purpose: Unified video feed with face detection and recognition
-# FINAL VERSION: Incorporates all fixes with improved command handling
-
 import cv2
 import base64
 import json
 import sys
 import time
+import threading
 import os
 import numpy as np
 import face_recognition
@@ -16,15 +13,14 @@ class VideoDetectionService:
         self.cap = None
         self.face_cascade = None
         self.running = False
-        self.detection_mode = "idle"  # States: "idle", "detecting", "confirmation"
+        self.detection_mode = "idle"  # Changed: Use string states ("idle", "detecting", "confirmation") for clarity
         self.detection_count = 0
         self.detection_threshold = 5
-        self.recognition_result = None  # Store current recognition result
-        
+        self.recognition_result = None  # Store current recognition result for confirmation
         # Face recognition data
         self.workers = []
         self.recognition_enabled = False
-        self.recognition_tolerance = 0.6
+        self.recognition_tolerance = 0.6  # More lenient - was 0.6
         
     def send_message(self, msg_type, **kwargs):
         """Send JSON message to C#"""
@@ -99,7 +95,7 @@ class VideoDetectionService:
                         return {
                             'worker_name': worker['name'],
                             'confidence': round(confidence, 1),
-                            'worker_id': str(worker['id'])
+                            'worker_id': worker['id']
                         }
             return None
             
@@ -111,21 +107,13 @@ class VideoDetectionService:
         """Initialize camera and face detection"""
         self.send_message("status", message="Initializing camera and loading workers...")
         
-        # Load workers first
         self.load_workers()
         
-        # Initialize camera
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             self.send_message("error", message="Could not open camera")
             return False
-        
-        # Set camera properties
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
             
-        # Load face cascade
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         
         status_msg = "Camera initialized"
@@ -139,16 +127,12 @@ class VideoDetectionService:
         """Process single frame with face detection AND recognition"""
         ret, frame = self.cap.read()
         if not ret:
+            self.send_message("error", message="Failed to read frame")
             return None
         
-        # Flip frame for mirror effect
-        frame = cv2.flip(frame, 1)
-        
-        # Detect faces
         if self.recognition_enabled:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             face_locations = face_recognition.face_locations(rgb_frame)
-            # Convert to (x, y, w, h) format
             faces = [(left, top, right-left, bottom-top) for (top, right, bottom, left) in face_locations]
         else:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -164,8 +148,8 @@ class VideoDetectionService:
                 # Draw GREEN rectangles for detection
                 for (x, y, w, h) in faces:
                     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
-                    cv2.putText(frame, f"DETECTING {self.detection_count}/{self.detection_threshold}", 
-                               (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    cv2.putText(frame, f"DETECTING {self.detection_count}/{self.detection_threshold}", (x, y-10), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 
                 cv2.putText(frame, f"DETECTION: {self.detection_count}/{self.detection_threshold}", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
@@ -173,33 +157,38 @@ class VideoDetectionService:
                 # Check if threshold reached
                 if self.detection_count >= self.detection_threshold:
                     recognition_result = None
-                    
-                    # Try recognition
                     if self.recognition_enabled and face_locations:
                         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
                         if face_encodings:
-                            recognition_result = self.recognize_face(face_encodings[0])
+                            recognition_result = self.recognize_face(face_encodings[0])  # First face only
                     
                     if recognition_result:
-                        # Worker recognized!
                         self.send_message("signin_recognition", 
                                         worker_name=recognition_result['worker_name'],
                                         confidence=recognition_result['confidence'],
                                         worker_id=recognition_result['worker_id'])
                         
-                        # Move to confirmation state
+                        # Change: Move to confirmation state, stop counting
                         self.detection_mode = "confirmation"
                         self.recognition_result = recognition_result
-                        self.send_message("status", message=f"Recognized: {recognition_result['worker_name']}")
+                        self.send_message("status", message=f"Waiting for confirmation: {recognition_result['worker_name']}")
                     else:
-                        # Unknown person
-                        self.send_message("signin_unknown", message="Unknown person detected")
+                        face_data = []
+                        for i, (x, y, w, h) in enumerate(faces):
+                            face_data.append({
+                                "id": f"face_{i+1}",
+                                "confidence": 0.8,
+                                "position": {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}
+                            })
+                        
+                        self.send_message("signin_unknown", 
+                                        message="Unknown person detected",
+                                        faces=face_data)
                         
                         # Reset to idle
                         self.detection_mode = "idle"
                         self.detection_count = 0
             else:
-                # No face - decrement counter
                 if self.detection_count > 0:
                     self.detection_count -= 1
                     
@@ -207,12 +196,12 @@ class VideoDetectionService:
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         
         elif self.detection_mode == "confirmation":
-            # Waiting for confirmation
-            if len(faces) > 0 and self.recognition_result:
+            # New: Show confirmation UI, don't increment count
+            if len(faces) > 0:
                 for (x, y, w, h) in faces:
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 255), 3)  # Purple
-                    label = f"CONFIRM: {self.recognition_result['worker_name']} ({self.recognition_result['confidence']:.0f}%)"
-                    cv2.putText(frame, label, (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 255), 3)  # Purple for confirmation
+                    cv2.putText(frame, f"CONFIRM: {self.recognition_result['worker_name']} ({self.recognition_result['confidence']:.0f}%)", 
+                               (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
                 
                 cv2.putText(frame, "WAITING FOR CONFIRMATION", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
@@ -220,37 +209,38 @@ class VideoDetectionService:
                 cv2.putText(frame, "CONFIRMATION: No face visible", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
         
-        else:  # idle mode - real-time preview
+        else:  # idle mode (real-time preview)
             if self.recognition_enabled and face_locations:
-                # Try to recognize faces in idle mode (preview)
                 try:
+                    self.send_message("status", message=f"Attempting recognition on {len(face_locations)} faces")
                     face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+                    self.send_message("status", message=f"Got {len(face_encodings)} face encodings")
                     
-                    for face_encoding, (x, y, w, h) in zip(face_encodings, faces):
+                    for i, (face_encoding, (x, y, w, h)) in enumerate(zip(face_encodings, faces)):
                         recognition_result = self.recognize_face(face_encoding)
                         
                         if recognition_result:
-                            # Draw blue rectangle for recognized worker
                             cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
                             label = f"{recognition_result['worker_name']} ({recognition_result['confidence']:.0f}%)"
                             cv2.putText(frame, label, (x, y-10), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+                            self.send_message("status", message=f"Recognized: {recognition_result['worker_name']}")
                         else:
-                            # Draw yellow rectangle for unknown
                             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
                             cv2.putText(frame, "Unknown", (x, y-10), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                            self.send_message("status", message="Face not recognized")
                 except Exception as e:
-                    # Recognition error - just show face detected
+                    self.send_message("error", message=f"Recognition failed: {str(e)}")
                     for (x, y, w, h) in faces:
                         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                        cv2.putText(frame, "FACE", (x, y-10), 
+                        cv2.putText(frame, "FACE (Recognition Error)", (x, y-10), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             else:
-                # No recognition or no faces
+                recognition_status = "No Recognition" if not self.recognition_enabled else "No Faces"
                 for (x, y, w, h) in faces:
                     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                    cv2.putText(frame, "FACE", (x, y-10), 
+                    cv2.putText(frame, f"FACE ({recognition_status})", (x, y-10), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             
             # Status display
@@ -271,15 +261,15 @@ class VideoDetectionService:
         """Start face detection mode for sign-in"""
         self.detection_mode = "detecting"
         self.detection_count = 0
-        self.recognition_result = None
-        self.send_message("status", message="Face detection started for sign-in")
+        self.recognition_result = None  # Clear any prior result
+        self.send_message("status", message="Face detection mode started for sign-in")
         
     def stop_detection(self):
         """Stop detection mode"""
         self.detection_mode = "idle"
         self.detection_count = 0
         self.recognition_result = None
-        self.send_message("status", message="Face detection stopped")
+        self.send_message("status", message="Face detection mode stopped")
         
     def confirm_signin(self):
         """Handle confirmation of sign-in from C#"""
@@ -298,15 +288,12 @@ class VideoDetectionService:
         self.recognition_result = None
     
     def reload_workers(self):
-        """Reload worker data (for when new workers are added or deleted)"""
-        self.send_message("status", message="Reloading worker database...")
+        """Reload worker data (for when new workers are added)"""
         self.load_workers()
-        self.send_message("status", message=f"Worker database reloaded - {len(self.workers)} workers active")
         
     def stop(self):
         """Stop the video service"""
         self.running = False
-        self.send_message("status", message="Stopping video service...")
 
     def run_with_commands(self):
         """Main video loop with command checking"""
@@ -318,15 +305,12 @@ class VideoDetectionService:
         
         try:
             while self.running:
-                # Check for commands from C#
                 check_commands()
                 
-                # Process frame
                 frame = self.process_frame()
                 if frame is None:
                     break
-                
-                # Encode and send frame
+                    
                 _, buffer = cv2.imencode('.jpg', frame)
                 frame_base64 = base64.b64encode(buffer).decode('utf-8')
                 self.send_message("frame", data=frame_base64)
@@ -354,12 +338,10 @@ def check_commands():
             with open(command_file, 'r') as f:
                 command = f.read().strip()
             
-            # Remove command file
             os.remove(command_file)
             
             video_service.send_message("status", message=f"Received command: {command}")
             
-            # Process command
             if command == "start_detection":
                 video_service.start_detection()
             elif command == "stop_detection":
@@ -370,8 +352,6 @@ def check_commands():
                 video_service.reload_workers()
             elif command == "stop":
                 video_service.stop()
-            else:
-                video_service.send_message("status", message=f"Unknown command: {command}")
                 
     except Exception as e:
         video_service.send_message("error", message=f"Command check error: {str(e)}")
