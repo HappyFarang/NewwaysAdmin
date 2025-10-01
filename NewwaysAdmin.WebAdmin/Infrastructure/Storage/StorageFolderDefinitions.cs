@@ -1,4 +1,5 @@
-﻿using System.Collections.Immutable;
+﻿//NewwaysAdmin.WebAdmin/Storage/StorageFolderDefinitions.cs
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;

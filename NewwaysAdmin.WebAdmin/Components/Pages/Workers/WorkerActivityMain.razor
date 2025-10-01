@@ -1,0 +1,99 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerActivityMain.razor *@
+@* Purpose: Main worker activity dashboard page - orchestrates child components *@
+
+@page "/worker-activity"
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Components.Pages.Workers.Components
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject WorkerDashboardService DashboardService
+@inject ILogger<WorkerActivityMain> Logger
+
+<PageTitle>Worker Activity</PageTitle>
+
+<div class="container-fluid mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>
+            <span class="bi bi-people me-2"></span>
+            Worker Activity
+        </h2>
+        <div>
+            <span class="text-muted small">
+                Last updated: @(_dashboardData?.RefreshTime.ToString("HH:mm:ss") ?? "--:--:--")
+            </span>
+            <button class="btn btn-sm btn-outline-primary ms-2" @onclick="RefreshDashboard" disabled="@_isLoading">
+                <span class="bi bi-arrow-clockwise"></span>
+                @(_isLoading ? "Refreshing..." : "Refresh")
+            </button>
+        </div>
+    </div>
+
+    @if (_isLoading && _dashboardData == null)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading worker activity...</p>
+        </div>
+    }
+    else if (_dashboardData != null)
+    {
+        <ActiveWorkersCard Workers="@_dashboardData.ActiveWorkers" />
+        <InactiveWorkersCard Workers="@_dashboardData.InactiveWorkers" />
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h5 class="alert-heading">
+                <span class="bi bi-exclamation-triangle me-2"></span>
+                Error Loading Data
+            </h5>
+            <p>@_error</p>
+            <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
+                <span class="bi bi-arrow-clockwise me-1"></span>
+                Try Again
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private DashboardData? _dashboardData;
+    private bool _isLoading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+    }
+
+    private async Task LoadDashboardData()
+    {
+        _isLoading = true;
+        _error = null;
+
+        try
+        {
+            _dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
+            Logger.LogInformation("Dashboard loaded: {Active} active, {Inactive} inactive",
+                _dashboardData.ActiveWorkers.Count,
+                _dashboardData.InactiveWorkers.Count);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            Logger.LogError(ex, "Error loading dashboard data");
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task RefreshDashboard()
+    {
+        await LoadDashboardData();
+    }
+}

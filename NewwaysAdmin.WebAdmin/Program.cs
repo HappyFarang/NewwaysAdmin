@@ -36,6 +36,7 @@ using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Templates;
 using NewwaysAdmin.SharedModels.Services.Parsing;
 using NewwaysAdmin.WebAdmin.Services.Background;
+using NewwaysAdmin.WebAdmin.Services.Workers;
 
 
 namespace NewwaysAdmin.WebAdmin;
@@ -247,7 +248,8 @@ public class Program
         services.AddExternalFileProcessing();
         services.AddPassThroughSyncService();
 
-
+        // Worker Activity services
+        services.AddScoped<WorkerDashboardService>();
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
@@ -307,12 +309,11 @@ public class Program
         });
 
         // OCR Pattern Management Service
+        // OCR Pattern Management Service
         services.AddScoped<PatternManagementService>(sp =>
         {
-            var storageManager = sp.GetRequiredService<StorageManager>();
             var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
-            var storage = storageManager.GetStorageSync<PatternLibrary>("OcrPatterns");
-            return new PatternManagementService(storage, logger);
+            return new PatternManagementService(sp, logger);  // Pass sp (IServiceProvider) instead of storage
         });
 
         // ✅ NEW: OCR Pattern Loader Service (business logic layer)

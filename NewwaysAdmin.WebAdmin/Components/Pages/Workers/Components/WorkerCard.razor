@@ -1,0 +1,114 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerCard.razor *@
+@* Purpose: Reusable worker card component - displays individual worker info *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WorkerAttendance.Models
+@inject NavigationManager Navigation
+
+<div class="card @BorderClass h-100 worker-card"
+     @onclick="NavigateToWorkerDetail"
+     style="cursor: pointer;">
+    <div class="card-body">
+        <h6 class="card-title">
+            @Worker.WorkerName
+        </h6>
+
+        @if (IsActive)
+        {
+            <!-- ACTIVE WORKER DISPLAY -->
+            <div class="small">
+                <div class="mb-2">
+                    <span class="badge @CycleBadgeClass">@Worker.CycleDisplay</span>
+                </div>
+                <div class="text-muted mb-1">
+                    <span class="bi bi-clock me-1"></span>
+                    Signed in: @Worker.LastActivityFormatted
+                </div>
+                <div class="text-muted">
+                    <span class="bi bi-hourglass-split me-1"></span>
+                    Duration: @Worker.DurationFormatted
+                </div>
+            </div>
+        }
+        else
+        {
+            <!-- INACTIVE WORKER DISPLAY -->
+            <div class="small">
+                <!-- Normal Shift -->
+                @if (Worker.NormalSignIn != null)
+                {
+                    <div class="mb-2">
+                        <strong>Normal Shift</strong>
+                        @if (Worker.HasOT)
+                        {
+                            <span class="badge bg-secondary ms-1">Completed</span>
+                        }
+                    </div>
+                    <div class="text-muted mb-1">
+                        <span class="bi bi-box-arrow-in-right me-1"></span>
+                        In: @Worker.NormalSignInFormatted
+                    </div>
+                    <div class="text-muted mb-1">
+                        <span class="bi bi-box-arrow-left me-1"></span>
+                        Out: @Worker.NormalSignOutFormatted
+                    </div>
+                    <div class="text-muted mb-2">
+                        <span class="bi bi-clock-history me-1"></span>
+                        Hours: @Worker.NormalHoursFormatted
+                    </div>
+                }
+
+                <!-- OT Shift -->
+                @if (Worker.HasOT)
+                {
+                    <div class="mb-2">
+                        <strong>Overtime</strong>
+                        <span class="badge bg-warning text-dark ms-1">OT</span>
+                    </div>
+                    <div class="text-muted mb-1">
+                        <span class="bi bi-box-arrow-in-right me-1"></span>
+                        In: @Worker.OTSignInFormatted
+                    </div>
+                    <div class="text-muted mb-1">
+                        <span class="bi bi-box-arrow-left me-1"></span>
+                        Out: @Worker.OTSignOutFormatted
+                    </div>
+                    <div class="text-muted">
+                        <span class="bi bi-clock-history me-1"></span>
+                        Hours: @Worker.OTHoursFormatted
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .worker-card {
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+        .worker-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+</style>
+
+@code {
+    [Parameter]
+    public WorkerStatus Worker { get; set; } = null!;
+
+    [Parameter]
+    public bool IsActive { get; set; }
+
+    private string BorderClass => IsActive ? "border-success" : "border-secondary";
+
+    private string CycleBadgeClass => Worker.CurrentCycle == WorkCycle.OT
+        ? "bg-warning text-dark"
+        : "bg-success";
+
+    private void NavigateToWorkerDetail()
+    {
+        Navigation.NavigateTo($"/worker-activity/{Worker.WorkerId}");
+    }
+}

@@ -21,6 +21,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
             { "sales", AccessLevel.Read },
             { "accounting", AccessLevel.ReadWrite },           // Main accounting module
             { "accounting.bankslips", AccessLevel.ReadWrite }, // Bank slips sub-module
+            { "worker-activity", AccessLevel.Read },
             { "accounting.reports", AccessLevel.Read },        // Future reports sub-module
             { "accounting.reconcile", AccessLevel.ReadWrite }, // Future reconciliation sub-module
             { "security", AccessLevel.ReadWrite }
@@ -68,6 +69,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Icon = "fas fa-shield-alt",
                     IsActive = true,
                     Description = "DoS protection and security monitoring"
+                },
+                new NavigationItem
+                {
+                    Id = "worker-activity",
+                    Name = "Worker Activity",
+                    Path = "/worker-activity",
+                    Icon = "bi bi-people",
+                    Description = "Monitor worker attendance and activity"
                 },
                 new NavigationItem
                 {

@@ -23,13 +23,13 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.GoogleSheets",
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.Accounting", "NewwaysAdmin.Accounting\NewwaysAdmin.Accounting.csproj", "{5E299178-2D1C-4FA9-929A-8CA140E2A9E2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.WorkerAttendance.UI", "NewwaysAdmin.WorkerAttendance.UI\NewwaysAdmin.WorkerAttendance.UI.csproj", "{87D9173A-E763-4B30-897F-8220E02C0841}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WorkerAttendance.UI", "NewwaysAdmin.WorkerAttendance.UI\NewwaysAdmin.WorkerAttendance.UI.csproj", "{87D9173A-E763-4B30-897F-8220E02C0841}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.WorkerAttendance.Python", "NewwaysAdmin.WorkerAttendance.Python\NewwaysAdmin.WorkerAttendance.Python.csproj", "{D3649E5B-039B-4297-A2E6-887B7F22552B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WorkerAttendance.Python", "NewwaysAdmin.WorkerAttendance.Python\NewwaysAdmin.WorkerAttendance.Python.csproj", "{D3649E5B-039B-4297-A2E6-887B7F22552B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.WorkerAttendance.Services", "NewwaysAdmin.WorkerAttendance.Services\NewwaysAdmin.WorkerAttendance.Services.csproj", "{0214CDA2-FA9E-4922-B72B-D232CB94F8E2}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WorkerAttendance.Services", "NewwaysAdmin.WorkerAttendance.Services\NewwaysAdmin.WorkerAttendance.Services.csproj", "{0214CDA2-FA9E-4922-B72B-D232CB94F8E2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.WorkerAttendance.Models", "NewwaysAdmin.WorkerAttendance.Models\NewwaysAdmin.WorkerAttendance.Models.csproj", "{1AEE55DE-CCD4-40EB-A44F-1F2594B2FDBA}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WorkerAttendance.Models", "NewwaysAdmin.WorkerAttendance.Models\NewwaysAdmin.WorkerAttendance.Models.csproj", "{1AEE55DE-CCD4-40EB-A44F-1F2594B2FDBA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

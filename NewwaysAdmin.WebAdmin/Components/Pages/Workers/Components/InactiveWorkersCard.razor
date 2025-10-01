@@ -1,0 +1,38 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/InactiveWorkersCard.razor *@
+@* Purpose: Display card for inactive (signed out) workers *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="card">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0">
+            <span class="bi bi-dash-circle me-2"></span>
+            Inactive Workers (@Workers.Count)
+        </h5>
+    </div>
+    <div class="card-body">
+        @if (Workers.Any())
+        {
+            <div class="row g-3">
+                @foreach (var worker in Workers)
+                {
+                    <div class="col-md-6 col-lg-4">
+                        <WorkerCard Worker="@worker" IsActive="false" />
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <p class="text-muted mb-0">
+                <span class="bi bi-info-circle me-2"></span>
+                No inactive workers for today.
+            </p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public List<WorkerStatus> Workers { get; set; } = new();
+}

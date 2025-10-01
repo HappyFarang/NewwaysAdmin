@@ -4,22 +4,43 @@
 using NewwaysAdmin.SharedModels.Models.Ocr;
 using NewwaysAdmin.Shared.IO;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NewwaysAdmin.SharedModels.Services.Ocr
 {
     public class PatternManagementService : IDisposable
     {
-        private readonly IDataStorage<PatternLibrary> _storage;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<PatternManagementService> _logger;
         private readonly SemaphoreSlim _lock = new(1, 1);
         private const string LIBRARY_KEY = "pattern-library";
+        private IDataStorage<PatternLibrary>? _storage;
 
+        // CHANGED: Accept IServiceProvider for lazy resolution
         public PatternManagementService(
-            IDataStorage<PatternLibrary> storage,
+            IServiceProvider serviceProvider,
             ILogger<PatternManagementService> logger)
         {
-            _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        // NEW: Lazy-load storage when first needed
+        private IDataStorage<PatternLibrary> GetStorage()
+        {
+            if (_storage == null)
+            {
+                // Resolve StorageManager at runtime, not at startup
+                using var scope = _serviceProvider.CreateScope();
+                var storageManager = scope.ServiceProvider.GetRequiredService<object>();
+
+                // Use reflection to call GetStorageSync since we can't reference WebAdmin
+                var storageManagerType = storageManager.GetType();
+                var method = storageManagerType.GetMethod("GetStorageSync");
+                var genericMethod = method.MakeGenericMethod(typeof(PatternLibrary));
+                _storage = (IDataStorage<PatternLibrary>)genericMethod.Invoke(storageManager, new object[] { "OcrPatterns" });
+            }
+            return _storage;
         }
 
         #region Load Operations
@@ -32,10 +53,11 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
             try
             {
                 await _lock.WaitAsync();
+                var storage = GetStorage(); // Get storage lazily
 
-                if (await _storage.ExistsAsync(LIBRARY_KEY))
+                if (await storage.ExistsAsync(LIBRARY_KEY))
                 {
-                    var library = await _storage.LoadAsync(LIBRARY_KEY);
+                    var library = await storage.LoadAsync(LIBRARY_KEY);
                     library.Collections ??= new Dictionary<string, PatternCollection>();
 
                     _logger.LogDebug("Loaded pattern library with {CollectionCount} collections",

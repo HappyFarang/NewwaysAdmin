@@ -18,6 +18,7 @@
     <ProjectReference Include="..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.GoogleSheets\NewwaysAdmin.GoogleSheets.csproj" />
+    <ProjectReference Include="..\NewwaysAdmin.WorkerAttendance.Models\NewwaysAdmin.WorkerAttendance.Models.csproj" />
     <PackageReference Include="itext7" Version="9.0.0" />
   </ItemGroup>
 
