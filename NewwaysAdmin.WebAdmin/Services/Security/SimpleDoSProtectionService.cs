@@ -314,10 +314,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
         }
         private bool ShouldUseStrictLimits(string path, bool isAuthenticated)
         {
-            // Always protect login pages strictly
+            // DON'T apply strict limits to login pages - allow page loads
             if (IsLoginPage(path))
             {
-                return true;
+                return false; // CHANGE THIS: was "return true;" now "return false;"
             }
 
             // Don't apply strict limits to authenticated users on non-login pages
