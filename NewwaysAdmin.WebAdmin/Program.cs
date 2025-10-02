@@ -310,11 +310,11 @@ public class Program
 
         // OCR Pattern Management Service
         // OCR Pattern Management Service
-        services.AddScoped<PatternManagementService>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
-            return new PatternManagementService(sp, logger);  // Pass sp (IServiceProvider) instead of storage
-        });
+services.AddScoped<PatternManagementService>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<PatternManagementService>>();
+    return new PatternManagementService(sp, logger);  // Pass sp (IServiceProvider) instead of storage
+});
 
         // ✅ NEW: OCR Pattern Loader Service (business logic layer)
         services.AddScoped<PatternLoaderService>(sp =>

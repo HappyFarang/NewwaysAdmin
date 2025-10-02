@@ -1,22 +1,32 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerCard.razor *@
-@* Purpose: Reusable worker card component - displays individual worker info *@
+@* Purpose: Reusable worker card component with admin sign-out capability *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WorkerAttendance.Models
 @inject NavigationManager Navigation
 
-<div class="card @BorderClass h-100 worker-card"
-     @onclick="NavigateToWorkerDetail"
-     style="cursor: pointer;">
+<div class="card @BorderClass h-100 worker-card">
     <div class="card-body">
-        <h6 class="card-title">
-            @Worker.WorkerName
-        </h6>
+        <div class="d-flex justify-content-between align-items-start">
+            <h6 class="card-title mb-0" style="cursor: pointer;" @onclick="NavigateToWorkerDetail">
+                @Worker.WorkerName
+            </h6>
+            
+            @if (IsActive && ShowAdminControls)
+            {
+                <button class="btn btn-sm btn-outline-danger" 
+                        @onclick="ShowSignOutConfirmation"
+                        @onclick:stopPropagation="true"
+                        title="Force sign-out">
+                    <span class="bi bi-box-arrow-right"></span>
+                </button>
+            }
+        </div>
 
         @if (IsActive)
         {
             <!-- ACTIVE WORKER DISPLAY -->
-            <div class="small">
+            <div class="small mt-2" style="cursor: pointer;" @onclick="NavigateToWorkerDetail">
                 <div class="mb-2">
                     <span class="badge @CycleBadgeClass">@Worker.CycleDisplay</span>
                 </div>
@@ -33,7 +43,7 @@
         else
         {
             <!-- INACTIVE WORKER DISPLAY -->
-            <div class="small">
+            <div class="small mt-2" style="cursor: pointer;" @onclick="NavigateToWorkerDetail">
                 <!-- Normal Shift -->
                 @if (Worker.NormalSignIn != null)
                 {
@@ -88,10 +98,10 @@
         transition: transform 0.2s, box-shadow 0.2s;
     }
 
-        .worker-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }
+    .worker-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
 </style>
 
 @code {
@@ -100,6 +110,12 @@
 
     [Parameter]
     public bool IsActive { get; set; }
+
+    [Parameter]
+    public bool ShowAdminControls { get; set; } = true;
+
+    [Parameter]
+    public EventCallback<int> OnSignOutRequested { get; set; }
 
     private string BorderClass => IsActive ? "border-success" : "border-secondary";
 
@@ -110,5 +126,10 @@
     private void NavigateToWorkerDetail()
     {
         Navigation.NavigateTo($"/worker-activity/{Worker.WorkerId}");
+    }
+
+    private async Task ShowSignOutConfirmation()
+    {
+        await OnSignOutRequested.InvokeAsync(Worker.WorkerId);
     }
 }
