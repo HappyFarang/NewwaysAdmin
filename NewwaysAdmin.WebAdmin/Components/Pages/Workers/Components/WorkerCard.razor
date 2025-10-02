@@ -1,5 +1,5 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerCard.razor *@
-@* Purpose: Reusable worker card component with admin sign-out capability *@
+@* Purpose: Reusable worker card component showing latest activity with date *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WorkerAttendance.Models
@@ -11,10 +11,10 @@
             <h6 class="card-title mb-0" style="cursor: pointer;" @onclick="NavigateToWorkerDetail">
                 @Worker.WorkerName
             </h6>
-            
+
             @if (IsActive && ShowAdminControls)
             {
-                <button class="btn btn-sm btn-outline-danger" 
+                <button class="btn btn-sm btn-outline-danger"
                         @onclick="ShowSignOutConfirmation"
                         @onclick:stopPropagation="true"
                         title="Force sign-out">
@@ -40,13 +40,35 @@
                 </div>
             </div>
         }
+        else if (!Worker.HasActivity)
+        {
+            <!-- NO ACTIVITY DISPLAY -->
+            <div class="small mt-2" style="cursor: pointer;" @onclick="NavigateToWorkerDetail">
+                <p class="text-muted mb-0">
+                    <span class="bi bi-moon me-1"></span>
+                    No recent activity
+                </p>
+            </div>
+        }
         else
         {
-            <!-- INACTIVE WORKER DISPLAY -->
+            <!-- INACTIVE WORKER WITH ACTIVITY -->
             <div class="small mt-2" style="cursor: pointer;" @onclick="NavigateToWorkerDetail">
-                <!-- Normal Shift -->
-                @if (Worker.NormalSignIn != null)
+
+                @* Show date badge if not today's data *@
+                @if (Worker.ShowDate && !Worker.IsToday)
                 {
+                    <div class="mb-2">
+                        <span class="badge bg-info text-dark">
+                            <span class="bi bi-calendar-event me-1"></span>
+                            @Worker.CycleDateFormatted
+                        </span>
+                    </div>
+                }
+
+                @if (Worker.HasCompletedNormalShift)
+                {
+                    <!-- Normal Shift -->
                     <div class="mb-2">
                         <strong>Normal Shift</strong>
                         @if (Worker.HasOT)
@@ -67,10 +89,24 @@
                         Hours: @Worker.NormalHoursFormatted
                     </div>
                 }
-
-                <!-- OT Shift -->
-                @if (Worker.HasOT)
+                else if (Worker.NormalSignIn != null)
                 {
+                    <!-- Incomplete Normal Shift -->
+                    <div class="mb-2">
+                        <strong>Normal Shift</strong>
+                        <span class="badge bg-warning text-dark ms-1">Incomplete</span>
+                    </div>
+                    <div class="text-muted mb-2">
+                        <span class="bi bi-box-arrow-in-right me-1"></span>
+                        In: @Worker.NormalSignInFormatted
+                        <br />
+                        <small class="text-danger">Never signed out</small>
+                    </div>
+                }
+
+                @if (Worker.HasCompletedOTShift)
+                {
+                    <!-- OT Shift -->
                     <div class="mb-2">
                         <strong>Overtime</strong>
                         <span class="badge bg-warning text-dark ms-1">OT</span>
@@ -88,6 +124,20 @@
                         Hours: @Worker.OTHoursFormatted
                     </div>
                 }
+                else if (Worker.OTSignIn != null)
+                {
+                    <!-- Incomplete OT Shift -->
+                    <div class="mb-2">
+                        <strong>Overtime</strong>
+                        <span class="badge bg-warning text-dark ms-1">Incomplete</span>
+                    </div>
+                    <div class="text-muted">
+                        <span class="bi bi-box-arrow-in-right me-1"></span>
+                        In: @Worker.OTSignInFormatted
+                        <br />
+                        <small class="text-danger">Never signed out</small>
+                    </div>
+                }
             </div>
         }
     </div>
@@ -98,10 +148,10 @@
         transition: transform 0.2s, box-shadow 0.2s;
     }
 
-    .worker-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
+        .worker-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
 </style>
 
 @code {
@@ -117,7 +167,9 @@
     [Parameter]
     public EventCallback<int> OnSignOutRequested { get; set; }
 
-    private string BorderClass => IsActive ? "border-success" : "border-secondary";
+    private string BorderClass => IsActive
+        ? "border-success"
+        : (Worker.HasActivity ? "border-secondary" : "border-light");
 
     private string CycleBadgeClass => Worker.CurrentCycle == WorkCycle.OT
         ? "bg-warning text-dark"
