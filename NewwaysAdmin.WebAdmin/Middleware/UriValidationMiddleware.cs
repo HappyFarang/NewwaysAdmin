@@ -160,21 +160,19 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             {
                 // Check for session cookie
                 var sessionId = context.Request.Cookies["SessionId"];
+
+                _logger.LogInformation("🔍 Auth Check - Path: {Path}, Cookie: {HasCookie}, SessionId: {SessionId}",
+                    context.Request.Path,
+                    !string.IsNullOrEmpty(sessionId),
+                    sessionId ?? "none");
+
                 if (string.IsNullOrEmpty(sessionId))
                 {
                     return false;
                 }
 
-                // If we have DoS service, we can cache this check
-                // Otherwise, just return true if session cookie exists
+                // Cookie exists = authenticated
                 return true;
-
-                // OPTIONAL: For more security, validate the session:
-                // var authService = context.RequestServices.GetService<IAuthenticationService>();
-                // if (authService != null)
-                // {
-                //     return await authService.ValidateSessionAsync(sessionId);
-                // }
             }
             catch (Exception ex)
             {
@@ -215,11 +213,12 @@ namespace NewwaysAdmin.WebAdmin.Middleware
 
         private bool IsInvalidStaticFileRequest(string path)
         {
-            // DON'T ban for missing CSS/JS - they're just development artifacts or cache issues
+            // DON'T ban for missing static assets - they're just development artifacts, cache issues, or CDN failures
             if (path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase) ||
-                path.StartsWith("/_blazor/", StringComparison.OrdinalIgnoreCase))
+                path.StartsWith("/_blazor/", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/lib/", StringComparison.OrdinalIgnoreCase))
             {
                 // Log but don't ban
                 _logger.LogDebug("Missing static file (not banning): {Path}", path);
@@ -232,7 +231,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                 return false; // Not a static file request
 
             // Ban only for truly malicious extensions
-            return InvalidExtensions.Contains(extension);
+            return InvalidExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
         }
 
         private bool IsValidHostHeader(HttpContext context)

@@ -84,19 +84,28 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         {
             try
             {
-                // Check ASP.NET Core authentication
+                // 1. Check for session cookie (primary check)
+                var sessionId = context.Request.Cookies["SessionId"];
+                if (!string.IsNullOrEmpty(sessionId))
+                {
+                    _logger.LogDebug("Found SessionId cookie: {SessionId}", sessionId);
+                    return true;
+                }
+
+                // 2. Check ASP.NET Core authentication
                 if (context.User?.Identity?.IsAuthenticated == true)
                 {
                     return true;
                 }
 
-                // Check your custom authentication service
+                // 3. Check your custom authentication service (fallback)
                 var session = await authService.GetCurrentSessionAsync();
                 return session != null;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return false; // Default to unauthenticated on error
+                _logger.LogError(ex, "Error checking authentication");
+                return false;
             }
         }
 

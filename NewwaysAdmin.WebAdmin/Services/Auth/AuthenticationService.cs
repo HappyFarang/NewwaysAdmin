@@ -111,11 +111,8 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
 
                 // Save session
                 var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
-
-                // Remove any existing sessions for this user
                 sessions.RemoveAll(s => s.Username == user.Username);
                 sessions.Add(_currentSession);
-
                 await _sessionStorage.SaveAsync("active-sessions", sessions);
 
                 // Update user's last login
@@ -144,6 +141,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
                     sessions.RemoveAll(s => s.SessionId == _currentSession.SessionId);
                     await _sessionStorage.SaveAsync("active-sessions", sessions);
 
+                    
                     _logger.LogInformation("User {Username} logged out", _currentSession.Username);
                     _currentSession = null;
                 }

@@ -169,14 +169,14 @@
 
     private async Task HandleLogout()
     {
-        try
+        await JSRuntime.InvokeVoidAsync("authCookies.deleteCookie", "SessionId");
+        await AuthService.LogoutAsync();
+
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
         {
-            await AuthService.LogoutAsync();
-            await JSRuntime.InvokeVoidAsync("window.location.reload", true);
+            await customProvider.InvalidateAuthenticationStateAsync();
         }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error during logout");
-        }
+
+        NavigationManager.NavigateTo("/login");
     }
 }

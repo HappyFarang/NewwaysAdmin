@@ -77,6 +77,7 @@
         {
             isLoading = true;
             errorMessage = null;
+
             var (success, error) = await AuthService.LoginAsync(loginModel);
 
             Logger.LogInformation("Login attempt for user {Username}. Success: {Success}",
@@ -87,16 +88,20 @@
                 var session = await AuthService.GetCurrentSessionAsync();
                 if (session != null)
                 {
+                    // Set cookie via JavaScript
+                    await JSRuntime.InvokeVoidAsync("authCookies.setCookie",
+                        "SessionId",
+                        session.SessionId,
+                        1);
+
+                    // Update Blazor authentication state
                     if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
                     {
                         await customProvider.NotifyUserAuthenticationAsync(session);
-                        NavigationManager.NavigateTo("/home");
                     }
-                    else
-                    {
-                        Logger.LogError("Invalid authentication provider type");
-                        errorMessage = "Invalid authentication provider";
-                    }
+
+                    // Force a full page reload to ensure clean state
+                    NavigationManager.NavigateTo("/home", forceLoad: true);
                 }
                 else
                 {
@@ -113,14 +118,12 @@
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Unexpected error during login for user {Username}",
-                loginModel.Username);
+            Logger.LogError(ex, "Unexpected error during login");
             errorMessage = "An unexpected error occurred";
         }
         finally
         {
             isLoading = false;
-            StateHasChanged();
         }
     }
 
