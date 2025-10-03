@@ -804,8 +804,9 @@ namespace NewwaysAdmin.WorkerAttendance.UI
             });
         }
 
+        
         /// <summary>
-        /// Handle worker sign-in confirmation
+        /// Handle worker sign-in confirmation WITH OT CHECK        
         /// </summary>
         private async void OnWorkerSignInConfirmed(string workerName, double confidence, string workerId)
         {
@@ -817,42 +818,91 @@ namespace NewwaysAdmin.WorkerAttendance.UI
 
                 // Hide the confirmation panel
                 Instructions.HideWorkerConfirmation();
-
-                // Save attendance record to daily work cycle
-                try
-                {
-                    // Create the correct logger type for AttendanceCycleService
-                    var attendanceLogger = _loggerFactory.CreateLogger<AttendanceCycleService>();
-                    var attendanceService = new AttendanceCycleService(_storageFactory, attendanceLogger);
-
-                    // Use Task.Run to avoid making the whole method async
-                    var record = Task.Run(async () => await attendanceService.ProcessWorkerActionAsync(
-                        int.Parse(workerId),
-                        workerName,
-                        confidence
-                    )).Result;
-
-                    _logger.LogInformation("Attendance recorded: {Type} for {WorkerName} in {Cycle} cycle",
-                        record.Type, workerName, record.WorkCycle);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to save attendance record for {WorkerName}", workerName);
-                }
-
-                // Reset to ready state after brief delay
-                Task.Delay(2000).ContinueWith(_ =>
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        _currentState = ApplicationState.Ready;
-                        UpdateState("Ready");
-                        UpdateStatus($"Welcome {workerName}! Sign-in successful.");
-                    });
-                });
             });
 
-            ActiveWorkers.TriggerRefresh();
+            try
+            {
+                // Create the correct logger type for AttendanceCycleService
+                var attendanceLogger = _loggerFactory.CreateLogger<AttendanceCycleService>();
+                var attendanceService = new AttendanceCycleService(_storageFactory, attendanceLogger);
+
+                // CHECK if this would be an OT sign-in
+                bool wouldBeOT = await attendanceService.WouldBeOTSignInAsync(int.Parse(workerId));
+
+                if (wouldBeOT)
+                {
+                    // Show OT confirmation dialog on UI thread
+                    bool otConfirmed = false;
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        var otDialog = new NewwaysAdmin.WorkerAttendance.UI.Windows.OTConfirmationWindow(workerName)
+                        {
+                            Owner = this
+                        };
+
+                        bool? result = otDialog.ShowDialog();
+                        otConfirmed = result == true && otDialog.IsConfirmed;
+                    });
+
+                    if (!otConfirmed)
+                    {
+                        // User cancelled OT sign-in
+                        _logger.LogInformation("OT sign-in cancelled by user for {WorkerName}", workerName);
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            _currentState = ApplicationState.Ready;
+                            UpdateState("Ready");
+                            UpdateStatus("ยกเลิกการลงเวลาทำงานล่วงเวลา - กรุณาสแกนใหม่");
+                        });
+
+                        return; // Exit without processing
+                    }
+                }
+
+                // Process the attendance (either normal or confirmed OT)
+                var record = await attendanceService.ProcessWorkerActionAsync(
+                    int.Parse(workerId),
+                    workerName,
+                    confidence
+                );
+
+                _logger.LogInformation("Attendance recorded: {Type} for {WorkerName} in {Cycle} cycle",
+                    record.Type, workerName, record.WorkCycle);
+
+                // Success message
+                Dispatcher.Invoke(() =>
+                {
+                    string message = record.WorkCycle == WorkCycle.OT
+                        ? $"Welcome {workerName}! OT sign-in successful."
+                        : $"Welcome {workerName}! Sign-in successful.";
+
+                    UpdateStatus(message);
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save attendance record for {WorkerName}", workerName);
+
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateStatus($"Error: {ex.Message}");
+                });
+            }
+
+            // Reset to ready state after brief delay
+            await Task.Delay(2000);
+
+            Dispatcher.Invoke(() =>
+            {
+                _currentState = ApplicationState.Ready;
+                UpdateState("Ready");
+                UpdateStatus("Ready for next scan.");
+
+                // Refresh active workers list
+                ActiveWorkers.TriggerRefresh();
+            });
         }
         protected override void OnClosed(EventArgs e)
         {

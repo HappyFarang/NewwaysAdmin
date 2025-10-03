@@ -250,6 +250,27 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     IndexFiles = true,
                     IndexedExtensions = [".json"],
                     PassThroughMode = true  // Key: files already serialized by remote IO Manager
+                },
+                new StorageFolder
+                {
+                    Name = "SecurityRequests",
+                    Type = StorageType.Binary,
+                    Path = "Security",
+                    Description = "Security request history"
+                },
+                new StorageFolder
+                {
+                    Name = "SecurityBlocked",
+                    Type = StorageType.Binary,
+                    Path = "Security",
+                    Description = "Blocked IP addresses"
+                },
+                new StorageFolder
+                {
+                    Name = "SecurityBans",
+                    Type = StorageType.Binary,
+                    Path = "Security",
+                    Description = "Permanent IP bans"
                 }
 
             // Add new folders here as needed...

@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using NewwaysAdmin.WebAdmin.Infrastructure.Storage;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
+using NewwaysAdmin.WebAdmin.Models.Security;
 
 namespace NewwaysAdmin.WebAdmin.Services.Security
 {
@@ -43,6 +44,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
         public int TotalRequestsLastHour { get; set; }
         public int UniqueIPsLastHour { get; set; }
         public int CurrentlyBlockedIPs { get; set; }
+        public int PermanentlyBannedIPs { get; set; } // ← ADD THIS LINE
         public int AutoBlocksToday { get; set; }
         public int PublicPageRequests { get; set; }
         public int AuthenticatedPageRequests { get; set; }
@@ -55,9 +57,11 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
         Task<DoSCheckResult> CheckRequestAsync(IPAddress ipAddress, string userAgent, string path, bool isAuthenticated);
         Task LogRequestAsync(IPAddress ipAddress, string userAgent, string path, int responseCode, bool isAuthenticated);
         Task<List<BlockedClient>> GetBlockedClientsAsync();
+        Task<List<PermanentBan>> GetPermanentBansAsync();
         Task ManuallyBlockAsync(IPAddress ipAddress, TimeSpan duration, string reason);
-        Task PermanentlyBanAsync(IPAddress ipAddress, string reason);
+        Task PermanentlyBanAsync(IPAddress ipAddress, string reason, string bannedBy = "System");  // Only ONE signature
         Task UnblockAsync(IPAddress ipAddress);
+        Task UnbanPermanentlyAsync(IPAddress ipAddress);
         Task<SecurityMetrics> GetMetricsAsync();
     }
 
@@ -70,18 +74,20 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
         // Storage instances
         private IDataStorage<List<RequestRecord>>? _requestStorage;
         private IDataStorage<List<BlockedClient>>? _blockedStorage;
+        private IDataStorage<List<PermanentBan>>? _permanentBanStorage;
 
         // In-memory cache for performance (with storage backup)
         private readonly ConcurrentDictionary<string, List<RequestRecord>> _requestCache = new();
         private readonly ConcurrentDictionary<string, BlockedClient> _blockedCache = new();
         private DateTime _lastStorageSync = DateTime.MinValue;
         private readonly TimeSpan _syncInterval = TimeSpan.FromMinutes(5);
+        private readonly ConcurrentDictionary<string, PermanentBan> _permanentBanCache = new();
 
-        // Protection settings - VERY RELAXED for debugging
-        private readonly int _publicMaxPerMinute = 50;      // Very high for debugging
-        private readonly int _publicMaxPerHour = 200;       // Very high for debugging
-        private readonly int _authMaxPerMinute = 120;
-        private readonly int _authMaxPerHour = 3600;
+        // Protection settings - VERY RELAXED for development
+        private readonly int _publicMaxPerMinute = 80;      // Was 50
+        private readonly int _publicMaxPerHour = 250;       // Was 200
+        private readonly int _authMaxPerMinute = 180;       // Was 120
+        private readonly int _authMaxPerHour = 5000;        // Was 3600
 
         // Suspicious patterns
         private readonly string[] _publicPages = {
@@ -96,6 +102,121 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
             "go-http", "java", "perl", "ruby", "nmap", "masscan", "zmap",
             "exploit", "sqlmap", "nikto", "dirb", "gobuster", "wfuzz"
         };
+
+        public async Task<List<PermanentBan>> GetPermanentBansAsync()
+        {
+            return _permanentBanCache.Values
+                .OrderByDescending(b => b.BannedAt)
+                .ToList();
+        }
+
+        public async Task PermanentlyBanAsync(IPAddress ipAddress, string reason, string bannedBy = "System")
+        {
+            var ipString = ipAddress.ToString();
+
+            var ban = new PermanentBan
+            {
+                IpAddress = ipString,
+                BannedAt = DateTime.UtcNow,
+                Reason = reason,
+                UserAgent = _requestCache.TryGetValue(ipString, out var history)
+                    ? (history.LastOrDefault()?.UserAgent ?? "Unknown")
+                    : "Unknown",
+                LastPath = history?.LastOrDefault()?.Path ?? "",
+                TotalRequestsBeforeBan = history?.Count ?? 0,
+                BannedBy = bannedBy
+            };
+
+            _permanentBanCache[ipString] = ban;
+
+            // Remove from temporary blocks if present
+            _blockedCache.TryRemove(ipString, out _);
+
+            // Persist permanent ban immediately
+            await PersistPermanentBanAsync(ban);
+
+            _logger.LogWarning("IP {IpAddress} PERMANENTLY BANNED by {BannedBy} - Reason: {Reason}",
+                ipString, bannedBy, reason);
+        }
+        private async Task PersistPermanentBanAsync(PermanentBan ban)
+        {
+            try
+            {
+                if (_permanentBanStorage != null)
+                {
+                    var allBans = await _permanentBanStorage.LoadAsync("permanent-bans") ?? new List<PermanentBan>();
+                    allBans.RemoveAll(b => b.IpAddress == ban.IpAddress);
+                    allBans.Add(ban);
+                    await _permanentBanStorage.SaveAsync("permanent-bans", allBans);
+
+                    _logger.LogInformation("Persisted permanent ban for {IpAddress} to storage", ban.IpAddress);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to persist permanent ban: {IpAddress}", ban.IpAddress);
+            }
+        }
+
+        private async Task RemovePermanentBanFromStorageAsync(string ipAddress)
+        {
+            try
+            {
+                if (_permanentBanStorage != null)
+                {
+                    var allBans = await _permanentBanStorage.LoadAsync("permanent-bans") ?? new List<PermanentBan>();
+                    allBans.RemoveAll(b => b.IpAddress == ipAddress);
+                    await _permanentBanStorage.SaveAsync("permanent-bans", allBans);
+
+                    _logger.LogInformation("Removed permanent ban for {IpAddress} from storage", ipAddress);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to remove permanent ban from storage: {IpAddress}", ipAddress);
+            }
+        }
+
+        private async Task LoadPermanentBansFromStorageAsync()
+        {
+            try
+            {
+                if (_permanentBanStorage != null)
+                {
+                    var stored = await _permanentBanStorage.LoadAsync("permanent-bans");
+                    if (stored != null && stored.Any())
+                    {
+                        foreach (var ban in stored)
+                        {
+                            _permanentBanCache[ban.IpAddress] = ban;
+                        }
+                        _logger.LogInformation("Loaded {Count} permanent bans from storage", stored.Count);
+                    }
+                }
+            }
+            catch (StorageException ex) when (ex.Message.Contains("Data not found"))
+            {
+                // File doesn't exist yet - this is normal on first run
+                _logger.LogInformation("No existing permanent bans file found (first run)");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load permanent bans from storage");
+            }
+        }
+        public async Task UnbanPermanentlyAsync(IPAddress ipAddress)
+        {
+            var ipString = ipAddress.ToString();
+
+            if (_permanentBanCache.TryRemove(ipString, out var ban))
+            {
+                // Remove from storage
+                await RemovePermanentBanFromStorageAsync(ipString);
+
+                _logger.LogWarning("IP {IpAddress} UNBANNED from permanent ban list - Was banned for: {Reason}",
+                    ipString, ban.Reason);
+            }
+        }
 
         public SimpleDoSProtectionService(
             StorageManager storageManager,
@@ -115,13 +236,17 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
         {
             try
             {
-                _requestStorage = await _storageManager.GetStorage<List<RequestRecord>>("Security");
-                _blockedStorage = await _storageManager.GetStorage<List<BlockedClient>>("Security");
+                _requestStorage = await _storageManager.GetStorage<List<RequestRecord>>("SecurityRequests");
+                _blockedStorage = await _storageManager.GetStorage<List<BlockedClient>>("SecurityBlocked");
+                _permanentBanStorage = await _storageManager.GetStorage<List<PermanentBan>>("SecurityBans");
 
                 // Load existing blocked clients from storage
                 await LoadBlockedClientsFromStorageAsync();
 
-                _logger.LogInformation("Security storage initialized successfully");
+                // Load permanent bans from storage
+                await LoadPermanentBansFromStorageAsync();
+
+                _logger.LogInformation("Security storage initialized - Loaded {BanCount} permanent bans", _permanentBanCache.Count);
             }
             catch (Exception ex)
             {
@@ -129,10 +254,23 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
             }
         }
 
+
         public async Task<DoSCheckResult> CheckRequestAsync(IPAddress ipAddress, string userAgent, string path, bool isAuthenticated)
         {
             var now = DateTime.UtcNow;
             var ipString = ipAddress.ToString();
+
+            // FIRST: Check permanent bans (highest priority)
+            if (_permanentBanCache.ContainsKey(ipString))
+            {
+                _logger.LogWarning("PERMANENTLY BANNED IP attempted access: {IpAddress} to {Path}", ipString, path);
+                return new DoSCheckResult
+                {
+                    IsBlocked = true,
+                    Reason = "Permanently banned",
+                    RemainingBlockTime = null
+                };
+            }
 
             _logger.LogInformation("DoS Check for {IpAddress}: Path={Path}, IsPublicPage={IsPublic}, IsLoginPage={IsLogin}, IsAuthenticated={IsAuth}, UseStrictLimits={UseStrict}",
                 ipString, path, IsPublicPage(path), IsLoginPage(path), isAuthenticated, ShouldUseStrictLimits(path, isAuthenticated));
@@ -403,7 +541,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
                 ipAddress, duration, reason);
         }
 
-        public async Task PermanentlyBanAsync(IPAddress ipAddress, string reason)
+        /*public async Task PermanentlyBanAsync(IPAddress ipAddress, string reason)
         {
             var ipString = ipAddress.ToString();
 
@@ -425,7 +563,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
 
             _logger.LogWarning("IP {IpAddress} PERMANENTLY BANNED - Reason: {Reason}", ipString, reason);
         }
-
+        */
         public async Task UnblockAsync(IPAddress ipAddress)
         {
             var ipString = ipAddress.ToString();
@@ -454,7 +592,9 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
             metrics.TotalRequestsLastHour = allRequests.Count;
             metrics.UniqueIPsLastHour = allRequests.Select(r => r.IpAddress).Distinct().Count();
             metrics.CurrentlyBlockedIPs = _blockedCache.Count;
+            metrics.PermanentlyBannedIPs = _permanentBanCache.Count; // ← ADD THIS LINE
             metrics.PublicPageRequests = allRequests.Count(r => !r.IsAuthenticated);
+
             metrics.AuthenticatedPageRequests = allRequests.Count(r => r.IsAuthenticated);
 
             metrics.AutoBlocksToday = _blockedCache.Values.Count(b => b.BlockedAt > now.Date);
@@ -556,7 +696,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
                         _requestCache.TryRemove(kvp.Key, out _);
                 }
 
-                // Clean expired blocks
+                // Clean expired TEMPORARY blocks only (don't touch permanent bans!)
                 var expiredBlocks = _blockedCache.Where(kvp =>
                     !kvp.Value.IsPermanent && now >= kvp.Value.ExpiresAt).ToList();
 
@@ -565,8 +705,8 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
                     _blockedCache.TryRemove(expired.Key, out _);
                 }
 
-                _logger.LogDebug("Cleanup completed - Removed {ExpiredBlocks} expired blocks",
-                    expiredBlocks.Count);
+                _logger.LogDebug("Cleanup completed - Removed {ExpiredBlocks} expired blocks. " +
+                    "Permanent bans: {PermanentBans}", expiredBlocks.Count, _permanentBanCache.Count);
 
                 // Sync to storage after cleanup
                 await SyncToStorageAsync();

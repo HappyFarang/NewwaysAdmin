@@ -1,5 +1,6 @@
 ﻿// NewwaysAdmin.WorkerAttendance.UI/Controls/ActiveWorkersControl.xaml.cs
 // Purpose: Code-behind for Active Workers display component
+// FIXED: Uses cycle-based logic, not date-based, so workers stay active after midnight
 
 using System.Windows;
 using System.Windows.Controls;
@@ -74,25 +75,40 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
         }
 
         /// <summary>
-        /// Get active workers directly from storage
+        /// Get active workers using CYCLE-BASED logic (not date-based)
+        /// Workers stay active until they sign out, even after midnight
         /// </summary>
         private async Task<List<ActiveWorkerDisplay>> GetActiveWorkersDirectlyAsync()
         {
             var activeWorkers = new List<ActiveWorkerDisplay>();
-            var today = DateTime.Today;
             var cycleStorage = _storageFactory!.GetStorage<DailyWorkCycle>("AttendanceRecords");
 
             try
             {
-                // Simple approach: check files that exist today
                 var identifiers = await cycleStorage.ListIdentifiersAsync();
-                var todayFiles = identifiers.Where(id => id.StartsWith(today.ToString("yyyy-MM-dd"))).ToList();
 
-                foreach (var fileName in todayFiles)
+                // Get all date-prefixed cycle files (YYYY-MM-DD_WorkerX.json)
+                // We need to check recent files, not just today's
+                var cycleDateFiles = identifiers
+                    .Where(id => id.Contains("_Worker") && id.EndsWith(".json"))
+                    .OrderByDescending(id => id) // Newest first
+                    .ToList();
+
+                // Track which workers we've already processed
+                var processedWorkers = new HashSet<int>();
+
+                foreach (var fileName in cycleDateFiles)
                 {
                     try
                     {
                         var cycle = await cycleStorage.LoadAsync(fileName);
+
+                        if (cycle == null || cycle.Records.Count == 0)
+                            continue;
+
+                        // Skip if we already found this worker's active status
+                        if (processedWorkers.Contains(cycle.WorkerId))
+                            continue;
 
                         // Check if currently checked in (last record is check-in)
                         if (cycle.IsCurrentlyCheckedIn)
@@ -109,6 +125,8 @@ namespace NewwaysAdmin.WorkerAttendance.UI.Controls
                                     CheckInTime = lastCheckIn.Timestamp,
                                     CurrentCycle = lastCheckIn.WorkCycle
                                 });
+
+                                processedWorkers.Add(cycle.WorkerId);
                             }
                         }
                     }

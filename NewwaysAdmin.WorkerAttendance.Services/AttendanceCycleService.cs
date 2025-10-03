@@ -1,5 +1,6 @@
 ﻿// NewwaysAdmin.WorkerAttendance.Services/AttendanceCycleService.cs
 // Purpose: Handle work cycle creation and OT detection logic (CYCLE-BASED, NOT DATE-BASED)
+// UPDATED: MAX_OT_GAP reduced to 8 hours
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
@@ -13,12 +14,24 @@ namespace NewwaysAdmin.WorkerAttendance.Services
         private readonly IDataStorage<DailyWorkCycle> _cycleStorage;
         private readonly ILogger<AttendanceCycleService> _logger;
 
-        private readonly TimeSpan MAX_OT_GAP = TimeSpan.FromHours(12);
+        private readonly TimeSpan MAX_OT_GAP = TimeSpan.FromHours(8); // CHANGED from 12 to 8 hours
 
         public AttendanceCycleService(EnhancedStorageFactory factory, ILogger<AttendanceCycleService> logger)
         {
             _cycleStorage = factory.GetStorage<DailyWorkCycle>("Workers");
             _logger = logger;
+        }
+
+        /// <summary>
+        /// Check if the next action for a worker would be OT (for confirmation dialog)
+        /// </summary>
+        public async Task<bool> WouldBeOTSignInAsync(int workerId)
+        {
+            var now = DateTime.Now;
+            var activeCycle = await FindActiveWorkCycleAsync(workerId, now);
+            var (actionType, workCycle) = DetermineActionType(activeCycle, now);
+
+            return actionType == AttendanceType.CheckIn && workCycle == WorkCycle.OT;
         }
 
         /// <summary>
@@ -28,7 +41,7 @@ namespace NewwaysAdmin.WorkerAttendance.Services
         {
             var now = DateTime.Now;
 
-            // ✅ FIXED: Find the active work cycle, not today's date
+            // Find the active work cycle, not today's date
             var activeCycle = await FindActiveWorkCycleAsync(workerId, now);
 
             // Determine what type of action this is
@@ -126,7 +139,7 @@ namespace NewwaysAdmin.WorkerAttendance.Services
         }
 
         /// <summary>
-        /// ✅ NEW METHOD: Find the active work cycle for a worker (cycle-based, not date-based)
+        /// Find the active work cycle for a worker (cycle-based, not date-based)
         /// Returns the cycle if the worker is currently checked in OR if they checked out recently (within MAX_OT_GAP)
         /// </summary>
         private async Task<DailyWorkCycle?> FindActiveWorkCycleAsync(int workerId, DateTime now)

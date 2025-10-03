@@ -1,0 +1,458 @@
+﻿@page "/security/permanent-bans"
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using NewwaysAdmin.WebAdmin.Services.Security
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using NewwaysAdmin.WebAdmin.Models.Security
+@using System.Net
+@inject ISimpleDoSProtectionService DoSService
+@inject ILogger<PermanentBans> Logger
+@inject IAuthenticationService AuthService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Permanent Bans</PageTitle>
+
+@if (!_isAdmin)
+{
+    <div class="alert alert-danger">
+        <h4>Access Denied</h4>
+        <p>You do not have permission to access this page.</p>
+    </div>
+}
+else
+{
+    <div class="container-fluid mt-4">
+        <div class="row mb-3">
+            <div class="col">
+                <h2>🚫 Permanent IP Bans</h2>
+                <p class="text-muted">These IPs are permanently blocked from accessing the system.</p>
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-secondary me-2" @onclick="NavigateToSecurityDashboard">
+                    ← Back to Dashboard
+                </button>
+                <button class="btn btn-primary" @onclick="RefreshData">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+
+        @if (_bans == null)
+        {
+            <div class="text-center p-5">
+                <div class="spinner-border" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading permanent bans...</p>
+            </div>
+        }
+        else if (!_bans.Any())
+        {
+            <div class="alert alert-success">
+                <h5>✅ No Permanent Bans</h5>
+                <p class="mb-0">There are currently no permanently banned IP addresses.</p>
+            </div>
+        }
+        else
+        {
+            <!-- Summary Stats -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <div class="card border-danger">
+                        <div class="card-body">
+                            <h5 class="card-title text-danger">Total Permanent Bans</h5>
+                            <h2 class="display-4">@_bans.Count</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-warning">
+                        <div class="card-body">
+                            <h5 class="card-title text-warning">Banned Today</h5>
+                            <h2 class="display-4">@_bans.Count(b => b.BannedAt.Date == DateTime.UtcNow.Date)</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="card border-info">
+                        <div class="card-body">
+                            <h5 class="card-title text-info">Auto-Banned</h5>
+                            <h2 class="display-4">@_bans.Count(b => b.BannedBy.StartsWith("Auto"))</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter Controls -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <input type="text" class="form-control" placeholder="Filter by IP..."
+                                   @bind="_filterText" @bind:event="oninput" />
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select" @bind="_filterBannedBy">
+                                <option value="">All Sources</option>
+                                <option value="System">System</option>
+                                <option value="Auto">Auto-Ban</option>
+                                <option value="Manual">Manual</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select" @bind="_sortBy">
+                                <option value="date">Sort by Date (Newest)</option>
+                                <option value="date_old">Sort by Date (Oldest)</option>
+                                <option value="ip">Sort by IP</option>
+                                <option value="reason">Sort by Reason</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-outline-secondary w-100" @onclick="ClearFilters">
+                                Clear Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bans Table -->
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <h5 class="mb-0">Permanently Banned IP Addresses (@GetFilteredBans().Count())</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>IP Address</th>
+                                    <th>Banned At</th>
+                                    <th>Reason</th>
+                                    <th>User Agent</th>
+                                    <th>Last Path</th>
+                                    <th>Banned By</th>
+                                    <th style="width: 120px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var ban in GetFilteredBans())
+                                {
+                                    <tr>
+                                        <td>
+                                            <span class="font-monospace fw-bold text-danger">@ban.IpAddress</span>
+                                        </td>
+                                        <td>
+                                            <small>
+                                                @ban.BannedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                                                <br />
+                                                <span class="text-muted">(@GetTimeAgo(ban.BannedAt))</span>
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetReasonBadgeColor(ban.Reason)">
+                                                @TruncateText(ban.Reason, 50)
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">@TruncateText(ban.UserAgent, 40)</small>
+                                        </td>
+                                        <td>
+                                            <code class="small">@TruncateText(ban.LastPath, 30)</code>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetBannedByBadge(ban.BannedBy)">
+                                                @ban.BannedBy
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-success"
+                                                    @onclick="() => ShowUnbanConfirmation(ban)"
+                                                    title="Unban this IP address">
+                                                Unban
+                                            </button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Ban Section -->
+            <div class="card mt-4">
+                <div class="card-header bg-warning">
+                    <h5 class="mb-0">➕ Manually Ban IP Address</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">IP Address</label>
+                            <input type="text" class="form-control" placeholder="e.g., 192.168.1.1"
+                                   @bind="_manualBanIP" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Reason</label>
+                            <input type="text" class="form-control" placeholder="Reason for ban"
+                                   @bind="_manualBanReason" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <button class="btn btn-danger w-100" @onclick="ExecuteManualBan"
+                                    disabled="@(string.IsNullOrWhiteSpace(_manualBanIP))">
+                                Ban Permanently
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Unban Confirmation Modal -->
+    @if (_showUnbanConfirmation && _selectedBan != null)
+    {
+        <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning">
+                        <h5 class="modal-title">⚠️ Confirm Unban</h5>
+                        <button type="button" class="btn-close" @onclick="CancelUnban"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p>Are you sure you want to <strong>UNBAN</strong> this IP address?</p>
+                        <div class="card">
+                            <div class="card-body">
+                                <p><strong>IP:</strong> <span class="font-monospace text-danger">@_selectedBan.IpAddress</span></p>
+                                <p><strong>Reason:</strong> @_selectedBan.Reason</p>
+                                <p><strong>Banned:</strong> @_selectedBan.BannedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</p>
+                                <p class="mb-0"><strong>Banned By:</strong> @_selectedBan.BannedBy</p>
+                            </div>
+                        </div>
+                        <div class="alert alert-warning mt-3 mb-0">
+                            <strong>Warning:</strong> This IP will immediately regain access to the system.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="CancelUnban">Cancel</button>
+                        <button type="button" class="btn btn-success" @onclick="ConfirmUnban">
+                            Yes, Unban This IP
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<PermanentBan>? _bans;
+    private Timer? _refreshTimer;
+    private bool _isAdmin = false;
+
+    // Filtering
+    private string _filterText = "";
+    private string _filterBannedBy = "";
+    private string _sortBy = "date";
+
+    // Manual ban
+    private string _manualBanIP = "";
+    private string _manualBanReason = "Manual administrative ban";
+
+    // Unban confirmation
+    private bool _showUnbanConfirmation = false;
+    private PermanentBan? _selectedBan = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if user is admin
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var username = authState.User.Identity?.Name;
+
+        if (string.IsNullOrEmpty(username))
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        var user = await AuthService.GetUserByNameAsync(username);
+        if (user == null || !user.IsAdmin)
+        {
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        _isAdmin = true;
+        await RefreshData();
+
+        // Auto-refresh every 60 seconds
+        _refreshTimer = new Timer(async _ => await InvokeAsync(RefreshData), null,
+            TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private async Task RefreshData()
+    {
+        try
+        {
+            _bans = await DoSService.GetPermanentBansAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading permanent bans");
+        }
+    }
+
+    private IEnumerable<PermanentBan> GetFilteredBans()
+    {
+        if (_bans == null) return Enumerable.Empty<PermanentBan>();
+
+        var filtered = _bans.AsEnumerable();
+
+        // Apply IP filter
+        if (!string.IsNullOrWhiteSpace(_filterText))
+        {
+            filtered = filtered.Where(b =>
+                b.IpAddress.Contains(_filterText, StringComparison.OrdinalIgnoreCase) ||
+                b.Reason.Contains(_filterText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Apply banned-by filter
+        if (!string.IsNullOrWhiteSpace(_filterBannedBy))
+        {
+            filtered = filtered.Where(b =>
+                b.BannedBy.Contains(_filterBannedBy, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Apply sorting
+        filtered = _sortBy switch
+        {
+            "date" => filtered.OrderByDescending(b => b.BannedAt),
+            "date_old" => filtered.OrderBy(b => b.BannedAt),
+            "ip" => filtered.OrderBy(b => b.IpAddress),
+            "reason" => filtered.OrderBy(b => b.Reason),
+            _ => filtered.OrderByDescending(b => b.BannedAt)
+        };
+
+        return filtered;
+    }
+    private void NavigateToSecurityDashboard()
+    {
+        Navigation.NavigateTo("/security/dashboard");
+    }
+
+
+    private void ClearFilters()
+    {
+        _filterText = "";
+        _filterBannedBy = "";
+        _sortBy = "date";
+    }
+
+    private void ShowUnbanConfirmation(PermanentBan ban)
+    {
+        _selectedBan = ban;
+        _showUnbanConfirmation = true;
+    }
+
+    private void CancelUnban()
+    {
+        _selectedBan = null;
+        _showUnbanConfirmation = false;
+    }
+
+    private async Task ConfirmUnban()
+    {
+        if (_selectedBan == null) return;
+
+        try
+        {
+            if (IPAddress.TryParse(_selectedBan.IpAddress, out var ip))
+            {
+                await DoSService.UnbanPermanentlyAsync(ip);
+                Logger.LogWarning("Admin unbanned IP: {IpAddress}", _selectedBan.IpAddress);
+
+                _showUnbanConfirmation = false;
+                _selectedBan = null;
+
+                await RefreshData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error unbanning IP {IpAddress}", _selectedBan.IpAddress);
+        }
+    }
+
+    private async Task ExecuteManualBan()
+    {
+        try
+        {
+            if (IPAddress.TryParse(_manualBanIP, out var ip))
+            {
+                await DoSService.PermanentlyBanAsync(ip, _manualBanReason, "Admin-Manual");
+
+                Logger.LogWarning("Admin manually banned IP: {IpAddress} - Reason: {Reason}",
+                    _manualBanIP, _manualBanReason);
+
+                // Clear form
+                _manualBanIP = "";
+                _manualBanReason = "Manual administrative ban";
+
+                await RefreshData();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error manually banning IP {IpAddress}", _manualBanIP);
+        }
+    }
+
+    private string GetTimeAgo(DateTime dt)
+    {
+        var span = DateTime.UtcNow - dt;
+
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        if (span.TotalDays < 30) return $"{(int)(span.TotalDays / 7)}w ago";
+
+        return dt.ToLocalTime().ToString("MMM dd, yyyy");
+    }
+
+    private string GetReasonBadgeColor(string reason)
+    {
+        var lower = reason.ToLowerInvariant();
+
+        if (lower.Contains("malicious") || lower.Contains("exploit")) return "bg-danger";
+        if (lower.Contains("suspicious") || lower.Contains("prohibited")) return "bg-warning text-dark";
+        if (lower.Contains("manual")) return "bg-secondary";
+        if (lower.Contains("extension") || lower.Contains("path")) return "bg-danger";
+
+        return "bg-dark";
+    }
+
+    private string GetBannedByBadge(string bannedBy)
+    {
+        if (bannedBy.StartsWith("Auto")) return "bg-warning text-dark";
+        if (bannedBy == "System") return "bg-info";
+        if (bannedBy.Contains("Admin")) return "bg-primary";
+
+        return "bg-secondary";
+    }
+
+    private string TruncateText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "Unknown";
+        return text.Length > maxLength ? text.Substring(0, maxLength) + "..." : text;
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}

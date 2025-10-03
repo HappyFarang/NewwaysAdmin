@@ -1,4 +1,4 @@
-﻿// NewwaysAdmin.WebAdmin/Middleware/UriValidationMiddleware.cs
+﻿// Middleware/UriValidationMiddleware.cs
 using System.Net;
 using NewwaysAdmin.WebAdmin.Services.Security;
 
@@ -8,6 +8,63 @@ namespace NewwaysAdmin.WebAdmin.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<UriValidationMiddleware> _logger;
+
+        // Paths that result in INSTANT PERMANENT BAN
+        private static readonly HashSet<string> InstantBanPaths = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // Git/Version Control
+            ".git/config", ".git/head", ".git/", ".svn/", ".hg/",
+            
+            // PHP Admin Tools (we don't use PHP)
+            "phpmyadmin", "pma", "myadmin", "adminer.php", "sql.php",
+            
+            // WordPress (we don't use WordPress)
+            "wp-admin", "wp-login.php", "wp-content", "wp-includes", "xmlrpc.php",
+            
+            // Common exploit attempts
+            "shell", "cmd.exe", "eval-stdin.php", "config.php", "phpinfo.php",
+            
+            // Environment files
+            ".env", ".env.local", ".env.production",
+            
+            // Backup files
+            "backup.sql", "database.sql", ".bak", ".old", ".backup",
+            
+            // Admin panels we don't have
+            "administrator", "admin.php", "manager", "console", "panel"
+        };
+
+        // File extensions that don't exist in our app = instant ban
+        private static readonly HashSet<string> InvalidExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".php", ".asp", ".aspx", ".jsp", ".cgi", ".pl", ".py",
+            ".sql", ".bak", ".old", ".backup", ".zip", ".tar", ".gz"
+        };
+
+        // Suspicious patterns in paths
+        private static readonly string[] SuspiciousPatterns = new[]
+        {
+            "../", "..\\", "%2e%2e", "etc/passwd", "/etc/", "cmd=", "exec=",
+            "union select", "drop table", "<script", "javascript:",
+            "base64", "eval(", "system(", "shell_exec"
+        };
+
+        // Valid static files (whitelist approach)
+        private static readonly HashSet<string> ValidStaticFiles = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "/favicon.ico",
+            "/robots.txt",
+            "/security.txt",
+            "/.well-known/security.txt"  // ← ADD COMMA HERE
+        };
+
+        // Suspicious user agents = instant ban
+        private static readonly string[] MaliciousUserAgents = new[]
+        {
+            "sqlmap", "nikto", "nmap", "masscan", "metasploit",
+            "burpsuite", "acunetix", "nessus", "openvas",
+            "havij", "pangolin", "wsockexpert", "brutus"
+        };
 
         public UriValidationMiddleware(RequestDelegate next, ILogger<UriValidationMiddleware> logger)
         {
@@ -20,10 +77,51 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             var ipAddress = GetClientIpAddress(context);
             var userAgent = context.Request.Headers["User-Agent"].ToString();
             var path = context.Request.Path.ToString();
+            var queryString = context.Request.QueryString.ToString();
 
             try
             {
-                // 1. Check for invalid host headers (main cause of UriFormatException)
+                // 1. Check for malicious user agents - INSTANT BAN
+                if (IsMaliciousUserAgent(userAgent))
+                {
+                    await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
+                        "Malicious user agent detected");
+                    return;
+                }
+
+                // 2. Check for instant-ban paths - PERMANENT BAN
+                if (IsInstantBanPath(path))
+                {
+                    await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
+                        $"Attempted access to prohibited path: {path}");
+                    return;
+                }
+
+                // 3. Check for invalid file extensions - PERMANENT BAN
+                if (HasInvalidExtension(path))
+                {
+                    await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
+                        $"Invalid file extension requested: {Path.GetExtension(path)}");
+                    return;
+                }
+
+                // 4. Check for suspicious patterns in path/query - PERMANENT BAN
+                if (ContainsSuspiciousPatterns(path, queryString))
+                {
+                    await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
+                        "Suspicious pattern detected in request");
+                    return;
+                }
+
+                // 5. Check for invalid static file requests
+                if (IsInvalidStaticFileRequest(path))
+                {
+                    await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
+                        $"Request for non-existent static file: {path}");
+                    return;
+                }
+
+                // 6. Check for invalid host headers
                 if (!IsValidHostHeader(context))
                 {
                     _logger.LogWarning("Invalid host header from {IpAddress}: '{Host}' - UserAgent: {UserAgent}",
@@ -34,7 +132,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 2. Check for malformed URLs
+                // 7. Check for malformed URLs
                 if (!IsValidUrl(context))
                 {
                     _logger.LogWarning("Malformed URL from {IpAddress}: '{Path}' - UserAgent: {UserAgent}",
@@ -45,28 +143,15 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 3. Check for suspicious bot patterns in the URL
-                if (IsSuspiciousRequest(context))
-                {
-                    _logger.LogWarning("Suspicious request from {IpAddress}: '{Path}' - UserAgent: {UserAgent}",
-                        ipAddress, path, userAgent);
-
-                    await LogAndReject(context, dosService, ipAddress, userAgent, path,
-                        403, "Suspicious request pattern");
-                    return;
-                }
-
-                // URL is valid, continue to next middleware
+                // All checks passed, continue to next middleware
                 await _next(context);
             }
             catch (UriFormatException ex)
             {
-                // Catch any remaining UriFormatExceptions and handle gracefully
-                _logger.LogError(ex, "UriFormatException caught from {IpAddress} - Host: '{Host}', Path: '{Path}', UserAgent: '{UserAgent}'",
-                    ipAddress, context.Request.Host.ToString(), path, userAgent);
+                _logger.LogWarning(ex, "URI format exception from {IpAddress}: {Path}", ipAddress, path);
 
                 await LogAndReject(context, dosService, ipAddress, userAgent, path,
-                    400, "URI format error");
+                    400, "Invalid URI format");
             }
             catch (Exception ex)
             {
@@ -75,37 +160,81 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             }
         }
 
+        private bool IsMaliciousUserAgent(string userAgent)
+        {
+            if (string.IsNullOrWhiteSpace(userAgent))
+                return false;
+
+            var lowerAgent = userAgent.ToLowerInvariant();
+            return MaliciousUserAgents.Any(mal => lowerAgent.Contains(mal));
+        }
+
+        private bool IsInstantBanPath(string path)
+        {
+            var lowerPath = path.ToLowerInvariant();
+            return InstantBanPaths.Any(banPath => lowerPath.Contains(banPath));
+        }
+
+        private bool HasInvalidExtension(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            var lowerPath = path.ToLowerInvariant();
+            return InvalidExtensions.Any(ext => lowerPath.EndsWith(ext));
+        }
+
+        private bool ContainsSuspiciousPatterns(string path, string queryString)
+        {
+            var combined = $"{path}{queryString}".ToLowerInvariant();
+            return SuspiciousPatterns.Any(pattern => combined.Contains(pattern.ToLowerInvariant()));
+        }
+
+        private bool IsInvalidStaticFileRequest(string path)
+        {
+            var lowerPath = path.ToLowerInvariant();
+
+            // Common static file extensions
+            var staticExtensions = new[] { ".png", ".jpg", ".jpeg", ".gif", ".svg", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot" };
+
+            if (staticExtensions.Any(ext => lowerPath.EndsWith(ext)))
+            {
+                // Whitelist known valid paths
+                if (path.StartsWith("/_framework/")) return false;     // Blazor framework
+                if (path.StartsWith("/css/")) return false;             // Your CSS
+                if (path.StartsWith("/lib/")) return false;             // Third-party libraries
+                if (path.EndsWith(".styles.css")) return false;         // ← ADD THIS LINE - Blazor scoped CSS
+                if (path.StartsWith("/_blazor/")) return false;         // ← ADD THIS LINE - Blazor internals
+                if (ValidStaticFiles.Contains(path)) return false;      // Explicitly whitelisted
+
+                // If it's a static file but not in any valid location = ban
+                return true;
+            }
+
+            return false;
+        }
+
         private bool IsValidHostHeader(HttpContext context)
         {
             try
             {
-                var host = context.Request.Host;
+                var host = context.Request.Host.ToString();
 
-                // Check if host is present
-                if (!host.HasValue || string.IsNullOrWhiteSpace(host.Host))
-                {
+                // Must have a host
+                if (string.IsNullOrWhiteSpace(host))
                     return false;
-                }
 
-                // Check for obviously invalid characters
-                var hostString = host.Host;
-                if (hostString.Contains(' ') ||
-                    hostString.Contains('\t') ||
-                    hostString.Contains('\n') ||
-                    hostString.Contains('\r'))
-                {
+                // Check for obviously malicious hosts
+                if (host.Contains("..") || host.Contains("/") || host.Contains("\\"))
                     return false;
-                }
 
-                // Try to construct a URI to validate the host
-                if (!Uri.IsWellFormedUriString($"https://{host.Host}", UriKind.Absolute))
-                {
+                // Basic format check
+                if (!host.Contains(".") && !host.StartsWith("localhost") && !host.All(char.IsDigit))
                     return false;
-                }
 
                 return true;
             }
-            catch (Exception)
+            catch
             {
                 return false;
             }
@@ -116,88 +245,41 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             try
             {
                 var path = context.Request.Path.ToString();
-                var queryString = context.Request.QueryString.ToString();
 
-                // Check for null bytes or other dangerous characters
-                if (path.Contains('\0') || queryString.Contains('\0'))
-                {
+                // Check for null bytes
+                if (path.Contains('\0'))
                     return false;
-                }
 
-                // Check for extremely long URLs (possible attack)
-                if (path.Length > 2048 || queryString.Length > 4096)
-                {
+                // Check for excessive length
+                if (path.Length > 2048)
                     return false;
-                }
-
-                // Check for double encoding attacks
-                if (path.Contains("%25") || queryString.Contains("%25"))
-                {
-                    return false;
-                }
 
                 return true;
             }
-            catch (Exception)
+            catch
             {
                 return false;
             }
         }
 
-        private bool IsSuspiciousRequest(HttpContext context)
+        private async Task PermanentlyBanAndReject(HttpContext context, ISimpleDoSProtectionService? dosService,
+            IPAddress ipAddress, string userAgent, string path, string reason)
         {
-            var path = context.Request.Path.ToString().ToLower();
-            var userAgent = context.Request.Headers["User-Agent"].ToString().ToLower();
-            var queryString = context.Request.QueryString.ToString().ToLower();
+            _logger.LogWarning("🚫 PERMANENT BAN: {IpAddress} - {Reason} - Path: {Path} - UA: {UserAgent}",
+                ipAddress, reason, path, userAgent);
 
-            // Suspicious paths that bots commonly target
-            string[] suspiciousPaths = {
-                "/wp-admin", "/administrator", "/admin", "/phpmyadmin", "/myadmin",
-                "/.env", "/.git", "/config", "/backup", "/database", "/db",
-                "/login.php", "/wp-login", "/manager", "/console", "/panel",
-                "/robots.txt", "/sitemap.xml", "/favicon.ico", "/xmlrpc.php",
-                "/vendor", "/node_modules", "/.well-known", "/api/v1"
-            };
-
-            // Suspicious user agents
-            string[] suspiciousAgents = {
-                "python-requests", "curl", "wget", "go-http-client", "java",
-                "bot", "crawler", "spider", "scanner", "masscan", "nmap",
-                "sqlmap", "nikto", "dirb", "gobuster", "wfuzz", "exploit"
-            };
-
-            // Suspicious query parameters
-            string[] suspiciousParams = {
-                "union", "select", "insert", "delete", "drop", "exec",
-                "script", "javascript", "vbscript", "onload", "onerror",
-                "../", "..\\", "%2e%2e", "passwd", "/etc/", "cmd", "eval"
-            };
-
-            // Check suspicious paths
-            if (suspiciousPaths.Any(sp => path.Contains(sp)))
+            // Permanently ban the IP
+            if (dosService != null)
             {
-                return true;
+                await dosService.PermanentlyBanAsync(ipAddress, reason, "AutoBan-Middleware");
             }
 
-            // Check suspicious user agents
-            if (string.IsNullOrEmpty(userAgent) || suspiciousAgents.Any(sa => userAgent.Contains(sa)))
-            {
-                return true;
-            }
+            // Set response
+            context.Response.StatusCode = 403;
+            context.Response.Headers["X-Banned-Reason"] = reason;
 
-            // Check suspicious query parameters
-            if (!string.IsNullOrEmpty(queryString) && suspiciousParams.Any(sp => queryString.Contains(sp)))
-            {
-                return true;
-            }
-
-            // Check for directory traversal attempts
-            if (path.Contains("..") || path.Contains("%2e%2e"))
-            {
-                return true;
-            }
-
-            return false;
+            // Minimal response - don't give attackers info
+            await context.Response.WriteAsync("Forbidden");
         }
 
         private async Task LogAndReject(HttpContext context, ISimpleDoSProtectionService? dosService,
@@ -213,7 +295,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                 await dosService.LogRequestAsync(ipAddress, userAgent + $" [REJECTED: {reason}]", path, statusCode, false);
             }
 
-            // Write minimal response (don't give attackers information)
+            // Write minimal response
             await context.Response.WriteAsync("Bad Request");
         }
 

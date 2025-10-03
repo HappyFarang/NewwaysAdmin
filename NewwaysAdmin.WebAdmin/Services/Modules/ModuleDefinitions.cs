@@ -61,11 +61,11 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Icon = "bi bi-calculator",
                     Description = "Accounting tools and reports"
                 },
-                new NavigationItem  // Add this block - matching your existing pattern
+                new NavigationItem
                 {
                     Id = "security",
                     Name = "Security",
-                    Path = "/admin/security",
+                    Path = "/security-dashboard",  // Changed from /admin/security
                     Icon = "fas fa-shield-alt",
                     IsActive = true,
                     Description = "DoS protection and security monitoring"

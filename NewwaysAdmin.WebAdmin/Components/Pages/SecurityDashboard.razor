@@ -1,322 +1,353 @@
-﻿@* Components/Pages/SecurityDashboard.razor *@
-@page "/admin/security"
+﻿@page "/security-dashboard"
 @using NewwaysAdmin.WebAdmin.Services.Security
-@using Microsoft.AspNetCore.Authorization
+@using NewwaysAdmin.WebAdmin.Services.Auth
+@using Microsoft.AspNetCore.Components.Authorization
 @using System.Net
 @inject ISimpleDoSProtectionService DoSService
 @inject ILogger<SecurityDashboard> Logger
-@attribute [Authorize]
+@inject NavigationManager Navigation
+@inject IAuthenticationService AuthService
 
 <PageTitle>Security Dashboard</PageTitle>
 
-<div class="container-fluid mt-4">
-    <div class="row">
-        <div class="col-12">
-            <h2>🛡️ Security Dashboard</h2>
-            <p class="text-muted">DoS protection and security monitoring</p>
-        </div>
-    </div>
-
-    @if (_metrics != null)
-    {
-        <!-- Summary Cards -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card bg-info text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Last Hour Traffic</h5>
-                        <h3>@_metrics.TotalRequestsLastHour</h3>
-                        <small>from @_metrics.UniqueIPsLastHour unique IPs</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-danger text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Blocked IPs</h5>
-                        <h3>@_metrics.CurrentlyBlockedIPs</h3>
-                        <small>currently blocked</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-warning text-dark">
-                    <div class="card-body">
-                        <h5 class="card-title">Auto-Blocks Today</h5>
-                        <h3>@_metrics.AutoBlocksToday</h3>
-                        <small>automatic blocks</small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card bg-success text-white">
-                    <div class="card-body">
-                        <h5 class="card-title">Protection Status</h5>
-                        <h3>✅ ACTIVE</h3>
-                        <button class="btn btn-sm btn-light" @onclick="RefreshData">Refresh</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Request Distribution -->
-        <div class="row mb-4">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>Request Distribution (Last Hour)</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-2">
-                            <strong>Public Pages:</strong> @_metrics.PublicPageRequests requests
-                            <div class="progress" style="height: 10px;">
-                                <div class="progress-bar bg-warning"
-                                     style="width: @GetPercentage(_metrics.PublicPageRequests, _metrics.TotalRequestsLastHour)%"></div>
-                            </div>
-                        </div>
-                        <div class="mb-2">
-                            <strong>Authenticated Pages:</strong> @_metrics.AuthenticatedPageRequests requests
-                            <div class="progress" style="height: 10px;">
-                                <div class="progress-bar bg-success"
-                                     style="width: @GetPercentage(_metrics.AuthenticatedPageRequests, _metrics.TotalRequestsLastHour)%"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>Top Request Sources</h5>
-                    </div>
-                    <div class="card-body">
-                        @if (_metrics.TopAttackers.Any())
-                        {
-                            @foreach (var attacker in _metrics.TopAttackers.Take(5))
-                            {
-                                <div class="mb-2">
-                                    <code>@attacker</code>
-                                </div>
-                            }
-                        }
-                        else
-                        {
-                            <p class="text-muted">No activity detected</p>
-                        }
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Blocked IPs Table -->
-        @if (_blockedClients?.Any() == true)
+<AuthorizeView>
+    <Authorized>
+        @if (_isAdmin)
         {
-            <div class="row mb-4">
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5>🚫 Blocked IP Addresses (@_blockedClients.Count)</h5>
-                            <button class="btn btn-sm btn-outline-primary" @onclick="RefreshData">
-                                Refresh
+            @if (_metrics == null || _blockedClients == null)
+            {
+                <div class="text-center p-5">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading security data...</p>
+                </div>
+            }
+            else
+            {
+                <div class="container-fluid mt-4">
+                    <div class="row mb-3">
+                        <div class="col">
+                            <h2>🛡️ Security Dashboard</h2>
+                            <p class="text-muted">Real-time security monitoring and DoS protection</p>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-danger me-2" @onclick="NavigateToPermanentBans">
+                                🚫 Permanent Bans (@_metrics.PermanentlyBannedIPs)
+                            </button>
+                            <button class="btn btn-primary" @onclick="RefreshData">
+                                🔄 Refresh
                             </button>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-striped table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>IP Address</th>
-                                            <th>Blocked At</th>
-                                            <th>Status</th>
-                                            <th>Reason</th>
-                                            <th>Requests</th>
-                                            <th>User Agent</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var blocked in _blockedClients.OrderByDescending(b => b.BlockedAt))
-                                        {
-                                            <tr class="@GetRowClass(blocked)">
-                                                <td>
-                                                    <code class="@GetIpClass(blocked)">@blocked.IpAddress</code>
-                                                    @if (blocked.IsPermanent)
-                                                    {
-                                                        <span class="badge bg-danger ms-1">PERMANENT</span>
-                                                    }
-                                                </td>
-                                                <td>@blocked.BlockedAt.ToString("MM/dd HH:mm")</td>
-                                                <td>
-                                                    @{
-                                                        var remaining = blocked.ExpiresAt - DateTime.UtcNow;
-                                                    }
-                                                    @if (blocked.IsPermanent)
-                                                    {
-                                                        <span class="text-danger">PERMANENT</span>
-                                                    }
-                                                    else if (remaining.TotalMinutes > 60)
-                                                    {
-                                                        <span class="text-warning">@remaining.Hours h @remaining.Minutes m</span>
-                                                    }
-                                                    else if (remaining.TotalMinutes > 0)
-                                                    {
-                                                        <span class="text-info">@remaining.Minutes m</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="text-muted">Expired</span>
-                                                    }
-                                                </td>
-                                                <td>
-                                                    <span class="badge bg-@GetReasonBadgeColor(blocked.Reason)">
-                                                        @TruncateReason(blocked.Reason)
-                                                    </span>
-                                                </td>
-                                                <td>@blocked.TotalRequests</td>
-                                                <td class="small" style="max-width: 200px;">
-                                                    @TruncateUserAgent(blocked.UserAgent)
-                                                </td>
-                                                <td>
-                                                    <button class="btn btn-sm btn-outline-success"
-                                                            @onclick="() => UnblockIP(blocked.IpAddress)"
-                                                            title="Unblock this IP">
-                                                        Unblock
-                                                    </button>
-                                                    @if (!blocked.IsPermanent)
-                                                    {
-                                                        <button class="btn btn-sm btn-outline-danger ms-1"
-                                                                @onclick="() => PermanentBan(blocked.IpAddress)"
-                                                                title="Permanently ban this IP">
-                                                            Ban Forever
-                                                        </button>
-                                                    }
-                                                </td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
+                    </div>
+
+                    <!-- Overview Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-primary">
+                                <div class="card-body">
+                                    <h6 class="text-muted">Requests (Last Hour)</h6>
+                                    <h2 class="display-6 text-primary">@_metrics.TotalRequestsLastHour</h2>
+                                    <small class="text-muted">@_metrics.UniqueIPsLastHour unique IPs</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-warning">
+                                <div class="card-body">
+                                    <h6 class="text-muted">Currently Blocked</h6>
+                                    <h2 class="display-6 text-warning">@_metrics.CurrentlyBlockedIPs</h2>
+                                    <small class="text-muted">Temporary blocks</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-danger">
+                                <div class="card-body">
+                                    <h6 class="text-muted">Permanent Bans</h6>
+                                    <h2 class="display-6 text-danger">@_metrics.PermanentlyBannedIPs</h2>
+                                    <small>
+                                        <a href="/security/permanent-bans" class="text-decoration-none">
+                                            View all →
+                                        </a>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-info">
+                                <div class="card-body">
+                                    <h6 class="text-muted">Auto-Blocks Today</h6>
+                                    <h2 class="display-6 text-info">@_metrics.AutoBlocksToday</h2>
+                                    <small class="text-muted">Rate limit triggers</small>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        }
 
-        <!-- Manual Block Section -->
-        <div class="row">
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>🔒 Manual IP Block</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">IP Address</label>
-                            <input type="text" class="form-control" @bind="_manualBlockIP"
-                                   placeholder="Enter IP address to block" />
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Block Type</label>
-                            <select class="form-select" @bind="_blockType">
-                                <option value="temporary">Temporary (2 hours)</option>
-                                <option value="long">Long term (24 hours)</option>
-                                <option value="permanent">Permanent Ban</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Reason</label>
-                            <input type="text" class="form-control" @bind="_manualBlockReason"
-                                   placeholder="Reason for blocking" />
-                        </div>
-                        <button class="btn btn-danger" @onclick="ExecuteManualBlock"
-                                disabled="@(string.IsNullOrEmpty(_manualBlockIP))">
-                            Block IP Address
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>⚙️ Protection Settings</h5>
-                    </div>
-                    <div class="card-body">
-                        <h6>Current Rate Limits:</h6>
-                        <ul class="list-unstyled">
-                            <li>🌐 <strong>Public pages:</strong> 50 requests/minute</li>
-                            <li>👤 <strong>Authenticated users:</strong> 120 requests/minute</li>
-                            <li>⏰ <strong>Hourly limits:</strong> 200/3600 respectively</li>
-                            <li>🎯 <strong>Auto-block triggers:</strong></li>
-                            <ul>
-                                <li>• Suspicious user agents</li>
-                                <li>• 5+ consecutive 404s (path scanning)</li>
-                                <li>• 80%+ error rate</li>
-                            </ul>
-                        </ul>
-
-                        <div class="alert alert-info mt-3">
-                            <small>
-                                <strong>Note:</strong> All blocks and statistics are persisted
-                                to JSON storage and survive server restarts.
-                            </small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Most Targeted Paths -->
-        @if (_metrics.MostTargetedPaths.Any())
-        {
-            <div class="row mt-4">
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5>📊 Most Targeted Paths</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                @foreach (var path in _metrics.MostTargetedPaths.Take(10))
-                                {
-                                    <div class="col-md-6 mb-2">
-                                        <code>@path</code>
+                    <!-- Request Distribution -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>📊 Request Distribution</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between mb-1">
+                                            <span>Public Requests</span>
+                                            <span class="fw-bold">@_metrics.PublicPageRequests (@GetPercentage(_metrics.PublicPageRequests, _metrics.TotalRequestsLastHour).ToString("F1")%)</span>
+                                        </div>
+                                        <div class="progress" style="height: 25px;">
+                                            <div class="progress-bar bg-info" role="progressbar"
+                                                 style="width: @GetPercentage(_metrics.PublicPageRequests, _metrics.TotalRequestsLastHour)%">
+                                            </div>
+                                        </div>
                                     </div>
-                                }
+                                    <div>
+                                        <div class="d-flex justify-content-between mb-1">
+                                            <span>Authenticated Requests</span>
+                                            <span class="fw-bold">@_metrics.AuthenticatedPageRequests (@GetPercentage(_metrics.AuthenticatedPageRequests, _metrics.TotalRequestsLastHour).ToString("F1")%)</span>
+                                        </div>
+                                        <div class="progress" style="height: 25px;">
+                                            <div class="progress-bar bg-success" role="progressbar"
+                                                 style="width: @GetPercentage(_metrics.AuthenticatedPageRequests, _metrics.TotalRequestsLastHour)%">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>🎯 Most Targeted Paths</h5>
+                                </div>
+                                <div class="card-body">
+                                    @if (_metrics.MostTargetedPaths.Any())
+                                    {
+                                        <ul class="list-unstyled mb-0">
+                                            @foreach (var path in _metrics.MostTargetedPaths.Take(5))
+                                            {
+                                                <li class="mb-2">
+                                                    <code class="small">@path</code>
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                    else
+                                    {
+                                        <p class="text-muted mb-0">No path data available</p>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Blocked Clients Table -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>⚠️ Currently Blocked IPs (Temporary)</h5>
+                                </div>
+                                <div class="card-body p-0">
+                                    @if (_blockedClients.Any())
+                                    {
+                                        <div class="table-responsive">
+                                            <table class="table table-hover mb-0">
+                                                <thead class="table-light">
+                                                    <tr>
+                                                        <th>IP Address</th>
+                                                        <th>Blocked At</th>
+                                                        <th>Expires At</th>
+                                                        <th>Reason</th>
+                                                        <th>Requests</th>
+                                                        <th>User Agent</th>
+                                                        <th>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var blocked in _blockedClients.Take(20))
+                                                    {
+                                                        <tr class="@GetRowClass(blocked)">
+                                                            <td>
+                                                                <span class="@GetIpClass(blocked) font-monospace">@blocked.IpAddress</span>
+                                                            </td>
+                                                            <td>
+                                                                <small>@blocked.BlockedAt.ToLocalTime().ToString("HH:mm:ss")</small>
+                                                            </td>
+                                                            <td>
+                                                                <small>@blocked.ExpiresAt.ToLocalTime().ToString("HH:mm:ss")</small>
+                                                                <br />
+                                                                <span class="badge bg-secondary">@GetTimeRemaining(blocked.ExpiresAt)</span>
+                                                            </td>
+                                                            <td>
+                                                                <span class="badge @GetReasonBadgeColor(blocked.Reason)">
+                                                                    @TruncateReason(blocked.Reason)
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                <span class="badge bg-dark">@blocked.TotalRequests</span>
+                                                            </td>
+                                                            <td>
+                                                                <small class="text-muted">@TruncateUserAgent(blocked.UserAgent)</small>
+                                                            </td>
+                                                            <td>
+                                                                <button class="btn btn-sm btn-outline-success"
+                                                                        @onclick="() => UnblockIP(blocked.IpAddress)"
+                                                                        title="Unblock this IP">
+                                                                    Unblock
+                                                                </button>
+                                                                <button class="btn btn-sm btn-outline-danger ms-1"
+                                                                        @onclick="() => PermanentBan(blocked.IpAddress)"
+                                                                        title="Permanently ban this IP">
+                                                                    Ban Forever
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="p-4 text-center text-muted">
+                                            <p class="mb-0">✅ No currently blocked IPs</p>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Manual Block Section -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>🔒 Manual IP Block (Temporary)</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="form-label">IP Address</label>
+                                        <input type="text" class="form-control" @bind="_manualBlockIP"
+                                               placeholder="Enter IP address to block" />
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Block Type</label>
+                                        <select class="form-select" @bind="_blockType">
+                                            <option value="temporary">Temporary (2 hours)</option>
+                                            <option value="long">Long (24 hours)</option>
+                                            <option value="permanent">Permanent Ban</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Reason</label>
+                                        <input type="text" class="form-control" @bind="_manualBlockReason"
+                                               placeholder="Reason for blocking" />
+                                    </div>
+                                    <button class="btn btn-danger w-100" @onclick="ExecuteManualBlock"
+                                            disabled="@(string.IsNullOrWhiteSpace(_manualBlockIP))">
+                                        Block IP
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>👥 Top Attackers</h5>
+                                </div>
+                                <div class="card-body">
+                                    @if (_metrics.TopAttackers.Any())
+                                    {
+                                        <ul class="list-unstyled mb-0">
+                                            @foreach (var attacker in _metrics.TopAttackers.Take(10))
+                                            {
+                                                <li class="mb-2">
+                                                    <span class="font-monospace">@attacker</span>
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                    else
+                                    {
+                                        <p class="text-muted mb-0">No attacker data available</p>
+                                    }
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
+            }
+        }
+        else
+        {
+            <div class="alert alert-danger mt-4">
+                <h4>Access Denied</h4>
+                <p>You do not have permission to access this page. Admin access required.</p>
             </div>
         }
-    }
-    else
-    {
-        <div class="d-flex justify-content-center">
-            <div class="spinner-border" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="alert alert-warning mt-4">
+            <h4>Authentication Required</h4>
+            <p>Please <a href="/login">login</a> to access this page.</p>
         </div>
-    }
-</div>
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
     private SecurityMetrics? _metrics;
     private List<BlockedClient>? _blockedClients;
     private Timer? _refreshTimer;
+    private bool _isAdmin = false;
 
     // Manual blocking form
     private string _manualBlockIP = "";
     private string _blockType = "temporary";
     private string _manualBlockReason = "Manual administrative block";
 
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
     protected override async Task OnInitializedAsync()
     {
-        await RefreshData();
+        try
+        {
+            var authState = await AuthState;
+            var username = authState.User.Identity?.Name;
 
-        // Auto-refresh every 30 seconds
-        _refreshTimer = new Timer(async _ => await InvokeAsync(RefreshData), null,
-            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            if (!string.IsNullOrEmpty(username))
+            {
+                var user = await AuthService.GetUserByNameAsync(username);
+                _isAdmin = user?.IsAdmin ?? false;
+
+                if (_isAdmin)
+                {
+                    await RefreshData();
+
+                    // Auto-refresh every 30 seconds
+                    _refreshTimer = new Timer(async _ =>
+                    {
+                        try
+                        {
+                            await InvokeAsync(RefreshData);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError(ex, "Error in auto-refresh");
+                        }
+                    }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error in OnInitializedAsync");
+        }
     }
 
     private async Task RefreshData()
@@ -331,6 +362,11 @@
         {
             Logger.LogError(ex, "Error refreshing security data");
         }
+    }
+
+    private void NavigateToPermanentBans()
+    {
+        Navigation.NavigateTo("/security/permanent-bans");
     }
 
     private async Task UnblockIP(string ipAddress)
@@ -356,7 +392,7 @@
         {
             if (IPAddress.TryParse(ipAddress, out var ip))
             {
-                await DoSService.PermanentlyBanAsync(ip, "Upgraded to permanent ban from dashboard");
+                await DoSService.PermanentlyBanAsync(ip, "Upgraded to permanent ban from dashboard", "Admin-Dashboard");
                 await RefreshData();
                 Logger.LogInformation("Permanently banned IP {IpAddress}", ipAddress);
             }
@@ -375,11 +411,13 @@
             {
                 if (_blockType == "permanent")
                 {
-                    await DoSService.PermanentlyBanAsync(ip, _manualBlockReason);
+                    await DoSService.PermanentlyBanAsync(ip, _manualBlockReason, "Admin-Manual");
                 }
                 else
                 {
-                    var duration = _blockType == "long" ? TimeSpan.FromHours(24) : TimeSpan.FromHours(2);
+                    var duration = _blockType == "long"
+                        ? TimeSpan.FromHours(24)
+                        : TimeSpan.FromHours(2);
                     await DoSService.ManuallyBlockAsync(ip, duration, _manualBlockReason);
                 }
 
@@ -404,29 +442,36 @@
 
     private string GetRowClass(BlockedClient blocked)
     {
-        if (blocked.IsPermanent) return "table-danger";
+        if (blocked.TotalRequests > 100) return "table-danger";
         if (blocked.TotalRequests > 50) return "table-warning";
         return "";
     }
 
     private string GetIpClass(BlockedClient blocked)
     {
-        return blocked.IsPermanent ? "text-danger fw-bold" : "text-warning";
+        return blocked.TotalRequests > 100 ? "text-danger fw-bold" : "text-warning";
     }
 
     private string GetReasonBadgeColor(string reason)
     {
-        if (reason.Contains("PERMANENT")) return "danger";
-        if (reason.Contains("Rate limit")) return "warning";
-        if (reason.Contains("suspicious")) return "info";
-        if (reason.Contains("scanning")) return "danger";
-        if (reason.Contains("Manual")) return "secondary";
-        return "dark";
+        if (reason.Contains("Rate limit")) return "bg-warning text-dark";
+        if (reason.Contains("suspicious")) return "bg-info";
+        if (reason.Contains("scanning")) return "bg-danger";
+        if (reason.Contains("Manual") || reason.Contains("MANUAL")) return "bg-secondary";
+        return "bg-dark";
+    }
+
+    private string GetTimeRemaining(DateTime expiresAt)
+    {
+        var remaining = expiresAt - DateTime.UtcNow;
+        if (remaining.TotalMinutes < 1) return "< 1m";
+        if (remaining.TotalHours < 1) return $"{(int)remaining.TotalMinutes}m";
+        return $"{(int)remaining.TotalHours}h {remaining.Minutes}m";
     }
 
     private string TruncateReason(string reason)
     {
-        return reason.Length > 30 ? reason.Substring(0, 30) + "..." : reason;
+        return reason.Length > 40 ? reason.Substring(0, 40) + "..." : reason;
     }
 
     private string TruncateUserAgent(string userAgent)
