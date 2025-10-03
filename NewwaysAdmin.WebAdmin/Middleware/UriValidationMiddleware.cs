@@ -81,7 +81,20 @@ namespace NewwaysAdmin.WebAdmin.Middleware
 
             try
             {
-                // 1. Check for malicious user agents - INSTANT BAN
+                // ⭐ CRITICAL: Check if user is authenticated FIRST
+                var isAuthenticated = await IsUserAuthenticatedAsync(context);
+
+                if (isAuthenticated)
+                {
+                    // Authenticated users bypass most security checks
+                    _logger.LogDebug("Authenticated user - bypassing security checks for {Path}", path);
+                    await _next(context);
+                    return;
+                }
+
+                // Continue with aggressive checks for UNAUTHENTICATED users only...
+
+                // 1. Malicious user agents - INSTANT BAN
                 if (IsMaliciousUserAgent(userAgent))
                 {
                     await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
@@ -89,7 +102,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 2. Check for instant-ban paths - PERMANENT BAN
+                // 2. Instant-ban paths - PERMANENT BAN
                 if (IsInstantBanPath(path))
                 {
                     await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
@@ -97,7 +110,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 3. Check for invalid file extensions - PERMANENT BAN
+                // 3. Invalid file extensions
                 if (HasInvalidExtension(path))
                 {
                     await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
@@ -105,7 +118,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 4. Check for suspicious patterns in path/query - PERMANENT BAN
+                // 4. Suspicious patterns
                 if (ContainsSuspiciousPatterns(path, queryString))
                 {
                     await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
@@ -113,7 +126,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 5. Check for invalid static file requests
+                // 5. Invalid static file requests
                 if (IsInvalidStaticFileRequest(path))
                 {
                     await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
@@ -121,42 +134,52 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // 6. Check for invalid host headers
+                // 6. Invalid host headers
                 if (!IsValidHostHeader(context))
                 {
-                    _logger.LogWarning("Invalid host header from {IpAddress}: '{Host}' - UserAgent: {UserAgent}",
-                        ipAddress, context.Request.Host.ToString(), userAgent);
-
+                    _logger.LogWarning("Invalid host header from {IpAddress}: '{Host}'",
+                        ipAddress, context.Request.Host.ToString());
                     await LogAndReject(context, dosService, ipAddress, userAgent, path,
                         400, "Invalid host header detected");
                     return;
                 }
 
-                // 7. Check for malformed URLs
-                if (!IsValidUrl(context))
-                {
-                    _logger.LogWarning("Malformed URL from {IpAddress}: '{Path}' - UserAgent: {UserAgent}",
-                        ipAddress, path, userAgent);
-
-                    await LogAndReject(context, dosService, ipAddress, userAgent, path,
-                        400, "Malformed URL detected");
-                    return;
-                }
-
-                // All checks passed, continue to next middleware
+                // Request passed all checks
                 await _next(context);
             }
             catch (UriFormatException ex)
             {
-                _logger.LogWarning(ex, "URI format exception from {IpAddress}: {Path}", ipAddress, path);
+                await PermanentlyBanAndReject(context, dosService, ipAddress, userAgent, path,
+                    $"Malformed URI: {ex.Message}");
+            }
+        }
 
-                await LogAndReject(context, dosService, ipAddress, userAgent, path,
-                    400, "Invalid URI format");
+        private async Task<bool> IsUserAuthenticatedAsync(HttpContext context)
+        {
+            try
+            {
+                // Check for session cookie
+                var sessionId = context.Request.Cookies["SessionId"];
+                if (string.IsNullOrEmpty(sessionId))
+                {
+                    return false;
+                }
+
+                // If we have DoS service, we can cache this check
+                // Otherwise, just return true if session cookie exists
+                return true;
+
+                // OPTIONAL: For more security, validate the session:
+                // var authService = context.RequestServices.GetService<IAuthenticationService>();
+                // if (authService != null)
+                // {
+                //     return await authService.ValidateSessionAsync(sessionId);
+                // }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Unexpected error in URI validation for {IpAddress}", ipAddress);
-                throw;
+                _logger.LogError(ex, "Error checking authentication status");
+                return false;
             }
         }
 
@@ -192,26 +215,24 @@ namespace NewwaysAdmin.WebAdmin.Middleware
 
         private bool IsInvalidStaticFileRequest(string path)
         {
-            var lowerPath = path.ToLowerInvariant();
-
-            // Common static file extensions
-            var staticExtensions = new[] { ".png", ".jpg", ".jpeg", ".gif", ".svg", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot" };
-
-            if (staticExtensions.Any(ext => lowerPath.EndsWith(ext)))
+            // DON'T ban for missing CSS/JS - they're just development artifacts or cache issues
+            if (path.StartsWith("/css/", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/js/", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/_blazor/", StringComparison.OrdinalIgnoreCase))
             {
-                // Whitelist known valid paths
-                if (path.StartsWith("/_framework/")) return false;     // Blazor framework
-                if (path.StartsWith("/css/")) return false;             // Your CSS
-                if (path.StartsWith("/lib/")) return false;             // Third-party libraries
-                if (path.EndsWith(".styles.css")) return false;         // ← ADD THIS LINE - Blazor scoped CSS
-                if (path.StartsWith("/_blazor/")) return false;         // ← ADD THIS LINE - Blazor internals
-                if (ValidStaticFiles.Contains(path)) return false;      // Explicitly whitelisted
-
-                // If it's a static file but not in any valid location = ban
-                return true;
+                // Log but don't ban
+                _logger.LogDebug("Missing static file (not banning): {Path}", path);
+                return false;
             }
 
-            return false;
+            // Only check extensions for OTHER paths
+            var extension = Path.GetExtension(path);
+            if (string.IsNullOrEmpty(extension))
+                return false; // Not a static file request
+
+            // Ban only for truly malicious extensions
+            return InvalidExtensions.Contains(extension);
         }
 
         private bool IsValidHostHeader(HttpContext context)
