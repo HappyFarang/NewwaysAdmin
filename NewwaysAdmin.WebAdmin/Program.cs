@@ -383,7 +383,7 @@ services.AddScoped<PatternManagementService>(sp =>
         // 1. FIRST: URI Validation (catches UriFormatException from bots)
         app.UseUriValidation();
 
-        // 2. SECOND: Simple DoS Protection (rate limiting and bot detection)
+        // 2. SECOND: Simple DoS Protection (rate limiting and bot detection) 
         app.UseSimpleDoSProtection();
 
         // 3. Configure CSP (existing)
