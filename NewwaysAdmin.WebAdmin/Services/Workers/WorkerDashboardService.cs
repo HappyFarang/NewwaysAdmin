@@ -24,7 +24,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             _cycleStorage = storageManager.GetStorageSync<DailyWorkCycle>("WorkerAttendance");
 
             // Workers folder = worker profile files (3.json with face encodings)
-            _workerStorage = storageManager.GetStorageSync<Worker>("Workers");
+            _workerStorage = storageManager.GetStorageSync<Worker>("WorkerAttendance");
 
             _logger = logger;
         }
