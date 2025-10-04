@@ -286,16 +286,6 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
             var now = DateTime.UtcNow;
             var ipString = ipAddress.ToString();
 
-            if (ShouldBypassSecurityChecks(path))
-            {
-                return new DoSCheckResult
-                {
-                    IsBlocked = false,
-                    IsHighRisk = false,
-                    Reason = "Blazor internal endpoint - bypassed"
-                };
-            }
-
             // Skip rate limiting for Blazor framework paths - these are essential for the app to function
             if (path.StartsWith("/_blazor", StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith("/_framework", StringComparison.OrdinalIgnoreCase))
@@ -320,8 +310,6 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
                     RemainingBlockTime = null
                 };
             }
-
-
 
             _logger.LogInformation("DoS Check for {IpAddress}: Path={Path}, IsPublicPage={IsPublic}, IsLoginPage={IsLogin}, IsAuthenticated={IsAuth}, UseStrictLimits={UseStrict}",
                 ipString, path, IsPublicPage(path), IsLoginPage(path), isAuthenticated, ShouldUseStrictLimits(path, isAuthenticated));
@@ -455,19 +443,6 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
                     RequestsInWindow = recentRequests
                 };
             }
-        }
-
-        private bool ShouldBypassSecurityChecks(string path)
-        {
-            // Blazor Server SignalR endpoints - MUST bypass all security
-            if (path.StartsWith("/_blazor/", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            // Other internal endpoints that should bypass
-            if (path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            return false;
         }
 
         private List<RequestRecord> GetRequestHistory(string ipAddress)

@@ -25,13 +25,6 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             var path = context.Request.Path.ToString();
             var startTime = DateTime.UtcNow;
 
-            if (path.StartsWith("/_blazor/", StringComparison.OrdinalIgnoreCase) ||
-                path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase))
-            {
-                await _next(context);
-                return;
-            }
-
             try
             {
                 // Check if user is authenticated
@@ -91,37 +84,23 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         {
             try
             {
-                // 1. FIRST: Check if the current circuit is authenticated (PRIMARY CHECK)
-                try
-                {
-                    var circuitManager = context.RequestServices.GetService<ICircuitManager>();
-                    if (circuitManager != null && circuitManager.IsAuthenticated())
-                    {
-                        _logger.LogDebug("User authenticated via circuit");
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Circuit might not be available for initial HTTP requests
-                    _logger.LogDebug(ex, "Circuit check skipped (not in circuit context)");
-                }
-
-                // 2. Check for session cookie (for initial page load)
+                // 1. Check for session cookie (primary check)
                 var sessionId = context.Request.Cookies["SessionId"];
                 if (!string.IsNullOrEmpty(sessionId))
                 {
-                    _logger.LogDebug("Found SessionId cookie");
+                    _logger.LogDebug("Found SessionId cookie: {SessionId}", sessionId);
                     return true;
                 }
 
-                // 3. Check ASP.NET Core authentication (fallback)
+                // 2. Check ASP.NET Core authentication
                 if (context.User?.Identity?.IsAuthenticated == true)
                 {
                     return true;
                 }
 
-                return false;
+                // 3. Check your custom authentication service (fallback)
+                var session = await authService.GetCurrentSessionAsync();
+                return session != null;
             }
             catch (Exception ex)
             {
