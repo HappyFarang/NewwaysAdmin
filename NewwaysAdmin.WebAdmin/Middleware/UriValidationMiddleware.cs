@@ -78,7 +78,13 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             var userAgent = context.Request.Headers["User-Agent"].ToString();
             var path = context.Request.Path.ToString();
             var queryString = context.Request.QueryString.ToString();
-
+            // ⭐ CRITICAL: Bypass ALL validation for Blazor internal endpoints
+            if (path.StartsWith("/_blazor/", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/_framework/", StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context);
+                return;
+            }
             try
             {
                 // ⭐ CRITICAL: Check if user is authenticated FIRST
@@ -159,17 +165,34 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         {
             try
             {
-                // Check if authenticated via query string in THIS request
+                // 1. FIRST: Check if the current circuit is authenticated (PRIMARY CHECK)
+                try
+                {
+                    var circuitManager = context.RequestServices.GetService<ICircuitManager>();
+                    if (circuitManager != null && circuitManager.IsAuthenticated())
+                    {
+                        _logger.LogDebug("User authenticated via circuit");
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Circuit might not be available for initial HTTP requests
+                    _logger.LogDebug(ex, "Circuit check skipped (not in circuit context)");
+                }
+
+                // 2. Check if authenticated via query string in THIS request
                 if (context.Items.ContainsKey("AuthenticatedViaQueryString"))
                 {
                     _logger.LogDebug("Authenticated via query string in current request");
                     return true;
                 }
 
-                // Check for session cookie
+                // 3. Check for session cookie
                 var sessionId = context.Request.Cookies["SessionId"];
                 if (!string.IsNullOrEmpty(sessionId))
                 {
+                    _logger.LogDebug("Found SessionId cookie");
                     return true;
                 }
 
@@ -177,7 +200,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking authentication status");
+                _logger.LogError(ex, "Error checking authentication in URI validation");
                 return false;
             }
         }

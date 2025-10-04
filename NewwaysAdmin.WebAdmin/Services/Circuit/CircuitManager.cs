@@ -1,11 +1,10 @@
 ﻿// CircuitManager.cs
-using Microsoft.AspNetCore.Components.Server.Circuits;
-
-namespace NewwaysAdmin.WebAdmin.Services.Circuit;
+using NewwaysAdmin.WebAdmin.Services.Circuit;
 
 public class CircuitManager : ICircuitManager
 {
     private string? _currentCircuitId;
+    private bool _isAuthenticated = false; // ADD THIS
     private readonly ILogger<CircuitManager> _logger;
     private readonly object _lock = new object();
 
@@ -31,8 +30,6 @@ public class CircuitManager : ICircuitManager
         }
     }
 
-    // ADD THESE TWO MISSING METHODS:
-
     public void ClearCircuitId(string circuitId)
     {
         lock (_lock)
@@ -40,6 +37,7 @@ public class CircuitManager : ICircuitManager
             if (_currentCircuitId == circuitId)
             {
                 _currentCircuitId = null;
+                _isAuthenticated = false; // Clear auth flag too
                 _logger.LogInformation("Circuit ID cleared: {CircuitId}", circuitId);
             }
         }
@@ -50,6 +48,24 @@ public class CircuitManager : ICircuitManager
         lock (_lock)
         {
             return _currentCircuitId == circuitId;
+        }
+    }
+
+    // ADD THESE TWO METHODS:
+    public void MarkAsAuthenticated()
+    {
+        lock (_lock)
+        {
+            _isAuthenticated = true;
+            _logger.LogInformation("Circuit marked as authenticated: {CircuitId}", _currentCircuitId);
+        }
+    }
+
+    public bool IsAuthenticated()
+    {
+        lock (_lock)
+        {
+            return _isAuthenticated;
         }
     }
 }

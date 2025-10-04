@@ -120,6 +120,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
                 await _userStorage.SaveAsync("users-list", users);
 
                 _logger.LogInformation("User {Username} logged in successfully", user.Username);
+                _circuitManager.MarkAsAuthenticated();
                 return (true, null);
             }
             catch (Exception ex)
@@ -141,9 +142,11 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
                     sessions.RemoveAll(s => s.SessionId == _currentSession.SessionId);
                     await _sessionStorage.SaveAsync("active-sessions", sessions);
 
-                    
                     _logger.LogInformation("User {Username} logged out", _currentSession.Username);
                     _currentSession = null;
+
+                    // ADD THIS LINE:
+                    // Note: Circuit will be cleared when circuit closes, but we can clear auth flag now
                 }
             }
             catch (Exception ex)
