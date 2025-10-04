@@ -379,7 +379,7 @@ services.AddScoped<PatternManagementService>(sp =>
         }
 
         // ===== SECURITY MIDDLEWARE PIPELINE =====
-
+        app.UseMiddleware<CookieFromQueryMiddleware>();
         // 1. FIRST: URI Validation (catches UriFormatException from bots)
         app.UseUriValidation();
 

@@ -83,6 +83,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             {
                 // ⭐ CRITICAL: Check if user is authenticated FIRST
                 var isAuthenticated = await IsUserAuthenticatedAsync(context);
+                var dosCheck = await dosService.CheckRequestAsync(ipAddress, userAgent, path, isAuthenticated);
 
                 if (isAuthenticated)
                 {
@@ -158,21 +159,21 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         {
             try
             {
-                // Check for session cookie
-                var sessionId = context.Request.Cookies["SessionId"];
-
-                _logger.LogInformation("🔍 Auth Check - Path: {Path}, Cookie: {HasCookie}, SessionId: {SessionId}",
-                    context.Request.Path,
-                    !string.IsNullOrEmpty(sessionId),
-                    sessionId ?? "none");
-
-                if (string.IsNullOrEmpty(sessionId))
+                // Check if authenticated via query string in THIS request
+                if (context.Items.ContainsKey("AuthenticatedViaQueryString"))
                 {
-                    return false;
+                    _logger.LogDebug("Authenticated via query string in current request");
+                    return true;
                 }
 
-                // Cookie exists = authenticated
-                return true;
+                // Check for session cookie
+                var sessionId = context.Request.Cookies["SessionId"];
+                if (!string.IsNullOrEmpty(sessionId))
+                {
+                    return true;
+                }
+
+                return false;
             }
             catch (Exception ex)
             {

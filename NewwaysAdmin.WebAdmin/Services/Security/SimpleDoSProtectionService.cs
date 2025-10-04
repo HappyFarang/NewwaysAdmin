@@ -5,6 +5,7 @@ using NewwaysAdmin.WebAdmin.Infrastructure.Storage;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.WebAdmin.Models.Security;
+using NewwaysAdmin.WebAdmin.Models.Auth;
 
 namespace NewwaysAdmin.WebAdmin.Services.Security
 {
@@ -254,13 +255,51 @@ namespace NewwaysAdmin.WebAdmin.Services.Security
             }
         }
 
+        private bool IsUserAuthenticated(HttpContext context)
+        {
+            try
+            {
+                // Check if authenticated via query string in THIS request
+                if (context.Items.ContainsKey("AuthenticatedViaQueryString"))
+                {
+                    return true;
+                }
+
+                // Check for session cookie
+                var sessionId = context.Request.Cookies["SessionId"];
+                if (!string.IsNullOrEmpty(sessionId))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking authentication");
+                return false;
+            }
+        }
 
         public async Task<DoSCheckResult> CheckRequestAsync(IPAddress ipAddress, string userAgent, string path, bool isAuthenticated)
         {
             var now = DateTime.UtcNow;
             var ipString = ipAddress.ToString();
 
-            // FIRST: Check permanent bans (highest priority)
+            // Skip rate limiting for Blazor framework paths - these are essential for the app to function
+            if (path.StartsWith("/_blazor", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/_framework", StringComparison.OrdinalIgnoreCase))
+            {
+                return new DoSCheckResult { IsBlocked = false, RequestsInWindow = 0 };
+            }
+
+            // Authenticated users skip all other rate limiting
+            if (isAuthenticated)
+            {
+                return new DoSCheckResult { IsBlocked = false, RequestsInWindow = 0 };
+            }
+
+            // Check permanent bans for unauthenticated users
             if (_permanentBanCache.ContainsKey(ipString))
             {
                 _logger.LogWarning("PERMANENTLY BANNED IP attempted access: {IpAddress} to {Path}", ipString, path);

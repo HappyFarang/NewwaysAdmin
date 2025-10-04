@@ -187,14 +187,32 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
             {
                 await EnsureStorageInitializedAsync();
 
+                // Try to get by CircuitId first
                 var circuitId = _circuitManager.GetCurrentCircuitId();
-                if (string.IsNullOrEmpty(circuitId))
-                    return null;
+                if (!string.IsNullOrEmpty(circuitId))
+                {
+                    var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
+                    _currentSession = sessions.FirstOrDefault(s => s.CircuitId == circuitId);
 
-                var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
-                _currentSession = sessions.FirstOrDefault(s => s.CircuitId == circuitId);
+                    if (_currentSession != null)
+                        return _currentSession;
+                }
 
-                return _currentSession;
+                // Fallback: Try to get by SessionId cookie
+                var sessionId = _httpContextAccessor.HttpContext?.Request.Cookies["SessionId"];
+                if (!string.IsNullOrEmpty(sessionId))
+                {
+                    var sessions = await _sessionStorage!.LoadAsync("active-sessions") ?? new List<UserSession>();
+                    _currentSession = sessions.FirstOrDefault(s => s.SessionId == sessionId);
+
+                    if (_currentSession != null)
+                    {
+                        _logger.LogInformation("Found session by cookie for user {Username}", _currentSession.Username);
+                        return _currentSession;
+                    }
+                }
+
+                return null;
             }
             catch (Exception ex)
             {

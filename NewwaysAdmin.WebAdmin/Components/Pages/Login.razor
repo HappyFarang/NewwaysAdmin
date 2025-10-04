@@ -80,45 +80,33 @@
 
             var (success, error) = await AuthService.LoginAsync(loginModel);
 
-            Logger.LogInformation("Login attempt for user {Username}. Success: {Success}",
-                loginModel.Username, success);
-
             if (success)
             {
                 var session = await AuthService.GetCurrentSessionAsync();
                 if (session != null)
                 {
-                    // Set cookie via JavaScript
-                    await JSRuntime.InvokeVoidAsync("authCookies.setCookie",
-                        "SessionId",
-                        session.SessionId,
-                        1);
-
                     // Update Blazor authentication state
                     if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
                     {
                         await customProvider.NotifyUserAuthenticationAsync(session);
                     }
 
-                    // Force a full page reload to ensure clean state
-                    NavigationManager.NavigateTo("/home", forceLoad: true);
+                    // Navigate with sessionId in query - middleware will set the cookie
+                    NavigationManager.NavigateTo($"/home?sessionId={session.SessionId}");
                 }
                 else
                 {
-                    Logger.LogError("Session creation failed for user {Username}", loginModel.Username);
                     errorMessage = "Session creation failed";
                 }
             }
             else
             {
-                Logger.LogWarning("Login failed for user {Username}: {Error}",
-                    loginModel.Username, error);
                 errorMessage = error ?? "Login failed";
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Unexpected error during login");
+            Logger.LogError(ex, "Error during login");
             errorMessage = "An unexpected error occurred";
         }
         finally
@@ -126,6 +114,7 @@
             isLoading = false;
         }
     }
+
 
     private async Task DebugStyles()
     {
