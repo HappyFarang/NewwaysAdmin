@@ -237,7 +237,12 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
             await EnsureStorageInitializedAsync();
 
             var allCollections = await _collectionsStorage!.LoadAsync("admin") ?? new List<SlipCollection>();
-            return allCollections.Where(c => c.IsActive && (c.CreatedBy == username || username == "admin")).ToList();
+
+            // ✅ FIX: Check if user IS admin, not if username string equals "admin"
+            var user = await _authService.GetUserByNameAsync(username);
+            bool isAdmin = user?.IsAdmin ?? false;
+
+            return allCollections.Where(c => c.IsActive && (c.CreatedBy == username || isAdmin)).ToList();
         }
 
         public async Task<SlipCollection?> GetCollectionAsync(string collectionId, string username)

@@ -412,8 +412,7 @@ namespace NewwaysAdmin.GoogleSheets.Services
                 {
                     var dataEndRow = dataStartRow + dataRowCount - 1;
                     var columnLetter = ColumnLetterHelper.GetColumnLetter(i);
-                    var formula = $"SUM({columnLetter}{dataStartRow}:{columnLetter}{dataEndRow})";
-                    summaryRow.AddCell(formula);
+                    var formula = $"=SUM({columnLetter}{dataStartRow}:{columnLetter}{dataEndRow})";  // ✅ With =
                 }
                 else if (i == 0)
                 {
