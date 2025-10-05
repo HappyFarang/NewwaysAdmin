@@ -13,7 +13,8 @@ namespace NewwaysAdmin.SharedModels.Services.Parsing
     public enum DateParsingType
     {
         Thai,     // Parses "30 ส.ค. 68" → "2025/08/30"
-        English   // Parses "27 Aug 25" → "2025/08/27"
+        English,  // Parses "27 Aug 25" → "2025/08/27"
+        Reverse   // Parses "17/08/2025" → "2025/08/17" (NEW)
     }
 
     /// <summary>
@@ -86,6 +87,7 @@ namespace NewwaysAdmin.SharedModels.Services.Parsing
                 {
                     DateParsingType.Thai => ParseThaiDate(text),
                     DateParsingType.English => ParseEnglishDate(text),
+                    DateParsingType.Reverse => ParseReverseSlashDate(text), 
                     _ => text
                 };
 
@@ -242,7 +244,52 @@ namespace NewwaysAdmin.SharedModels.Services.Parsing
                 return text; // Return original on any error
             }
         }
+        /// <summary>
+        /// Parse and reverse slash date format: "17/08/2025" → "2025/08/17"
+        /// Handles DD/MM/YYYY or D/M/YYYY formats
+        /// </summary>
+        public string ParseReverseSlashDate(string text)
+        {
+            try
+            {
+                // Regex to capture: day/month/year with 1-2 digit day/month and 4 digit year
+                var regex = new Regex(@"(\d{1,2})/(\d{1,2})/(\d{4})");
+                var match = regex.Match(text.Trim());
 
+                if (!match.Success)
+                {
+                    return text; // Return original if no match
+                }
+
+                var dayStr = match.Groups[1].Value;
+                var monthStr = match.Groups[2].Value;
+                var yearStr = match.Groups[3].Value;
+
+                // Parse and validate
+                if (!int.TryParse(dayStr, out var day) || day < 1 || day > 31)
+                {
+                    return text;
+                }
+
+                if (!int.TryParse(monthStr, out var month) || month < 1 || month > 12)
+                {
+                    return text;
+                }
+
+                if (!int.TryParse(yearStr, out var year) || year < 1900 || year > 2100)
+                {
+                    return text;
+                }
+
+                // Format with zero padding
+                return $"{year:D4}/{month:D2}/{day:D2}";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("Failed to parse reverse slash date: {Text} - {Error}", text, ex.Message);
+                return text; // Return original on error
+            }
+        }
         /// <summary>
         /// Check if text contains a recognizable date pattern
         /// </summary>

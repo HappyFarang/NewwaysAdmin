@@ -132,6 +132,7 @@
                                 <select @bind="selectedDateParsingType" class="form-select form-select-sm">
                                     <option value="@DateParsingType.Thai">Thai dates (30 ส.ค. 68 → 2025/08/30)</option>
                                     <option value="@DateParsingType.English">English dates (27 Aug 25 → 2025/08/27)</option>
+                                    <option value="@DateParsingType.Reverse">Reverse slash dates (17/08/2025 → 2025/08/17)</option>
                                 </select>
                             </div>
 
@@ -141,9 +142,13 @@
                                 {
                                     <span>Thai format: Uses Buddhist era (67-99 = 2024-2056). Examples: "30 ส.ค. 68", "15 ม.ค. 67"</span>
                                 }
-                                else
+                                else if (selectedDateParsingType == DateParsingType.English)
                                 {
-                                    <span>English format: Standard Gregorian dates (00-30 = 2000-2030, 31-99 = 1931-1999). Examples: "27 Aug 25", "15 Jan 24"</span>
+                                    <span>English format: Standard Gregorian dates (00-30 = 2000-2030, 31-99 = 1931-1999). Examples: "27 Aug 25", "01 Jan 24"</span>
+                                }
+                                else if (selectedDateParsingType == DateParsingType.Reverse)
+                                {
+                                    <span>Reverse format: Converts DD/MM/YYYY to YYYY/MM/DD. Examples: "17/08/2025" → "2025/08/17"</span>
                                 }
                             </div>
                         </div>
