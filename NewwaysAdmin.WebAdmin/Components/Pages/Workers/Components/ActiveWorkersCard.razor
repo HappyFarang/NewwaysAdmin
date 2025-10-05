@@ -1,5 +1,5 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/ActiveWorkersCard.razor *@
-@* Purpose: Display card for active (currently signed in) workers *@
+@* Purpose: Display table for active (currently signed in) workers *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WorkerAttendance.Models
@@ -11,25 +11,12 @@
             Active Workers (@Workers.Count)
         </h5>
     </div>
-    <div class="card-body">
-        @if (Workers.Any())
-        {
-            <div class="row g-3">
-                @foreach (var worker in Workers)
-                {
-                    <div class="col-md-6 col-lg-4">
-                        <WorkerCard Worker="@worker" IsActive="true" />
-                    </div>
-                }
-            </div>
-        }
-        else
-        {
-            <p class="text-muted mb-0">
-                <span class="bi bi-info-circle me-2"></span>
-                No workers are currently signed in.
-            </p>
-        }
+    <div class="card-body p-0">
+        <WorkerTable 
+            Workers="@Workers" 
+            IsActive="true"
+            HeaderClass="table-success"
+            EmptyMessage="No workers are currently signed in." />
     </div>
 </div>
 

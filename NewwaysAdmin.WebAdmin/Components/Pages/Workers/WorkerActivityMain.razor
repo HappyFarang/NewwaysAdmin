@@ -1,5 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerActivityMain.razor *@
 @* Purpose: Main worker activity dashboard page - orchestrates child components *@
+@* UPDATED: Uses table-based layout instead of cards *@
 
 @page "/worker-activity"
 @using NewwaysAdmin.WebAdmin.Services.Workers
@@ -31,31 +32,31 @@
 
     @if (_isLoading && _dashboardData == null)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading worker activity...</p>
             </div>
-            <p class="mt-2">Loading worker activity...</p>
-        </div>
     }
     else if (_dashboardData != null)
     {
-        <ActiveWorkersCard Workers="@_dashboardData.ActiveWorkers" />
-        <InactiveWorkersCard Workers="@_dashboardData.InactiveWorkers" />
+            <ActiveWorkersCard Workers="@_dashboardData.ActiveWorkers" />
+            <InactiveWorkersCard Workers="@_dashboardData.InactiveWorkers" />
     }
     else if (_error != null)
     {
-        <div class="alert alert-danger" role="alert">
-            <h5 class="alert-heading">
-                <span class="bi bi-exclamation-triangle me-2"></span>
-                Error Loading Data
-            </h5>
-            <p>@_error</p>
-            <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
-                <span class="bi bi-arrow-clockwise me-1"></span>
-                Try Again
-            </button>
-        </div>
+            <div class="alert alert-danger" role="alert">
+                <h5 class="alert-heading">
+                    <span class="bi bi-exclamation-triangle me-2"></span>
+                    Error Loading Data
+                </h5>
+                <p>@_error</p>
+                <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
+                    <span class="bi bi-arrow-clockwise me-1"></span>
+                    Try Again
+                </button>
+            </div>
     }
 </div>
 
@@ -66,10 +67,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDashboardData();
+        await RefreshDashboard();
     }
 
-    private async Task LoadDashboardData()
+    private async Task RefreshDashboard()
     {
         _isLoading = true;
         _error = null;
@@ -77,23 +78,16 @@
         try
         {
             _dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
-            Logger.LogInformation("Dashboard loaded: {Active} active, {Inactive} inactive",
-                _dashboardData.ActiveWorkers.Count,
-                _dashboardData.InactiveWorkers.Count);
+            Logger.LogInformation("Dashboard refreshed successfully at {Time}", DateTime.Now);
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
-            Logger.LogError(ex, "Error loading dashboard data");
+            _error = $"Failed to load worker activity: {ex.Message}";
+            Logger.LogError(ex, "Error refreshing dashboard");
         }
         finally
         {
             _isLoading = false;
         }
-    }
-
-    private async Task RefreshDashboard()
-    {
-        await LoadDashboardData();
     }
 }
