@@ -60,7 +60,7 @@ public static class StorageFolderConfiguration
             MaxBackupCount = 3
         });
         // Register required folders
-        var salesFolder = new StorageFolder
+        RegisterFolderIfNotExists(new StorageFolder
         {
             Name = "Sales",
             Description = "Daily sales data storage",
@@ -70,7 +70,7 @@ public static class StorageFolderConfiguration
             CreatedBy = "OrderProcessor",
             CreateBackups = true,
             MaxBackupCount = 10
-        };
+        });
         // OCR Patterns folder for storing pattern collections
         RegisterFolderIfNotExists(new StorageFolder
         {
@@ -118,6 +118,32 @@ public static class StorageFolderConfiguration
             IndexFiles = true,                // Enable indexing for smart differential sync
             IndexedExtensions = [".json"],    // Index all JSON files in the folder
             PassThroughMode = true            // Key: files already serialized by remote IO Manager
+        });
+        // Worker Settings folder - stores individual worker configuration
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "WorkerSettings",
+            Description = "Worker configuration including pay rates, expected hours, and meeting times",
+            Type = StorageType.Json,
+            Path = "WorkerManagement",
+            IsShared = true,                  // Can be accessed by multiple users
+            CreateBackups = true,
+            MaxBackupCount = 10,              // Keep good backup history for payroll data
+            IndexFiles = false                // Small number of files, no indexing needed
+        });
+
+        // Worker Weekly Data folder - stores weekly summaries for payment tracking
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "WorkerWeeklyData",
+            Description = "Weekly worker activity summaries for payment calculation and history",
+            Type = StorageType.Json,
+            Path = "WorkerManagement/WeeklyData",
+            IsShared = true,                  // Multiple users can access
+            CreateBackups = true,
+            MaxBackupCount = 50,              // Keep more backups for financial records
+            IndexFiles = true,                // Enable indexing for fast week/year queries
+            IndexedExtensions = [".json"]     // Index weekly summary files
         });
     }
 }

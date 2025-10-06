@@ -40,8 +40,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             // Get all registered workers
             var allWorkers = await GetAllRegisteredWorkersAsync();
 
-            // Get today's cycles
+            // Load cycles from last 2 days to catch night shifts that started yesterday
             var todaysCycles = await LoadCyclesForDateAsync(today);
+            var yesterdaysCycles = await LoadCyclesForDateAsync(today.AddDays(-1));
+            var allRecentCycles = todaysCycles.Concat(yesterdaysCycles).ToList();
 
             var activeWorkers = new List<WorkerStatus>();
             var inactiveWorkers = new List<WorkerStatus>();
@@ -49,40 +51,40 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             // Process each registered worker
             foreach (var worker in allWorkers)
             {
-                // Check if worker has activity today
-                var todayCycle = todaysCycles.FirstOrDefault(c => c.WorkerId == worker.Id);
+                // Find the most recent cycle for this worker (could be from today or yesterday)
+                var recentCycles = allRecentCycles
+                    .Where(c => c.WorkerId == worker.Id)
+                    .OrderByDescending(c => c.LastRecord?.Timestamp ?? c.CycleDate)
+                    .ToList();
 
-                if (todayCycle != null)
+                var mostRecentCycle = recentCycles.FirstOrDefault();
+
+                if (mostRecentCycle != null && mostRecentCycle.IsCurrentlyCheckedIn)
                 {
-                    var status = DetermineWorkerStatus(todayCycle);
-
-                    if (status.IsActive)
-                    {
-                        // Currently signed in
-                        activeWorkers.Add(status);
-                    }
-                    else
-                    {
-                        // Signed out today - show today's data
-                        inactiveWorkers.Add(status);
-                    }
+                    // Worker is currently checked in (active)
+                    var status = DetermineWorkerStatus(mostRecentCycle);
+                    activeWorkers.Add(status);
+                }
+                else if (mostRecentCycle != null && mostRecentCycle.CycleDate == today)
+                {
+                    // Worker has activity today but is signed out
+                    var status = DetermineWorkerStatus(mostRecentCycle);
+                    inactiveWorkers.Add(status);
                 }
                 else
                 {
-                    // No activity today - find their LATEST activity from any date
+                    // No recent activity - find their LATEST activity from any date
                     var latestCycle = await FindLatestCycleForWorkerAsync(worker.Id);
 
                     if (latestCycle != null)
                     {
-                        // Show latest completed work with date
                         var status = DetermineWorkerStatus(latestCycle);
-                        status.IsActive = false; // Force inactive
-                        status.ShowDate = true; // Flag to show the date in UI
+                        status.IsActive = false;
+                        status.ShowDate = true;
                         inactiveWorkers.Add(status);
                     }
                     else
                     {
-                        // No activity ever - show as empty
                         inactiveWorkers.Add(CreateEmptyWorkerStatus(worker));
                     }
                 }

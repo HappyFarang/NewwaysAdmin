@@ -1,0 +1,76 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerSelector.razor *@
+@* Purpose: Worker button selector with status display *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WorkerAttendance.Models
+
+<div class="card mb-3">
+    <div class="card-body">
+        <!-- Worker Selection Buttons -->
+        <div class="mb-3">
+            <label class="form-label">
+                <span class="bi bi-person me-2"></span>
+                Select Worker
+            </label>
+            <div class="btn-group flex-wrap" role="group">
+                @foreach (var worker in Workers)
+                {
+                    var isSelected = worker.WorkerId == SelectedWorkerId;
+                    var buttonClass = isSelected ? "btn-success" : "btn-outline-secondary";
+
+                    <button type="button"
+                            class="btn @buttonClass btn-sm"
+                            @onclick="() => HandleWorkerClick(worker.WorkerId)">
+                        @worker.WorkerName
+                        @if (worker.IsActive)
+                        {
+                            var dotColor = worker.CurrentCycle == WorkCycle.OT ? "text-warning" : "text-success";
+                            <span class="bi bi-circle-fill @dotColor ms-1" style="font-size: 0.5rem;"></span>
+                        }
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- Selected Worker Info -->
+        @if (SelectedWorker != null)
+        {
+            <div class="border-top pt-3">
+                <div class="d-flex align-items-center">
+                    <span class="badge @(SelectedWorker.IsActive ? "bg-success" : "bg-secondary") me-2">
+                        @(SelectedWorker.IsActive ? "Active" : "Inactive")
+                    </span>
+                    <span class="text-muted small">
+                        ID: @SelectedWorker.WorkerId |
+                        Last Activity: @SelectedWorker.LastActivityFormatted
+                    </span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .btn-group {
+        gap: 0.25rem;
+    }
+</style>
+
+@code {
+    [Parameter]
+    public List<WorkerStatus> Workers { get; set; } = new();
+
+    [Parameter]
+    public int SelectedWorkerId { get; set; }
+
+    [Parameter]
+    public WorkerStatus? SelectedWorker { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnWorkerSelected { get; set; }
+
+    private async Task HandleWorkerClick(int workerId)
+    {
+        await OnWorkerSelected.InvokeAsync(workerId);
+    }
+}

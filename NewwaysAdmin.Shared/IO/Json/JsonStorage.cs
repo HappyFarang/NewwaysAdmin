@@ -125,6 +125,13 @@ namespace NewwaysAdmin.Shared.IO.Json
             await _lock.WaitAsync();
             try
             {
+                // NEW: Ensure directory exists (matches BinaryStorage behavior)
+                var directory = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
                 // Create backup if file exists and backups are enabled
                 if (_options.CreateBackups && File.Exists(filePath))
                 {

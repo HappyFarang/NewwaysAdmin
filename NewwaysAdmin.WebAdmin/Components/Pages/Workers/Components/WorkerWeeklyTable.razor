@@ -1,0 +1,141 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
+@* Purpose: Weekly breakdown table showing daily work hours and payment *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <span class="bi bi-calendar-week me-2"></span>
+                Weekly Breakdown
+            </h5>
+            <div class="btn-group btn-group-sm" role="group">
+                @for (int i = 0; i < 8; i++)
+                {
+                    var weeksAgo = i;
+                    var weekDate = GetWeekStartDate(weeksAgo);
+                    var weekNumber = GetWeekNumber(weekDate);
+                    var isCurrentWeek = weeksAgo == SelectedWeekOffset;
+
+                    <button type="button"
+                            class="btn @(isCurrentWeek ? "btn-light" : "btn-outline-light")"
+                            @onclick="() => OnWeekSelected.InvokeAsync(weeksAgo)">
+                        @weekNumber
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        @if (WeeklyData != null)
+        {
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Day</th>
+                            <th>Date</th>
+                            <th class="text-center">Work Hours</th>
+                            <th class="text-center">OT Hours</th>
+                            <th class="text-center">Variance</th>
+                            <th class="text-center">On Time</th>
+                            <th class="text-end">Daily Pay</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var day in WeeklyData.DailyRecords)
+                        {
+                            var isPastDay = day.Date <= DateTime.Today;
+                            var rowClass = day.HasData ? "" : "table-secondary text-muted";
+
+                            <tr class="@rowClass">
+                                <td><strong>@day.Date.DayOfWeek</strong></td>
+                                <td>@day.Date.ToString("MMM dd")</td>
+                                @if (day.HasData)
+                                {
+                                    <td class="text-center">@day.WorkHours.ToString("F1")</td>
+                                    <td class="text-center">@day.OTHours.ToString("F1")</td>
+                                    <td class="text-center @GetVarianceClass(day.VarianceMinutes)">
+                                        @day.VarianceDisplay
+                                    </td>
+                                    <td class="text-center">
+                                        @if (day.OnTime)
+                                        {
+                                            <span class="badge bg-success">Yes</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning text-dark">Late @day.LateMinutes min</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">@day.DailyPay.ToString("F2") ฿</td>
+                                }
+                                else
+                                {
+                                    <td class="text-center">--</td>
+                                    <td class="text-center">--</td>
+                                    <td class="text-center">--</td>
+                                    <td class="text-center">--</td>
+                                    <td class="text-end">--</td>
+                                }
+                            </tr>
+                        }
+                        <tr class="table-info fw-bold">
+                            <td colspan="2">WEEK TOTAL</td>
+                            <td class="text-center">@WeeklyData.TotalWorkHours.ToString("F1")</td>
+                            <td class="text-center">@WeeklyData.TotalOTHours.ToString("F1")</td>
+                            <td class="text-center">--</td>
+                            <td class="text-center">--</td>
+                            <td class="text-end">@WeeklyData.TotalPay.ToString("F2") ฿</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading weekly data...</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public WorkerWeeklyData? WeeklyData { get; set; }
+
+    [Parameter]
+    public int SelectedWeekOffset { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnWeekSelected { get; set; }
+
+    private DateTime GetWeekStartDate(int weeksAgo)
+    {
+        var today = DateTime.Today;
+        var daysSinceSunday = (int)today.DayOfWeek;
+        var lastSunday = today.AddDays(-daysSinceSunday);
+        return lastSunday.AddDays(-7 * weeksAgo);
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        var calendar = culture.Calendar;
+        var calendarWeekRule = culture.DateTimeFormat.CalendarWeekRule;
+        var firstDayOfWeek = culture.DateTimeFormat.FirstDayOfWeek;
+        return calendar.GetWeekOfYear(date, calendarWeekRule, firstDayOfWeek);
+    }
+
+    private string GetVarianceClass(int varianceMinutes)
+    {
+        if (varianceMinutes > 0) return "text-success";
+        if (varianceMinutes < 0) return "text-danger";
+        return "";
+    }
+}

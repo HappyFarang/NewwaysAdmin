@@ -1,0 +1,40 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerNavigationTabs.razor *@
+@* Purpose: Navigation tabs component for worker management section *@
+
+@inject NavigationManager Navigation
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link @GetActiveClass("/worker-activity")"
+           href="/worker-activity">
+            <span class="bi bi-activity me-2"></span>
+            Worker Activity
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @GetActiveClass("/worker-details")"
+           href="/worker-details">
+            <span class="bi bi-person-gear me-2"></span>
+            Worker Details
+        </a>
+    </li>
+</ul>
+
+@code {
+    private string GetActiveClass(string path)
+    {
+        var currentPath = Navigation.ToBaseRelativePath(Navigation.Uri);
+
+        // Handle both exact matches and paths with parameters
+        if (path == "/worker-activity")
+        {
+            return currentPath == "worker-activity" ? "active" : "";
+        }
+        else if (path == "/worker-details")
+        {
+            return currentPath.StartsWith("worker-details") ? "active" : "";
+        }
+
+        return "";
+    }
+}

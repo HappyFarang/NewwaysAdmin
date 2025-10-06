@@ -265,6 +265,32 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     Path = "Security",
                     Description = "Blocked IP addresses"
                 },
+                // Worker Settings folder - stores individual worker configuration
+                new StorageFolder
+                {
+                    Name = "WorkerSettings",
+                    Description = "Worker configuration including pay rates, expected hours, and meeting times",
+                    Type = StorageType.Json,
+                    Path = "WorkerManagement",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 10,
+                    IndexFiles = false
+                },
+
+                // Worker Weekly Data folder - stores weekly summaries for payment tracking
+                new StorageFolder
+                {
+                    Name = "WorkerWeeklyData",
+                    Description = "Weekly worker activity summaries for payment calculation and history",
+                    Type = StorageType.Json,
+                    Path = "WorkerManagement/WeeklyData",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 50,
+                    IndexFiles = true,
+                    IndexedExtensions = [".json"]
+                },
                 new StorageFolder
                 {
                     Name = "SecurityBans",

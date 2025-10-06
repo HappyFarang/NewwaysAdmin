@@ -1,0 +1,59 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerStatsCard.razor *@
+@* Purpose: Display worker statistics for current week *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="card mb-3">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0">
+            <span class="bi bi-graph-up me-2"></span>
+            Statistics (Week @WeekNumber)
+        </h5>
+    </div>
+    <div class="card-body">
+        @if (WeeklyData != null)
+        {
+            <div class="row text-center">
+                <div class="col-md-3">
+                    <div class="border rounded p-3">
+                        <h6 class="text-muted">Avg Work Hrs/Day</h6>
+                        <h3 class="mb-0">@WeeklyData.AverageWorkHoursPerDay.ToString("F1")</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-3">
+                        <h6 class="text-muted">Days Worked</h6>
+                        <h3 class="mb-0">@WeeklyData.DaysWorked</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-3">
+                        <h6 class="text-muted">Total OT Hours</h6>
+                        <h3 class="mb-0">@WeeklyData.TotalOTHours.ToString("F1")</h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="border rounded p-3">
+                        <h6 class="text-muted">On-Time Rate</h6>
+                        <h3 class="mb-0">@WeeklyData.OnTimePercentage.ToString("F0")%</h3>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="text-center text-muted py-3">
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                Loading statistics...
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public WorkerWeeklyData? WeeklyData { get; set; }
+
+    [Parameter]
+    public int WeekNumber { get; set; }
+}

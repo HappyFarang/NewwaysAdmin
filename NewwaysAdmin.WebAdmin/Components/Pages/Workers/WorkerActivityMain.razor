@@ -1,6 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerActivityMain.razor *@
 @* Purpose: Main worker activity dashboard page - orchestrates child components *@
-@* UPDATED: Uses table-based layout instead of cards *@
+@* UPDATED: Added navigation tabs, removed large header *@
 
 @page "/worker-activity"
 @using NewwaysAdmin.WebAdmin.Services.Workers
@@ -14,20 +14,18 @@
 <PageTitle>Worker Activity</PageTitle>
 
 <div class="container-fluid mt-3">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>
-            <span class="bi bi-people me-2"></span>
-            Worker Activity
-        </h2>
-        <div>
-            <span class="text-muted small">
-                Last updated: @(_dashboardData?.RefreshTime.ToString("HH:mm:ss") ?? "--:--:--")
-            </span>
-            <button class="btn btn-sm btn-outline-primary ms-2" @onclick="RefreshDashboard" disabled="@_isLoading">
-                <span class="bi bi-arrow-clockwise"></span>
-                @(_isLoading ? "Refreshing..." : "Refresh")
-            </button>
-        </div>
+    <!-- Navigation Tabs -->
+    <WorkerNavigationTabs />
+
+    <!-- Refresh Controls -->
+    <div class="d-flex justify-content-end mb-3">
+        <span class="text-muted small me-2 align-self-center">
+            Last updated: @(_dashboardData?.RefreshTime.ToString("HH:mm:ss") ?? "--:--:--")
+        </span>
+        <button class="btn btn-sm btn-outline-primary" @onclick="RefreshDashboard" disabled="@_isLoading">
+            <span class="bi bi-arrow-clockwise"></span>
+            @(_isLoading ? "Refreshing..." : "Refresh")
+        </button>
     </div>
 
     @if (_isLoading && _dashboardData == null)
@@ -67,27 +65,30 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await RefreshDashboard();
+        await LoadDashboard();
     }
 
-    private async Task RefreshDashboard()
+    private async Task LoadDashboard()
     {
-        _isLoading = true;
-        _error = null;
-
         try
         {
+            _isLoading = true;
+            _error = null;
             _dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
-            Logger.LogInformation("Dashboard refreshed successfully at {Time}", DateTime.Now);
         }
         catch (Exception ex)
         {
-            _error = $"Failed to load worker activity: {ex.Message}";
-            Logger.LogError(ex, "Error refreshing dashboard");
+            Logger.LogError(ex, "Failed to load worker dashboard");
+            _error = "Failed to load worker data. Please try again.";
         }
         finally
         {
             _isLoading = false;
         }
+    }
+
+    private async Task RefreshDashboard()
+    {
+        await LoadDashboard();
     }
 }

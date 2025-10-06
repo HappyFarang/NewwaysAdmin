@@ -1,0 +1,209 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetails.razor *@
+@* Purpose: Worker details page - orchestrates child components with real data *@
+
+@page "/worker-details"
+@page "/worker-details/{WorkerId:int}"
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Components.Pages.Workers.Components
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@inject WorkerDashboardService DashboardService
+@inject WorkerWeeklyService WeeklyService
+@inject ILogger<WorkerDetails> Logger
+
+<PageTitle>Worker Details</PageTitle>
+
+<div class="container-fluid mt-3">
+    <!-- Navigation Tabs -->
+    <WorkerNavigationTabs />
+
+    <!-- Worker Selector -->
+    <WorkerSelector Workers="@_allWorkers"
+                    SelectedWorkerId="@_selectedWorkerId"
+                    SelectedWorker="@_selectedWorker"
+                    OnWorkerSelected="@HandleWorkerSelected" />
+
+    @if (_selectedWorker != null)
+    {
+        @if (_isLoadingWeeklyData)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading worker data...</p>
+            </div>
+        }
+        else
+        {
+            <!-- Settings Section -->
+            <WorkerSettingsCard WorkerId="@_selectedWorkerId"
+                                WorkerName="@_selectedWorker.WorkerName"
+                                OnSettingsSaved="@HandleSettingsSaved" />
+
+            <!-- Stats Section -->
+            <WorkerStatsCard WeeklyData="@_weeklyData"
+                             WeekNumber="@_currentWeekNumber" />
+
+            <!-- Weekly Table -->
+            <WorkerWeeklyTable WeeklyData="@_weeklyData"
+                               SelectedWeekOffset="@_selectedWeekOffset"
+                               OnWeekSelected="@HandleWeekSelected" />
+        }
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <span class="bi bi-info-circle me-2"></span>
+            Please select a worker to view details.
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int? WorkerId { get; set; }
+
+    private List<WorkerStatus> _allWorkers = new();
+    private int _selectedWorkerId = 0;
+    private WorkerStatus? _selectedWorker;
+    private WorkerWeeklyData? _weeklyData;
+    private int _selectedWeekOffset = 0; // 0 = current week
+    private int _currentWeekNumber = 0;
+    private bool _isLoadingWeeklyData = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadWorkers();
+
+        // If WorkerId parameter is provided, select that worker
+        if (WorkerId.HasValue && WorkerId.Value > 0)
+        {
+            _selectedWorkerId = WorkerId.Value;
+            await LoadWorkerData();
+        }
+
+        // Calculate current week number
+        _currentWeekNumber = GetWeekNumber(DateTime.Today);
+    }
+
+    private async Task LoadWorkers()
+    {
+        try
+        {
+            var dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
+            _allWorkers = dashboardData.ActiveWorkers
+                .Concat(dashboardData.InactiveWorkers)
+                .OrderBy(w => w.WorkerName)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load workers");
+        }
+    }
+
+    private async Task HandleWorkerSelected(int workerId)
+    {
+        _selectedWorkerId = workerId;
+        await LoadWorkerData();
+    }
+
+    private async Task LoadWorkerData()
+    {
+        _selectedWorker = _allWorkers.FirstOrDefault(w => w.WorkerId == _selectedWorkerId);
+
+        if (_selectedWorker != null)
+        {
+            // Backfill any missing week archives (runs once per worker load)
+            await WeeklyService.EnsureCompletedWeeksArchivedAsync(
+                _selectedWorker.WorkerId,
+                _selectedWorker.WorkerName);
+
+            await LoadWeeklyData(_selectedWeekOffset);
+        }
+    }
+
+    private async Task LoadWeeklyData(int weeksAgo)
+    {
+        if (_selectedWorker == null) return;
+
+        try
+        {
+            _isLoadingWeeklyData = true;
+            _selectedWeekOffset = weeksAgo;
+
+            var weekStartDate = GetWeekStartDate(weeksAgo);
+
+            _weeklyData = await WeeklyService.GetOrGenerateWeeklyDataAsync(
+                _selectedWorker.WorkerId,
+                _selectedWorker.WorkerName,
+                weekStartDate);
+
+            Logger.LogInformation(
+                "Loaded weekly data for worker {WorkerId} - Week {WeekNumber}",
+                _selectedWorker.WorkerId,
+                _weeklyData.WeekNumber);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load weekly data for worker {WorkerId}", _selectedWorkerId);
+        }
+        finally
+        {
+            _isLoadingWeeklyData = false;
+        }
+    }
+
+    private async Task HandleWeekSelected(int weeksAgo)
+    {
+        await LoadWeeklyData(weeksAgo);
+    }
+
+    private async Task HandleSettingsSaved()
+    {
+        // Settings changed - regenerate weekly data to reflect new rates/hours
+        if (_selectedWorker != null)
+        {
+            Logger.LogInformation("Settings saved, regenerating weekly data...");
+
+            try
+            {
+                _isLoadingWeeklyData = true;
+
+                var weekStartDate = GetWeekStartDate(_selectedWeekOffset);
+
+                _weeklyData = await WeeklyService.RegenerateWeeklyDataAsync(
+                    _selectedWorker.WorkerId,
+                    _selectedWorker.WorkerName,
+                    weekStartDate);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to regenerate weekly data");
+            }
+            finally
+            {
+                _isLoadingWeeklyData = false;
+            }
+        }
+    }
+
+    private DateTime GetWeekStartDate(int weeksAgo)
+    {
+        var today = DateTime.Today;
+        var daysSinceSunday = (int)today.DayOfWeek;
+        var lastSunday = today.AddDays(-daysSinceSunday);
+        return lastSunday.AddDays(-7 * weeksAgo);
+    }
+
+    private int GetWeekNumber(DateTime date)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        var calendar = culture.Calendar;
+        var calendarWeekRule = culture.DateTimeFormat.CalendarWeekRule;
+        var firstDayOfWeek = culture.DateTimeFormat.FirstDayOfWeek;
+        return calendar.GetWeekOfYear(date, calendarWeekRule, firstDayOfWeek);
+    }
+}

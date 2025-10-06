@@ -1,5 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerTable.razor *@
 @* Purpose: Table-based worker display showing normal and OT hours in compact format *@
+@* UPDATED: Fixed navigation route to /worker-details/{workerId} *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WorkerAttendance.Models
@@ -37,21 +38,13 @@
                     <tr class="@GetRowClass(worker)" style="cursor: pointer;" @onclick="() => NavigateToWorkerDetail(worker.WorkerId)">
                         <td>
                             <strong>@worker.WorkerName</strong>
-                            @if (IsActive && worker.CurrentCycle == WorkCycle.OT)
-                            {
-                                <span class="badge bg-warning text-dark ms-2">OT Active</span>
-                            }
-                            else if (IsActive)
-                            {
-                                <span class="badge bg-success ms-2">Active</span>
-                            }
                         </td>
 
-                        @* Normal Shift Columns *@
+                        <!-- Normal Shift Columns -->
                         <td class="text-center bg-primary bg-opacity-10">
-                            @if (worker.NormalSignIn != null)
+                            @if (worker.HasCompletedNormalShift || (IsActive && worker.CurrentCycle == WorkCycle.Normal))
                             {
-                                <span class="@GetTimeClass(worker.HasCompletedNormalShift)">@worker.NormalSignInFormatted</span>
+                                @worker.NormalSignInFormatted
                             }
                             else
                             {
@@ -59,15 +52,9 @@
                             }
                         </td>
                         <td class="text-center bg-primary bg-opacity-10">
-                            @if (worker.NormalSignOut != null)
+                            @if (worker.HasCompletedNormalShift)
                             {
-                                <span>@worker.NormalSignOutFormatted</span>
-                            }
-                            else if (worker.NormalSignIn != null && !IsActive)
-                            {
-                                <span class="text-danger" title="Never signed out">
-                                    <i class="bi bi-exclamation-triangle"></i> Missing
-                                </span>
+                                @worker.NormalSignOutFormatted
                             }
                             else
                             {
@@ -81,7 +68,7 @@
                             }
                             else if (IsActive && worker.CurrentCycle == WorkCycle.Normal)
                             {
-                                <span class="text-primary fw-bold">@worker.DurationFormatted</span>
+                                <span class="fw-bold">@worker.DurationFormatted</span>
                             }
                             else
                             {
@@ -89,14 +76,14 @@
                             }
                         </td>
 
-                        @* Separator *@
+                        <!-- Separator Column -->
                         <td class="border-start border-end border-3 border-secondary"></td>
 
-                        @* OT Shift Columns *@
+                        <!-- OT Shift Columns -->
                         <td class="text-center bg-warning bg-opacity-25">
-                            @if (worker.OTSignIn != null)
+                            @if (worker.HasCompletedOTShift || (IsActive && worker.CurrentCycle == WorkCycle.OT))
                             {
-                                <span class="@GetTimeClass(worker.HasCompletedOTShift, true)">@worker.OTSignInFormatted</span>
+                                @worker.OTSignInFormatted
                             }
                             else
                             {
@@ -104,15 +91,9 @@
                             }
                         </td>
                         <td class="text-center bg-warning bg-opacity-25">
-                            @if (worker.OTSignOut != null)
+                            @if (worker.HasCompletedOTShift)
                             {
-                                <span>@worker.OTSignOutFormatted</span>
-                            }
-                            else if (worker.OTSignIn != null && !IsActive)
-                            {
-                                <span class="text-danger" title="Never signed out">
-                                    <i class="bi bi-exclamation-triangle"></i> Missing
-                                </span>
+                                @worker.OTSignOutFormatted
                             }
                             else
                             {
@@ -188,17 +169,12 @@
 
     private void NavigateToWorkerDetail(int workerId)
     {
-        Navigation.NavigateTo($"/worker-activity/{workerId}");
+        // UPDATED: Changed from /worker-activity/{workerId} to /worker-details/{workerId}
+        Navigation.NavigateTo($"/worker-details/{workerId}");
     }
 
     private string GetRowClass(WorkerStatus worker)
     {
         return IsActive ? "worker-row-active" : "worker-row-inactive";
-    }
-
-    private string GetTimeClass(bool isComplete, bool isOT = false)
-    {
-        // Don't apply any special color class for OT times
-        return "";
     }
 }

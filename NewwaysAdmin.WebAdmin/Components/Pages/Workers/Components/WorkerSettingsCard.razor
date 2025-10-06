@@ -1,0 +1,163 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerSettingsCard.razor *@
+@* Purpose: Collapsible worker settings form *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@inject WorkerSettingsService SettingsService
+@inject ILogger<WorkerSettingsCard> Logger
+
+<div class="card mb-3">
+    <div class="card-header" style="cursor: pointer;" @onclick="ToggleSettings">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <span class="bi bi-gear me-2"></span>
+                Worker Settings
+            </h5>
+            <span class="bi @(_isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></span>
+        </div>
+    </div>
+    @if (_isExpanded)
+    {
+        <div class="card-body">
+            @if (_settings != null)
+            {
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Work Schedule</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Expected Hours per Day</label>
+                            <input type="number" class="form-control"
+                                   @bind="_settings.ExpectedHoursPerDay"
+                                   step="0.5" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Expected Meeting Time</label>
+                            <input type="time" class="form-control"
+                                   value="@_expectedArrivalTimeString"
+                                   @onchange="OnTimeChanged" />
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Payment Rates</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Daily Pay Rate (THB)</label>
+                            <input type="number" class="form-control"
+                                   @bind="_settings.DailyPayRate"
+                                   step="10" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Overtime Rate per Hour (THB)</label>
+                            <input type="number" class="form-control"
+                                   @bind="_settings.OvertimeHourlyRate"
+                                   step="5" />
+                        </div>
+                    </div>
+                </div>
+
+                @if (_saveMessage != null)
+                {
+                    <div class="alert alert-@(_saveSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+                        @_saveMessage
+                        <button type="button" class="btn-close" @onclick="ClearMessage"></button>
+                    </div>
+                }
+
+                <div class="text-end">
+                    <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
+                        <span class="bi bi-save me-2"></span>
+                        @(_isSaving ? "Saving..." : "Save Settings")
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int WorkerId { get; set; }
+
+    [Parameter]
+    public string WorkerName { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnSettingsSaved { get; set; }
+
+    private bool _isExpanded = false;
+    private WorkerSettings? _settings;
+    private string _expectedArrivalTimeString = "08:00";
+    private bool _isSaving = false;
+    private string? _saveMessage;
+    private bool _saveSuccess;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (WorkerId > 0 && _settings == null)
+        {
+            await LoadSettings();
+        }
+    }
+
+    private async Task LoadSettings()
+    {
+        try
+        {
+            _settings = await SettingsService.GetSettingsAsync(WorkerId, WorkerName);
+            _expectedArrivalTimeString = _settings.ExpectedArrivalTime.ToString(@"hh\:mm");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load settings for worker {WorkerId}", WorkerId);
+        }
+    }
+
+    private void OnTimeChanged(ChangeEventArgs e)
+    {
+        _expectedArrivalTimeString = e.Value?.ToString() ?? "08:00";
+    }
+
+    private void ToggleSettings()
+    {
+        _isExpanded = !_isExpanded;
+    }
+
+    private async Task SaveSettings()
+    {
+        if (_settings == null) return;
+
+        try
+        {
+            _isSaving = true;
+            _saveMessage = null;
+
+            // Parse time string back to TimeSpan
+            if (TimeSpan.TryParse(_expectedArrivalTimeString, out var timeSpan))
+            {
+                _settings.ExpectedArrivalTime = timeSpan;
+            }
+
+            await SettingsService.SaveSettingsAsync(_settings);
+
+            _saveMessage = "Settings saved successfully!";
+            _saveSuccess = true;
+
+            // Notify parent that settings changed
+            await OnSettingsSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save settings for worker {WorkerId}", WorkerId);
+            _saveMessage = "Failed to save settings. Please try again.";
+            _saveSuccess = false;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void ClearMessage()
+    {
+        _saveMessage = null;
+    }
+}
