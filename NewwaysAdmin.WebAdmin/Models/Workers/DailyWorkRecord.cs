@@ -52,6 +52,32 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         public bool HasData { get; set; }
 
         /// <summary>
+        /// Normal shift sign-in time
+        /// </summary>
+        public DateTime? NormalSignIn { get; set; }
+
+        /// <summary>
+        /// Normal shift sign-out time
+        /// </summary>
+        public DateTime? NormalSignOut { get; set; }
+
+        /// <summary>
+        /// Overtime shift sign-in time
+        /// </summary>
+        public DateTime? OTSignIn { get; set; }
+
+        /// <summary>
+        /// Overtime shift sign-out time
+        /// </summary>
+        public DateTime? OTSignOut { get; set; }
+
+        // NEW: Formatted timestamp helpers (24-hour format as you requested)
+        public string NormalSignInFormatted => NormalSignIn?.ToString("HH:mm") ?? "--:--";
+        public string NormalSignOutFormatted => NormalSignOut?.ToString("HH:mm") ?? "--:--";
+        public string OTSignInFormatted => OTSignIn?.ToString("HH:mm") ?? "--:--";
+        public string OTSignOutFormatted => OTSignOut?.ToString("HH:mm") ?? "--:--";
+
+        /// <summary>
         /// Formatted variance string for display (e.g., "+15 min", "-7 min")
         /// </summary>
         public string VarianceDisplay

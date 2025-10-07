@@ -170,7 +170,12 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
                 return new DailyWorkRecord
                 {
                     Date = date,
-                    HasData = false
+                    HasData = false,
+                    // NEW: Set timestamp properties to null for empty days
+                    NormalSignIn = null,
+                    NormalSignOut = null,
+                    OTSignIn = null,
+                    OTSignOut = null
                 };
             }
 
@@ -185,6 +190,22 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             var hasNormalWorkActivity = HasNormalWorkActivity(cycle);
             var dailyPay = CalculateDailyPay(workHours, otHours, settings, hasNormalWorkActivity);
 
+            // NEW: Extract timestamps from cycle records
+            DateTime? normalSignInTime = null;
+            DateTime? normalSignOutTime = null;
+            DateTime? otSignInTime = null;
+            DateTime? otSignOutTime = null;
+
+            // Get Normal shift timestamps
+            var normalRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.Normal).ToList();
+            normalSignInTime = normalRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckIn)?.Timestamp;
+            normalSignOutTime = normalRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckOut)?.Timestamp;
+
+            // Get OT shift timestamps
+            var otRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.OT).ToList();
+            otSignInTime = otRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckIn)?.Timestamp;
+            otSignOutTime = otRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckOut)?.Timestamp;
+
             return new DailyWorkRecord
             {
                 Date = date,
@@ -194,10 +215,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
                 OnTime = onTime,
                 LateMinutes = lateMinutes,
                 DailyPay = dailyPay,
-                HasData = true
+                HasData = true,
+                // NEW: Include the extracted timestamps
+                NormalSignIn = normalSignInTime,
+                NormalSignOut = normalSignOutTime,
+                OTSignIn = otSignInTime,
+                OTSignOut = otSignOutTime
             };
         }
-
         /// <summary>
         /// Calculate weekly statistics from daily records
         /// </summary>

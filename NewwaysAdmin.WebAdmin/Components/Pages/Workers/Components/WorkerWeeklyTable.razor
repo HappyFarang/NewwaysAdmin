@@ -1,7 +1,12 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
 @* Purpose: Weekly breakdown table showing daily work hours and payment *@
 
+
 @using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@using NewwaysAdmin.WebAdmin.Services.Auth
+ @inject WorkerColumnPreferencesService PreferencesService
+@inject IAuthenticationService AuthService
 
 <div class="card">
     <div class="card-header bg-primary text-white">
@@ -27,6 +32,9 @@
             </div>
         </div>
     </div>
+    <!-- Column Toggle Buttons -->
+    <ColumnToggleButtons ColumnVisibility="@_columnVisibility"
+                         OnColumnVisibilityChanged="@HandleColumnVisibilityChanged" />
     <div class="card-body p-0">
         @if (WeeklyData != null)
         {
@@ -36,11 +44,42 @@
                         <tr>
                             <th>Day</th>
                             <th>Date</th>
-                            <th class="text-center">Work Hours</th>
-                            <th class="text-center">OT Hours</th>
-                            <th class="text-center">Variance</th>
-                            <th class="text-center">On Time</th>
-                            <th class="text-end">Daily Pay</th>
+                            @if (_columnVisibility.NormalSignIn)
+                            {
+                                <th class="text-center bg-primary bg-opacity-10">Normal In</th>
+                            }
+                            @if (_columnVisibility.NormalSignOut)
+                            {
+                                <th class="text-center bg-primary bg-opacity-10">Normal Out</th>
+                            }
+                            @if (_columnVisibility.OTSignIn)
+                            {
+                                <th class="text-center bg-warning bg-opacity-25">OT In</th>
+                            }
+                            @if (_columnVisibility.OTSignOut)
+                            {
+                                <th class="text-center bg-warning bg-opacity-25">OT Out</th>
+                            }
+                            @if (_columnVisibility.WorkHours)
+                            {
+                                <th class="text-center">Work Hours</th>
+                            }
+                            @if (_columnVisibility.OTHours)
+                            {
+                                <th class="text-center">OT Hours</th>
+                            }
+                            @if (_columnVisibility.Variance)
+                            {
+                                <th class="text-center">Variance</th>
+                            }
+                            @if (_columnVisibility.OnTime)
+                            {
+                                <th class="text-center">On Time</th>
+                            }
+                            @if (_columnVisibility.DailyPay)
+                            {
+                                <th class="text-end">Daily Pay</th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -52,42 +91,99 @@
                             <tr class="@rowClass">
                                 <td><strong>@day.Date.DayOfWeek</strong></td>
                                 <td>@day.Date.ToString("MMM dd")</td>
-                                @if (day.HasData)
+
+                                @if (_columnVisibility.NormalSignIn)
                                 {
-                                    <td class="text-center">@day.WorkHours.ToString("F1")</td>
-                                    <td class="text-center">@day.OTHours.ToString("F1")</td>
-                                    <td class="text-center @GetVarianceClass(day.VarianceMinutes)">
-                                        @day.VarianceDisplay
-                                    </td>
+                                    <td class="text-center bg-primary bg-opacity-10">@day.NormalSignInFormatted</td>
+                                }
+                                @if (_columnVisibility.NormalSignOut)
+                                {
+                                    <td class="text-center bg-primary bg-opacity-10">@day.NormalSignOutFormatted</td>
+                                }
+                                @if (_columnVisibility.OTSignIn)
+                                {
+                                    <td class="text-center bg-warning bg-opacity-25">@day.OTSignInFormatted</td>
+                                }
+                                @if (_columnVisibility.OTSignOut)
+                                {
+                                    <td class="text-center bg-warning bg-opacity-25">@day.OTSignOutFormatted</td>
+                                }
+                                @if (_columnVisibility.WorkHours)
+                                {
+                                    <td class="text-center">@(day.HasData ? day.WorkHours.ToString("F1") : "--")</td>
+                                }
+                                @if (_columnVisibility.OTHours)
+                                {
+                                    <td class="text-center">@(day.HasData ? day.OTHours.ToString("F1") : "--")</td>
+                                }
+                                @if (_columnVisibility.Variance)
+                                {
+                                    <td class="text-center @GetVarianceClass(day.VarianceMinutes)">@(day.HasData ? day.VarianceDisplay : "--")</td>
+                                }
+                                @if (_columnVisibility.OnTime)
+                                {
                                     <td class="text-center">
-                                        @if (day.OnTime)
+                                        @if (day.HasData)
                                         {
-                                            <span class="badge bg-success">Yes</span>
+                                            @if (day.OnTime)
+                                            {
+                                                <span class="badge bg-success">Yes</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-warning text-dark">Late @day.LateMinutes min</span>
+                                            }
                                         }
                                         else
                                         {
-                                            <span class="badge bg-warning text-dark">Late @day.LateMinutes min</span>
+                                            <text>--</text>
                                         }
                                     </td>
-                                    <td class="text-end">@day.DailyPay.ToString("F2") ฿</td>
                                 }
-                                else
+                                @if (_columnVisibility.DailyPay)
                                 {
-                                    <td class="text-center">--</td>
-                                    <td class="text-center">--</td>
-                                    <td class="text-center">--</td>
-                                    <td class="text-center">--</td>
-                                    <td class="text-end">--</td>
+                                    <td class="text-end">@(day.HasData ? day.DailyPay.ToString("F2") + " ฿" : "--")</td>
                                 }
                             </tr>
                         }
                         <tr class="table-info fw-bold">
                             <td colspan="2">WEEK TOTAL</td>
-                            <td class="text-center">@WeeklyData.TotalWorkHours.ToString("F1")</td>
-                            <td class="text-center">@WeeklyData.TotalOTHours.ToString("F1")</td>
-                            <td class="text-center">--</td>
-                            <td class="text-center">--</td>
-                            <td class="text-end">@WeeklyData.TotalPay.ToString("F2") ฿</td>
+                            @if (_columnVisibility.NormalSignIn)
+                            {
+                                <td class="text-center">--</td>
+                            }
+                            @if (_columnVisibility.NormalSignOut)
+                            {
+                                <td class="text-center">--</td>
+                            }
+                            @if (_columnVisibility.OTSignIn)
+                            {
+                                <td class="text-center">--</td>
+                            }
+                            @if (_columnVisibility.OTSignOut)
+                            {
+                                <td class="text-center">--</td>
+                            }
+                            @if (_columnVisibility.WorkHours)
+                            {
+                                <td class="text-center">@WeeklyData.TotalWorkHours.ToString("F1")</td>
+                            }
+                            @if (_columnVisibility.OTHours)
+                            {
+                                <td class="text-center">@WeeklyData.TotalOTHours.ToString("F1")</td>
+                            }
+                            @if (_columnVisibility.Variance)
+                            {
+                                <td class="text-center">--</td>
+                            }
+                            @if (_columnVisibility.OnTime)
+                            {
+                                <td class="text-center">--</td>
+                            }
+                            @if (_columnVisibility.DailyPay)
+                            {
+                                <td class="text-end">@WeeklyData.TotalPay.ToString("F2") ฿</td>
+                            }
                         </tr>
                     </tbody>
                 </table>
@@ -115,6 +211,51 @@
     [Parameter]
     public EventCallback<int> OnWeekSelected { get; set; }
 
+    private WeeklyTableColumnVisibility _columnVisibility = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserColumnPreferences();
+    }
+
+    private async Task LoadUserColumnPreferences()
+    {
+        try
+        {
+            var currentSession = await AuthService.GetCurrentSessionAsync();
+            if (currentSession != null)
+            {
+                _columnVisibility = await PreferencesService.GetUserColumnPreferencesAsync(currentSession.Username);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error but continue with defaults
+            Console.WriteLine($"Error loading column preferences: {ex.Message}");
+        }
+    }
+
+    private async Task HandleColumnVisibilityChanged(WeeklyTableColumnVisibility newVisibility)
+    {
+        _columnVisibility = newVisibility;
+
+        try
+        {
+            var currentSession = await AuthService.GetCurrentSessionAsync();
+            if (currentSession != null)
+            {
+                await PreferencesService.SaveUserColumnPreferencesAsync(currentSession.Username, _columnVisibility);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Log error but continue
+            Console.WriteLine($"Error saving column preferences: {ex.Message}");
+        }
+
+        StateHasChanged();
+    }
+    
     private DateTime GetWeekStartDate(int weeksAgo)
     {
         var today = DateTime.Today;

@@ -1,0 +1,88 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/ColumnToggleButtons.razor *@
+@* Purpose: Toggle buttons for showing/hiding weekly table columns *@
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="card-header bg-light border-bottom">
+    <div class="d-flex align-items-center">
+        <h6 class="mb-0 text-muted me-auto">
+            <span class="bi bi-toggles me-2"></span>
+            Show/Hide Columns
+        </h6>
+        <div class="position-absolute start-50 translate-middle-x">
+            <div class="btn-toolbar" role="toolbar">
+                <div class="btn-group btn-group-sm me-2" role="group" aria-label="Time columns">
+                    <button type="button"
+                            class="btn @(ColumnVisibility.NormalSignIn ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.NormalSignIn))">
+                        Normal In
+                    </button>
+                    <button type="button"
+                            class="btn @(ColumnVisibility.NormalSignOut ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.NormalSignOut))">
+                        Normal Out
+                    </button>
+                    <button type="button"
+                            class="btn @(ColumnVisibility.OTSignIn ? "btn-warning" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.OTSignIn))">
+                        OT In
+                    </button>
+                    <button type="button"
+                            class="btn @(ColumnVisibility.OTSignOut ? "btn-warning" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.OTSignOut))">
+                        OT Out
+                    </button>
+                </div>
+
+                <div class="btn-group btn-group-sm me-2" role="group" aria-label="Hour columns">
+                    <button type="button"
+                            class="btn @(ColumnVisibility.WorkHours ? "btn-info" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.WorkHours))">
+                        Work Hours
+                    </button>
+                    <button type="button"
+                            class="btn @(ColumnVisibility.OTHours ? "btn-info" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.OTHours))">
+                        OT Hours
+                    </button>
+                </div>
+
+                <div class="btn-group btn-group-sm" role="group" aria-label="Status columns">
+                    <button type="button"
+                            class="btn @(ColumnVisibility.Variance ? "btn-success" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.Variance))">
+                        Variance
+                    </button>
+                    <button type="button"
+                            class="btn @(ColumnVisibility.OnTime ? "btn-success" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.OnTime))">
+                        On Time
+                    </button>
+                    <button type="button"
+                            class="btn @(ColumnVisibility.DailyPay ? "btn-dark" : "btn-outline-secondary")"
+                            @onclick="() => ToggleColumn(nameof(ColumnVisibility.DailyPay))">
+                        Daily Pay
+                    </button>
+                </div>
+            </div> <!-- Close btn-toolbar -->
+        </div> <!-- Close position-absolute -->
+    </div> <!-- Close d-flex -->
+</div> <!-- Close card-header -->
+@code {
+    [Parameter]
+    public WeeklyTableColumnVisibility ColumnVisibility { get; set; } = new();
+
+    [Parameter]
+    public EventCallback<WeeklyTableColumnVisibility> OnColumnVisibilityChanged { get; set; }
+
+    private async Task ToggleColumn(string columnName)
+    {
+        var property = typeof(WeeklyTableColumnVisibility).GetProperty(columnName);
+        if (property != null && property.PropertyType == typeof(bool))
+        {
+            var currentValue = (bool)property.GetValue(ColumnVisibility)!;
+            property.SetValue(ColumnVisibility, !currentValue);
+
+            await OnColumnVisibilityChanged.InvokeAsync(ColumnVisibility);
+        }
+    }
+}

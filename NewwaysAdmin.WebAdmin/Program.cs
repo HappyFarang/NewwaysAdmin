@@ -337,8 +337,13 @@ services.AddScoped<PatternManagementService>(sp =>
         // Register email storage service (only once!)
         services.AddScoped<SimpleEmailStorageService>();
 
+        // Worker Column Preferences Service
+        services.AddScoped<WorkerColumnPreferencesService>();
+
         // Register bank slip export service with all dependencies
         services.AddScoped<BankSlipExportService>(sp =>
+
+
         {
             var googleSheetsService = sp.GetRequiredService<GoogleSheetsService>();
             var userConfigService = sp.GetRequiredService<UserSheetConfigService>();
