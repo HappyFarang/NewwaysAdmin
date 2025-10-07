@@ -1,5 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerSettingsCard.razor *@
 @* Purpose: Collapsible worker settings form *@
+@* FIXED: Create new settings object on save to prevent WorkerId loss *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WebAdmin.Services.Workers
@@ -19,7 +20,16 @@
     @if (_isExpanded)
     {
         <div class="card-body">
-            @if (_settings != null)
+            @if (_isLoading)
+            {
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2">Loading settings...</span>
+                </div>
+            }
+            else if (_settings != null)
             {
                 <div class="row">
                     <div class="col-md-6">
@@ -27,14 +37,19 @@
                         <div class="mb-3">
                             <label class="form-label">Expected Hours per Day</label>
                             <input type="number" class="form-control"
-                                   @bind="_settings.ExpectedHoursPerDay"
-                                   step="0.5" />
+                                   value="@_expectedHoursPerDay"
+                                   @onchange="@(e => _expectedHoursPerDay = decimal.Parse(e.Value?.ToString() ?? "8.0"))"
+                                   step="0.5"
+                                   min="1"
+                                   max="24" />
+                            <div class="form-text">Standard work hours expected per day</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Expected Meeting Time</label>
                             <input type="time" class="form-control"
                                    value="@_expectedArrivalTimeString"
                                    @onchange="OnTimeChanged" />
+                            <div class="form-text">When worker should arrive (24-hour format)</div>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -42,14 +57,20 @@
                         <div class="mb-3">
                             <label class="form-label">Daily Pay Rate (THB)</label>
                             <input type="number" class="form-control"
-                                   @bind="_settings.DailyPayRate"
-                                   step="10" />
+                                   value="@_dailyPayRate"
+                                   @onchange="@(e => _dailyPayRate = decimal.Parse(e.Value?.ToString() ?? "350"))"
+                                   step="10"
+                                   min="0" />
+                            <div class="form-text">Full day base pay (regardless of variance)</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Overtime Rate per Hour (THB)</label>
                             <input type="number" class="form-control"
-                                   @bind="_settings.OvertimeHourlyRate"
-                                   step="5" />
+                                   value="@_overtimeHourlyRate"
+                                   @onchange="@(e => _overtimeHourlyRate = decimal.Parse(e.Value?.ToString() ?? "50"))"
+                                   step="5"
+                                   min="0" />
+                            <div class="form-text">Hourly rate for overtime work (rounded)</div>
                         </div>
                     </div>
                 </div>
@@ -57,16 +78,37 @@
                 @if (_saveMessage != null)
                 {
                     <div class="alert alert-@(_saveSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+                        @if (_saveSuccess)
+                        {
+                            <span class="bi bi-check-circle me-2"></span>
+                        }
+                        else
+                        {
+                            <span class="bi bi-exclamation-triangle me-2"></span>
+                        }
                         @_saveMessage
                         <button type="button" class="btn-close" @onclick="ClearMessage"></button>
                     </div>
                 }
 
-                <div class="text-end">
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        @if (_lastSaveTime != null)
+                        {
+                            <span>Last updated: @_lastSaveTime.Value.ToString("yyyy-MM-dd HH:mm")</span>
+                        }
+                    </small>
                     <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
                         <span class="bi bi-save me-2"></span>
                         @(_isSaving ? "Saving..." : "Save Settings")
                     </button>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-warning">
+                    <span class="bi bi-exclamation-triangle me-2"></span>
+                    Failed to load settings. Please try refreshing the page.
                 </div>
             }
         </div>
@@ -84,17 +126,28 @@
     public EventCallback OnSettingsSaved { get; set; }
 
     private bool _isExpanded = false;
+    private bool _isLoading = false;
     private WorkerSettings? _settings;
+
+    // Local state to prevent modifications
     private string _expectedArrivalTimeString = "08:00";
+    private decimal _expectedHoursPerDay = 8.0m;
+    private decimal _dailyPayRate = 350m;
+    private decimal _overtimeHourlyRate = 50m;
+
     private bool _isSaving = false;
     private string? _saveMessage;
     private bool _saveSuccess;
+    private int _lastLoadedWorkerId = 0;
+    private DateTime? _lastSaveTime;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (WorkerId > 0 && _settings == null)
+        // Reload settings when WorkerId changes
+        if (WorkerId > 0 && WorkerId != _lastLoadedWorkerId)
         {
             await LoadSettings();
+            _lastLoadedWorkerId = WorkerId;
         }
     }
 
@@ -102,12 +155,28 @@
     {
         try
         {
+            _isLoading = true;
+            _saveMessage = null;
+
             _settings = await SettingsService.GetSettingsAsync(WorkerId, WorkerName);
-            _expectedArrivalTimeString = _settings.ExpectedArrivalTime.ToString(@"hh\:mm");
+
+            // Load into local state
+            _expectedArrivalTimeString = $"{_settings.ExpectedArrivalTime.Hours:D2}:{_settings.ExpectedArrivalTime.Minutes:D2}";
+            _expectedHoursPerDay = _settings.ExpectedHoursPerDay;
+            _dailyPayRate = _settings.DailyPayRate;
+            _overtimeHourlyRate = _settings.OvertimeHourlyRate;
+            _lastSaveTime = _settings.UpdatedAt != DateTime.MinValue ? _settings.UpdatedAt : null;
+
+            Logger.LogInformation("Loaded settings for worker {WorkerId}: {WorkerName}", WorkerId, WorkerName);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load settings for worker {WorkerId}", WorkerId);
+            _settings = null;
+        }
+        finally
+        {
+            _isLoading = false;
         }
     }
 
@@ -130,30 +199,84 @@
             _isSaving = true;
             _saveMessage = null;
 
-            // Parse time string back to TimeSpan
-            if (TimeSpan.TryParse(_expectedArrivalTimeString, out var timeSpan))
+            // Parse time string to TimeSpan
+            if (!TimeSpan.TryParse(_expectedArrivalTimeString, out var timeSpan))
             {
-                _settings.ExpectedArrivalTime = timeSpan;
+                _saveMessage = "Invalid time format. Please use HH:mm format.";
+                _saveSuccess = false;
+                return;
             }
 
-            await SettingsService.SaveSettingsAsync(_settings);
+            // CRITICAL FIX: Create a completely NEW settings object to avoid any reference issues
+            var settingsToSave = new WorkerSettings
+                {
+                    WorkerId = this.WorkerId,  // Use the parameter directly
+                    WorkerName = this.WorkerName,  // Use the parameter directly
+                    ExpectedHoursPerDay = _expectedHoursPerDay,
+                    ExpectedArrivalTime = timeSpan,
+                    DailyPayRate = _dailyPayRate,
+                    OvertimeHourlyRate = _overtimeHourlyRate,
+                    CreatedAt = _settings.CreatedAt == DateTime.MinValue ? DateTime.Now : _settings.CreatedAt,
+                    UpdatedAt = DateTime.Now
+                };
+
+            // Double-check WorkerId is not 0
+            if (settingsToSave.WorkerId == 0)
+            {
+                Logger.LogError("WorkerId is 0 before save! this.WorkerId={WorkerId}", this.WorkerId);
+                _saveMessage = "Error: Invalid Worker ID. Please refresh the page.";
+                _saveSuccess = false;
+                return;
+            }
+
+            await SettingsService.SaveSettingsAsync(settingsToSave);
+
+            // Update local settings reference
+            _settings = settingsToSave;
+            _lastSaveTime = settingsToSave.UpdatedAt;
 
             _saveMessage = "Settings saved successfully!";
             _saveSuccess = true;
 
-            // Notify parent that settings changed
-            await OnSettingsSaved.InvokeAsync();
+            Logger.LogInformation(
+                "Saved settings for worker {WorkerId}: DailyRate={DailyRate}, ExpectedHours={Hours}, ArrivalTime={Time}",
+                settingsToSave.WorkerId, settingsToSave.DailyPayRate, settingsToSave.ExpectedHoursPerDay, _expectedArrivalTimeString);
+
+            // Notify parent AFTER state is updated (don't await to prevent component reset)
+            _ = NotifyParentAfterDelay();
+
+            // Auto-hide success message after 3 seconds
+            _ = HideMessageAfterDelay();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to save settings for worker {WorkerId}", WorkerId);
-            _saveMessage = "Failed to save settings. Please try again.";
+            _saveMessage = $"Failed to save settings: {ex.Message}";
             _saveSuccess = false;
         }
         finally
         {
             _isSaving = false;
         }
+    }
+
+    private async Task NotifyParentAfterDelay()
+    {
+        await Task.Delay(200); // Small delay to ensure UI updates first
+        await OnSettingsSaved.InvokeAsync();
+    }
+
+    private async Task HideMessageAfterDelay()
+    {
+        await Task.Delay(3000);
+        await InvokeAsync(() =>
+        {
+            if (_saveSuccess)
+            {
+                _saveMessage = null;
+                StateHasChanged();
+            }
+        });
     }
 
     private void ClearMessage()

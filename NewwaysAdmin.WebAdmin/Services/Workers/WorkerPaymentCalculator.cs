@@ -1,5 +1,7 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Services/Workers/WorkerPaymentCalculator.cs
 // Purpose: Pure calculation logic for worker payments and variance tracking
+// FIXED: 1) Handles active workers who haven't signed out yet
+//        2) Pays FULL daily rate for any Normal work activity (per day, not per hour)
 
 using NewwaysAdmin.WebAdmin.Models.Workers;
 using NewwaysAdmin.WorkerAttendance.Models;
@@ -16,18 +18,21 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
         }
 
         /// <summary>
-        /// Calculate daily payment based on work hours and settings
-        /// We pay full daily rate regardless of minutes variance
+        /// Calculate daily payment based on work activity and settings
+        /// PAYMENT MODEL: Full daily rate for any Normal work activity (per day, not per hour)
+        /// OT is still calculated per hour and rounded
         /// </summary>
         public decimal CalculateDailyPay(
             decimal workHours,
             decimal otHours,
-            WorkerSettings settings)
+            WorkerSettings settings,
+            bool hasNormalWorkActivity)
         {
-            // Base daily pay (full amount regardless of small variance)
-            var basePay = settings.DailyPayRate;
+            // Base daily pay: FULL amount if worker had any Normal work activity
+            // Later we'll add adjustments for half-days, but for now it's binary
+            var basePay = hasNormalWorkActivity ? settings.DailyPayRate : 0m;
 
-            // OT pay (rounded to nearest hour, paid per hour)
+            // OT pay: rounded to nearest hour, paid per hour
             var otPay = Math.Round(otHours, 0) * settings.OvertimeHourlyRate;
 
             return basePay + otPay;
@@ -75,7 +80,18 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
         }
 
         /// <summary>
+        /// Check if there is any Normal work activity (used for daily pay calculation)
+        /// </summary>
+        public bool HasNormalWorkActivity(DailyWorkCycle cycle)
+        {
+            var normalRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.Normal).ToList();
+            // Any Normal check-in means they worked (even if they're still working)
+            return normalRecords.Any(r => r.Type == AttendanceType.CheckIn);
+        }
+
+        /// <summary>
         /// Calculate work hours from a DailyWorkCycle
+        /// FIXED: Now handles active workers who are currently checked in
         /// </summary>
         public decimal CalculateWorkHours(DailyWorkCycle cycle)
         {
@@ -86,14 +102,24 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             var normalCheckIn = normalRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckIn);
             var normalCheckOut = normalRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckOut);
 
-            if (normalCheckIn == null || normalCheckOut == null) return 0;
+            if (normalCheckIn == null) return 0;
 
-            var duration = normalCheckOut.Timestamp - normalCheckIn.Timestamp;
-            return (decimal)duration.TotalHours;
+            // FIXED: If checked in but not checked out yet, calculate hours up to now
+            if (normalCheckOut == null)
+            {
+                // Worker is currently working - calculate from check-in to now
+                var duration = DateTime.Now - normalCheckIn.Timestamp;
+                return (decimal)duration.TotalHours;
+            }
+
+            // Normal case: both check-in and check-out exist
+            var completedDuration = normalCheckOut.Timestamp - normalCheckIn.Timestamp;
+            return (decimal)completedDuration.TotalHours;
         }
 
         /// <summary>
         /// Calculate OT hours from a DailyWorkCycle
+        /// FIXED: Now handles active OT workers who are currently checked in
         /// </summary>
         public decimal CalculateOTHours(DailyWorkCycle cycle)
         {
@@ -106,10 +132,19 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             var otCheckIn = otRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckIn);
             var otCheckOut = otRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckOut);
 
-            if (otCheckIn == null || otCheckOut == null) return 0;
+            if (otCheckIn == null) return 0;
 
-            var duration = otCheckOut.Timestamp - otCheckIn.Timestamp;
-            return (decimal)duration.TotalHours;
+            // FIXED: If checked in but not checked out yet, calculate hours up to now
+            if (otCheckOut == null)
+            {
+                // Worker is currently working OT - calculate from check-in to now
+                var duration = DateTime.Now - otCheckIn.Timestamp;
+                return (decimal)duration.TotalHours;
+            }
+
+            // Normal case: both check-in and check-out exist
+            var completedDuration = otCheckOut.Timestamp - otCheckIn.Timestamp;
+            return (decimal)completedDuration.TotalHours;
         }
 
         /// <summary>
@@ -145,7 +180,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             var normalSignIn = GetNormalSignIn(cycle);
             var onTime = IsOnTime(normalSignIn, settings.ExpectedArrivalTime);
             var lateMinutes = CalculateLateMinutes(normalSignIn, settings.ExpectedArrivalTime);
-            var dailyPay = CalculateDailyPay(workHours, otHours, settings);
+
+            // FIXED: Pass hasNormalWorkActivity flag for proper daily pay calculation
+            var hasNormalWorkActivity = HasNormalWorkActivity(cycle);
+            var dailyPay = CalculateDailyPay(workHours, otHours, settings, hasNormalWorkActivity);
 
             return new DailyWorkRecord
             {
