@@ -104,6 +104,161 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
                 return $"{sign}{VarianceMinutes} min";
             }
         }
+        /// <summary>
+        /// Display sign-in time - shows adjusted time if adjustment exists, otherwise original time
+        /// </summary>
+        public string DisplaySignInFormatted
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment?.AdjustedSignIn.HasValue == true)
+                {
+                    return AppliedAdjustment.AdjustedSignIn.Value.ToString("HH:mm");
+                }
+                return NormalSignIn?.ToString("HH:mm") ?? "--:--";
+            }
+        }
+
+        /// <summary>
+        /// Display sign-out time - shows adjusted time if adjustment exists, otherwise original time
+        /// </summary>
+        public string DisplaySignOutFormatted
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment?.AdjustedSignOut.HasValue == true)
+                {
+                    return AppliedAdjustment.AdjustedSignOut.Value.ToString("HH:mm");
+                }
+                return NormalSignOut?.ToString("HH:mm") ?? "--:--";
+            }
+        }
+
+        /// <summary>
+        /// Display sign-in time (actual DateTime) - returns adjusted time if available, otherwise original
+        /// </summary>
+        public DateTime? DisplaySignIn
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment?.AdjustedSignIn.HasValue == true)
+                {
+                    return AppliedAdjustment.AdjustedSignIn.Value;
+                }
+                return NormalSignIn;
+            }
+        }
+
+        /// <summary>
+        /// Display sign-out time (actual DateTime) - returns adjusted time if available, otherwise original
+        /// </summary>
+        public DateTime? DisplaySignOut
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment?.AdjustedSignOut.HasValue == true)
+                {
+                    return AppliedAdjustment.AdjustedSignOut.Value;
+                }
+                return NormalSignOut;
+            }
+        }
+        /// <summary>
+        /// Display work hours - shows adjusted hours if adjustment exists, otherwise original hours
+        /// </summary>
+        public decimal DisplayWorkHours
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment != null)
+                {
+                    return AppliedAdjustment.AdjustedWorkHours;
+                }
+                return WorkHours;
+            }
+        }
+
+        /// <summary>
+        /// Display OT hours - shows adjusted OT hours if adjustment exists, otherwise original OT hours
+        /// </summary>
+        public decimal DisplayOTHours
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment != null)
+                {
+                    return AppliedAdjustment.AdjustedOTHours;
+                }
+                return OTHours;
+            }
+        }
+
+        /// <summary>
+        /// Display variance minutes - shows adjusted variance if adjustment exists, otherwise original variance
+        /// </summary>
+        public int DisplayVarianceMinutes
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment != null)
+                {
+                    return AppliedAdjustment.AdjustedVarianceMinutes;
+                }
+                return VarianceMinutes;
+            }
+        }
+
+        /// <summary>
+        /// Display variance string - shows adjusted variance formatted if adjustment exists, otherwise original variance
+        /// </summary>
+        public string DisplayVarianceFormatted
+        {
+            get
+            {
+                if (!HasData) return "--";
+
+                var varianceToShow = DisplayVarianceMinutes;
+                if (varianceToShow == 0) return "0 min";
+
+                var sign = varianceToShow > 0 ? "+" : "";
+                return $"{sign}{varianceToShow} min";
+            }
+        }
+
+        /// <summary>
+        /// Display on-time status - shows adjusted on-time status if adjustment exists, otherwise original status
+        /// </summary>
+        public bool DisplayOnTime
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment != null)
+                {
+                    return AppliedAdjustment.AdjustedOnTime;
+                }
+                return OnTime;
+            }
+        }
+
+        /// <summary>
+        /// Display late minutes - shows adjusted late minutes if adjustment exists, otherwise original late minutes
+        /// </summary>
+        public int DisplayLateMinutes
+        {
+            get
+            {
+                if (HasAdjustments && AppliedAdjustment != null)
+                {
+                    return AppliedAdjustment.AdjustedLateMinutes;
+                }
+                return LateMinutes;
+            }
+        }
+
+        /// <summary>
+        /// Display formatted on-time status for display
+        /// </summary>
+        public string DisplayOnTimeFormatted => HasData ? (DisplayOnTime ? "Yes" : $"Late {DisplayLateMinutes} min") : "--";
 
         /// <summary>
         /// Formatted on-time status for display

@@ -362,7 +362,7 @@
                 ? "Worker on time - collecting coffee"
                 : _customDescription;
 
-            return await AdjustmentService.ApplyWorkerOnTimeAdjustmentAsync(_currentDay, description);
+            return await AdjustmentService.ApplyWorkerOnTimeAdjustmentAsync(_currentDay, _settings, description);
         });
     }
 

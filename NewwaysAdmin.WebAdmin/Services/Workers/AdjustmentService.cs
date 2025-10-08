@@ -27,14 +27,46 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
         /// PRESERVES TIMING DELTA: Maintains the relationship between actual and expected times
         /// </summary>
         public async Task<DailyWorkRecord> ApplyWorkerOnTimeAdjustmentAsync(
-            DailyWorkRecord originalRecord,
-            string description = "Worker on time - collecting coffee")
+    DailyWorkRecord originalRecord,
+    WorkerSettings settings,
+    string description = "Worker on time - collecting coffee")
         {
             if (!originalRecord.HasData)
                 throw new ArgumentException("Cannot adjust a day with no data");
 
             var currentUser = await _authService.GetCurrentSessionAsync();
             var username = currentUser?.Username ?? "System";
+
+            // Calculate the adjusted sign-in time (when they should have arrived to be "on time")
+            DateTime? adjustedSignInTime = null;
+            decimal adjustedWorkHours = originalRecord.WorkHours;
+            int adjustedVarianceMinutes = originalRecord.VarianceMinutes;
+            decimal adjustedDailyPay = originalRecord.DailyPay;
+
+            if (originalRecord.NormalSignIn.HasValue && originalRecord.LateMinutes > 0)
+            {
+                // Calculate when they should have signed in to be on time
+                var expectedSignInTime = originalRecord.Date.Add(settings.ExpectedArrivalTime);
+                adjustedSignInTime = expectedSignInTime;
+
+                // If there's a sign-out time, recalculate work hours based on adjusted sign-in
+                if (originalRecord.NormalSignOut.HasValue)
+                {
+                    var adjustedDuration = originalRecord.NormalSignOut.Value - expectedSignInTime;
+                    adjustedWorkHours = (decimal)adjustedDuration.TotalHours;
+
+                    // Recalculate variance based on new work hours
+                    adjustedVarianceMinutes = _calculator.CalculateVarianceMinutes(adjustedWorkHours, settings.ExpectedHoursPerDay);
+
+                    // Recalculate pay with adjusted work hours
+                    var hasNormalActivity = true; // Since we have sign-in time
+                    adjustedDailyPay = _calculator.CalculateDailyPay(
+                        adjustedWorkHours,
+                        originalRecord.OTHours,
+                        settings,
+                        hasNormalActivity);
+                }
+            }
 
             // Create adjustment record with FULL timing preservation
             var adjustment = new DailyAdjustment
@@ -51,32 +83,37 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
                 OriginalLateMinutes = originalRecord.LateMinutes,
                 OriginalVarianceMinutes = originalRecord.VarianceMinutes,
                 OriginalSignOut = originalRecord.NormalSignOut,
-                OriginalSignIn = originalRecord.NormalSignIn, // PRESERVE sign-in timing
+                OriginalSignIn = originalRecord.NormalSignIn, // PRESERVE original sign-in timing
 
-                // Set adjusted values (only changing OnTime status and late minutes)
-                AdjustedWorkHours = originalRecord.WorkHours,        // No change
-                AdjustedOTHours = originalRecord.OTHours,            // No change
-                AdjustedOnTime = true,                               // Override to on-time
-                AdjustedLateMinutes = 0,                             // Override to 0 (on time)
-                AdjustedVarianceMinutes = originalRecord.VarianceMinutes, // No change
-                AdjustedSignOut = originalRecord.NormalSignOut,      // No change
-                AdjustedSignIn = originalRecord.NormalSignIn         // No change to timing
+                // Set adjusted values (recalculated based on expected sign-in time)
+                AdjustedWorkHours = adjustedWorkHours,                // RECALCULATED
+                AdjustedOTHours = originalRecord.OTHours,             // No change to OT
+                AdjustedOnTime = true,                                // Override to on-time
+                AdjustedLateMinutes = 0,                              // Override to 0 (on time)
+                AdjustedVarianceMinutes = adjustedVarianceMinutes,    // RECALCULATED
+                AdjustedSignOut = originalRecord.NormalSignOut,       // No change to sign-out
+                AdjustedSignIn = adjustedSignInTime ?? originalRecord.NormalSignIn // ADJUSTED sign-in time
             };
 
-            // Apply adjustment to record - ONLY change the late/on-time status
+            // Apply adjustment to record - ONLY change the calculated values, preserve original timing
+            // DO NOT change NormalSignIn/NormalSignOut - keep original for analytics
             originalRecord.OnTime = true;
-            originalRecord.LateMinutes = 0; // Set to 0 since they're now "on time"
+            originalRecord.LateMinutes = 0;
             originalRecord.HasAdjustments = true;
             originalRecord.AppliedAdjustment = adjustment;
 
             _logger.LogInformation(
                 "Applied 'Worker on time' adjustment for {Date} by {User}: {Description}. " +
-                "Preserved timing delta - Original late: {OriginalLate} min, Sign-in: {SignIn}",
+                "Original: {OriginalSignIn} → Adjusted: {AdjustedSignIn}, Work hours: {OriginalHours:F1} → {AdjustedHours:F1}, Variance: {OriginalVariance} → {AdjustedVariance}",
                 originalRecord.Date.ToString("yyyy-MM-dd"),
                 username,
                 description,
-                adjustment.OriginalLateMinutes,
-                adjustment.OriginalSignIn?.ToString("HH:mm") ?? "N/A");
+                adjustment.OriginalSignIn?.ToString("HH:mm") ?? "N/A",
+                adjustment.AdjustedSignIn?.ToString("HH:mm") ?? "N/A",
+                adjustment.OriginalWorkHours,
+                adjustment.AdjustedWorkHours,
+                adjustment.OriginalVarianceMinutes,
+                adjustment.AdjustedVarianceMinutes);
 
             return originalRecord;
         }

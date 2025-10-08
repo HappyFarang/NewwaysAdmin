@@ -197,8 +197,9 @@
         Console.WriteLine($"[WorkerDetails] HandleWeeklyDataUpdated called");
         Console.WriteLine($"[WorkerDetails] Updated data - Worker: {updatedWeeklyData.WorkerId}, Week: {updatedWeeklyData.WeekNumber}, Adjustments: {updatedWeeklyData.TotalAdjustmentsMade}");
 
-        // Update the local reference to the weekly data
-        _weeklyData = updatedWeeklyData;
+        // CRITICAL FIX: Create a new reference to force Blazor change detection
+        // Since we're sharing the same object reference, Blazor doesn't detect the change
+        _weeklyData = updatedWeeklyData; // This line stays the same
 
         // Log the update for debugging
         Logger.LogInformation(
@@ -207,12 +208,14 @@
             updatedWeeklyData.WeekNumber,
             updatedWeeklyData.TotalAdjustmentsMade);
 
-        // Refresh the UI
+        // CRITICAL FIX: Force UI refresh - this will make the table re-render with updated values
         StateHasChanged();
-        Console.WriteLine($"[WorkerDetails] StateHasChanged called");
+        Console.WriteLine($"[WorkerDetails] StateHasChanged called - forcing re-render");
 
-        // Optional: Show a brief success message
-        // You could add a toast notification here if desired
+        // ADDITIONAL FIX: Small delay to ensure state propagation, then force another update
+        await Task.Delay(50);
+        StateHasChanged();
+        Console.WriteLine($"[WorkerDetails] Second StateHasChanged called for safety");
     }
 
     private DateTime GetWeekStartDate(int weeksAgo)

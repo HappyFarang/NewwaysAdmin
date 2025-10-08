@@ -1,9 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
 @* Purpose: Weekly breakdown table showing daily work hours and payment with adjustment support *@
 
-@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
-@* Purpose: Weekly breakdown table showing daily work hours and payment with adjustment support *@
-
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WebAdmin.Services.Workers
 @using NewwaysAdmin.WebAdmin.Services.Auth
@@ -128,11 +125,11 @@
 
                                 @if (_columnVisibility.NormalSignIn)
                                 {
-                                    <td class="text-center">@day.NormalSignInFormatted</td>
+                                    <td class="text-center">@day.DisplaySignInFormatted</td>
                                 }
                                 @if (_columnVisibility.NormalSignOut)
                                 {
-                                    <td class="text-center">@day.NormalSignOutFormatted</td>
+                                    <td class="text-center">@day.DisplaySignOutFormatted</td>
                                 }
                                 @if (_columnVisibility.OTSignIn)
                                 {
@@ -144,28 +141,28 @@
                                 }
                                 @if (_columnVisibility.WorkHours)
                                 {
-                                    <td class="text-center">@(day.HasData ? day.WorkHours.ToString("F1") : "--")</td>
+                                    <td class="text-center">@(day.HasData ? day.DisplayWorkHours.ToString("F1") : "--")</td>
                                 }
                                 @if (_columnVisibility.OTHours)
                                 {
-                                    <td class="text-center">@(day.HasData ? day.OTHours.ToString("F1") : "--")</td>
+                                    <td class="text-center">@(day.HasData ? day.DisplayOTHours.ToString("F1") : "--")</td>
                                 }
                                 @if (_columnVisibility.Variance)
                                 {
-                                    <td class="text-center @GetVarianceClass(day.VarianceMinutes)">@(day.HasData ? day.VarianceDisplay : "--")</td>
+                                    <td class="text-center @GetVarianceClass(day.DisplayVarianceMinutes)">@(day.HasData ? day.DisplayVarianceFormatted : "--")</td>
                                 }
                                 @if (_columnVisibility.OnTime)
                                 {
                                     <td class="text-center">
                                         @if (day.HasData)
                                         {
-                                            @if (day.OnTime)
+                                            @if (day.DisplayOnTime)
                                             {
                                                 <span class="badge bg-success">Yes</span>
                                             }
                                             else
                                             {
-                                                <span class="badge bg-warning text-dark">Late @day.LateMinutes min</span>
+                                                <span class="badge bg-warning text-dark">Late @day.DisplayLateMinutes min</span>
                                             }
                                         }
                                         else
@@ -187,7 +184,7 @@
                                 @if (_columnVisibility.OTPay)
                                 {
                                     <td class="text-end">
-                                        @(day.HasData ? CalculateOTPay(day.OTHours).ToString("F2") + " ฿" : "--")
+                                        @(day.HasData ? CalculateOTPay(day.DisplayOTHours).ToString("F2") + " ฿" : "--")
                                     </td>
                                 }
                                 <!-- NEW: Adjustment button column -->
