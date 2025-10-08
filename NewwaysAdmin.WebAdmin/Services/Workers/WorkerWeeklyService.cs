@@ -178,12 +178,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             }
         }
 
+        
         /// <summary>
-        /// Get or generate weekly data (loads from storage or generates fresh)
-        /// </summary>
-        /// <summary>
-        /// Get or generate weekly data (loads from storage or generates fresh)
-        /// Always regenerates if week is still in progress
+        /// Get or generate weekly data with adjustment preservation
+        /// APPROACH: Regenerate base data, then preserve and re-apply saved adjustments
         /// </summary>
         public async Task<WorkerWeeklyData> GetOrGenerateWeeklyDataAsync(
             int workerId,
@@ -194,34 +192,127 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             var weekEndDate = weekStartDate.AddDays(6); // Saturday
             var isWeekComplete = DateTime.Today > weekEndDate;
 
-            // If week is complete, load from storage (archived, don't regenerate)
-            if (isWeekComplete)
+            // STEP 1: Check for existing adjustments to preserve
+            var existingData = await LoadWeeklyDataAsync(workerId, weekStartDate);
+            var savedAdjustments = ExtractAdjustments(existingData);
+
+            // STEP 2: Always generate fresh base data from raw attendance
+            _logger.LogInformation(
+                "Generating fresh weekly data for worker {WorkerId} - Week starting {Date} (Week {Status})",
+                workerId,
+                weekStartDate.ToString("yyyy-MM-dd"),
+                isWeekComplete ? "complete" : "in progress");
+
+            var freshWeeklyData = await GenerateWeeklyDataAsync(workerId, workerName, weekStartDate);
+
+            // STEP 3: Re-apply saved adjustments if any exist
+            if (savedAdjustments.Any())
             {
-                var existingData = await LoadWeeklyDataAsync(workerId, weekStartDate);
-                if (existingData != null && existingData.DailyRecords.Count == 7)
+                _logger.LogInformation(
+                    "Re-applying {Count} saved adjustments to fresh data for worker {WorkerId}",
+                    savedAdjustments.Count,
+                    workerId);
+
+                ReapplyAdjustments(freshWeeklyData, savedAdjustments);
+            }
+
+            // STEP 4: Save the final data (base + adjustments)
+            await SaveWeeklyDataAsync(freshWeeklyData);
+
+            return freshWeeklyData;
+        }
+
+        /// <summary>
+        /// Extract adjustments from existing weekly data
+        /// </summary>
+        private Dictionary<DateTime, DailyAdjustment> ExtractAdjustments(WorkerWeeklyData? existingData)
+        {
+            var adjustments = new Dictionary<DateTime, DailyAdjustment>();
+
+            if (existingData != null)
+            {
+                foreach (var day in existingData.DailyRecords.Where(d => d.HasAdjustments && d.AppliedAdjustment != null))
                 {
-                    _logger.LogInformation(
-                        "Loaded archived weekly data for worker {WorkerId} - Week {WeekNumber}/{Year}",
-                        workerId,
-                        existingData.WeekNumber,
-                        existingData.Year);
-                    return existingData;
+                    adjustments[day.Date.Date] = day.AppliedAdjustment!;
                 }
             }
 
-            // Week is in progress OR archived data doesn't exist - regenerate
-            _logger.LogInformation(
-                "Generating weekly data for worker {WorkerId} - Week starting {Date} (Week {Status})",
-                workerId,
-                weekStartDate.ToString("yyyy-MM-dd"),
-                isWeekComplete ? "complete, archiving" : "in progress");
+            return adjustments;
+        }
 
-            var weeklyData = await GenerateWeeklyDataAsync(workerId, workerName, weekStartDate);
+        /// <summary>
+        /// Re-apply saved adjustments to fresh weekly data
+        /// </summary>
+        private void ReapplyAdjustments(WorkerWeeklyData freshData, Dictionary<DateTime, DailyAdjustment> savedAdjustments)
+        {
+            foreach (var kvp in savedAdjustments)
+            {
+                var adjustmentDate = kvp.Key;
+                var savedAdjustment = kvp.Value;
 
-            // Save (creates archive for complete weeks, updates for in-progress weeks)
-            await SaveWeeklyDataAsync(weeklyData);
+                // Find the corresponding fresh day
+                var freshDay = freshData.DailyRecords.FirstOrDefault(d => d.Date.Date == adjustmentDate);
+                if (freshDay != null && freshDay.HasData)
+                {
+                    // Update the adjustment with fresh original values (preserves timing delta)
+                    var updatedAdjustment = new DailyAdjustment
+                    {
+                        Type = savedAdjustment.Type,
+                        Description = savedAdjustment.Description,
+                        AppliedAt = savedAdjustment.AppliedAt,
+                        AppliedBy = savedAdjustment.AppliedBy,
 
-            return weeklyData;
+                        // Update original values to current fresh calculation
+                        OriginalWorkHours = freshDay.WorkHours,
+                        OriginalOTHours = freshDay.OTHours,
+                        OriginalOnTime = freshDay.OnTime,
+                        OriginalLateMinutes = freshDay.LateMinutes,
+                        OriginalVarianceMinutes = freshDay.VarianceMinutes,
+                        OriginalSignOut = freshDay.NormalSignOut,
+                        OriginalSignIn = freshDay.NormalSignIn,
+
+                        // Keep the saved adjusted values (this preserves the business decision)
+                        AdjustedWorkHours = savedAdjustment.AdjustedWorkHours,
+                        AdjustedOTHours = savedAdjustment.AdjustedOTHours,
+                        AdjustedOnTime = savedAdjustment.AdjustedOnTime,
+                        AdjustedLateMinutes = savedAdjustment.AdjustedLateMinutes,
+                        AdjustedVarianceMinutes = savedAdjustment.AdjustedVarianceMinutes,
+                        AdjustedSignOut = savedAdjustment.AdjustedSignOut,
+                        AdjustedSignIn = savedAdjustment.AdjustedSignIn
+                    };
+
+                    // Apply the adjustment to the fresh day
+                    freshDay.WorkHours = updatedAdjustment.AdjustedWorkHours;
+                    freshDay.OTHours = updatedAdjustment.AdjustedOTHours;
+                    freshDay.OnTime = updatedAdjustment.AdjustedOnTime;
+                    freshDay.LateMinutes = updatedAdjustment.AdjustedLateMinutes;
+                    freshDay.VarianceMinutes = updatedAdjustment.AdjustedVarianceMinutes;
+                    freshDay.NormalSignOut = updatedAdjustment.AdjustedSignOut;
+                    freshDay.NormalSignIn = updatedAdjustment.AdjustedSignIn;
+                    freshDay.HasAdjustments = true;
+                    freshDay.AppliedAdjustment = updatedAdjustment;
+
+                    // Recalculate daily pay based on adjusted values
+                    var hasNormalActivity = freshDay.NormalSignIn.HasValue;
+                    if (freshData.SettingsSnapshot != null)
+                    {
+                        freshDay.DailyPay = _calculator.CalculateDailyPay(
+                            freshDay.WorkHours,
+                            freshDay.OTHours,
+                            freshData.SettingsSnapshot,
+                            hasNormalActivity);
+                    }
+
+                    _logger.LogInformation(
+                        "Re-applied {Type} adjustment to {Date}: {Description}",
+                        updatedAdjustment.Type,
+                        freshDay.Date.ToString("yyyy-MM-dd"),
+                        updatedAdjustment.Description);
+                }
+            }
+
+            // Recalculate weekly totals with re-applied adjustments
+            freshData.RecalculateWeeklyTotals();
         }
 
         /// <summary>
