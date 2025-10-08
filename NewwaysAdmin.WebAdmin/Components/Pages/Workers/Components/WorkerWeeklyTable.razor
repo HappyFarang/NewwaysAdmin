@@ -1,11 +1,10 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
 @* Purpose: Weekly breakdown table showing daily work hours and payment *@
 
-
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WebAdmin.Services.Workers
 @using NewwaysAdmin.WebAdmin.Services.Auth
- @inject WorkerColumnPreferencesService PreferencesService
+@inject WorkerColumnPreferencesService PreferencesService
 @inject IAuthenticationService AuthService
 
 <div class="card">
@@ -32,9 +31,11 @@
             </div>
         </div>
     </div>
+
     <!-- Column Toggle Buttons -->
     <ColumnToggleButtons ColumnVisibility="@_columnVisibility"
                          OnColumnVisibilityChanged="@HandleColumnVisibilityChanged" />
+
     <div class="card-body p-0">
         @if (WeeklyData != null)
         {
@@ -46,19 +47,19 @@
                             <th>Date</th>
                             @if (_columnVisibility.NormalSignIn)
                             {
-                                <th class="text-center bg-primary bg-opacity-10">Normal In</th>
+                                <th class="text-center">Normal In</th>
                             }
                             @if (_columnVisibility.NormalSignOut)
                             {
-                                <th class="text-center bg-primary bg-opacity-10">Normal Out</th>
+                                <th class="text-center">Normal Out</th>
                             }
                             @if (_columnVisibility.OTSignIn)
                             {
-                                <th class="text-center bg-warning bg-opacity-25">OT In</th>
+                                <th class="text-center">OT In</th>
                             }
                             @if (_columnVisibility.OTSignOut)
                             {
-                                <th class="text-center bg-warning bg-opacity-25">OT Out</th>
+                                <th class="text-center">OT Out</th>
                             }
                             @if (_columnVisibility.WorkHours)
                             {
@@ -80,6 +81,18 @@
                             {
                                 <th class="text-end">Daily Pay</th>
                             }
+                            @if (_columnVisibility.NormalPay)
+                            {
+                                <th class="text-end">
+                                    <i class="bi bi-cash me-1"></i>Normal Pay
+                                </th>
+                            }
+                            @if (_columnVisibility.OTPay)
+                            {
+                                <th class="text-end">
+                                    <i class="bi bi-clock-fill me-1"></i>OT Pay
+                                </th>
+                            }
                         </tr>
                     </thead>
                     <tbody>
@@ -94,19 +107,19 @@
 
                                 @if (_columnVisibility.NormalSignIn)
                                 {
-                                    <td class="text-center bg-primary bg-opacity-10">@day.NormalSignInFormatted</td>
+                                    <td class="text-center">@day.NormalSignInFormatted</td>
                                 }
                                 @if (_columnVisibility.NormalSignOut)
                                 {
-                                    <td class="text-center bg-primary bg-opacity-10">@day.NormalSignOutFormatted</td>
+                                    <td class="text-center">@day.NormalSignOutFormatted</td>
                                 }
                                 @if (_columnVisibility.OTSignIn)
                                 {
-                                    <td class="text-center bg-warning bg-opacity-25">@day.OTSignInFormatted</td>
+                                    <td class="text-center">@day.OTSignInFormatted</td>
                                 }
                                 @if (_columnVisibility.OTSignOut)
                                 {
-                                    <td class="text-center bg-warning bg-opacity-25">@day.OTSignOutFormatted</td>
+                                    <td class="text-center">@day.OTSignOutFormatted</td>
                                 }
                                 @if (_columnVisibility.WorkHours)
                                 {
@@ -144,8 +157,22 @@
                                 {
                                     <td class="text-end">@(day.HasData ? day.DailyPay.ToString("F2") + " ฿" : "--")</td>
                                 }
+                                @if (_columnVisibility.NormalPay)
+                                {
+                                    <td class="text-end">
+                                        @(day.HasData && HasNormalActivity(day) ? CalculateNormalPay(day).ToString("F2") + " ฿" : "--")
+                                    </td>
+                                }
+                                @if (_columnVisibility.OTPay)
+                                {
+                                    <td class="text-end">
+                                        @(day.HasData ? CalculateOTPay(day.OTHours).ToString("F2") + " ฿" : "--")
+                                    </td>
+                                }
                             </tr>
                         }
+
+                        <!-- Week Total Row -->
                         <tr class="table-info fw-bold">
                             <td colspan="2">WEEK TOTAL</td>
                             @if (_columnVisibility.NormalSignIn)
@@ -184,6 +211,18 @@
                             {
                                 <td class="text-end">@WeeklyData.TotalPay.ToString("F2") ฿</td>
                             }
+                            @if (_columnVisibility.NormalPay)
+                            {
+                                <td class="text-end">
+                                    <strong>@CalculateWeeklyNormalPay().ToString("F2") ฿</strong>
+                                </td>
+                            }
+                            @if (_columnVisibility.OTPay)
+                            {
+                                <td class="text-end">
+                                    <strong>@CalculateWeeklyOTPay().ToString("F2") ฿</strong>
+                                </td>
+                            }
                         </tr>
                     </tbody>
                 </table>
@@ -202,14 +241,9 @@
 </div>
 
 @code {
-    [Parameter]
-    public WorkerWeeklyData? WeeklyData { get; set; }
-
-    [Parameter]
-    public int SelectedWeekOffset { get; set; }
-
-    [Parameter]
-    public EventCallback<int> OnWeekSelected { get; set; }
+    [Parameter] public WorkerWeeklyData? WeeklyData { get; set; }
+    [Parameter] public int SelectedWeekOffset { get; set; }
+    [Parameter] public EventCallback<int> OnWeekSelected { get; set; }
 
     private WeeklyTableColumnVisibility _columnVisibility = new();
 
@@ -255,7 +289,57 @@
 
         StateHasChanged();
     }
-    
+
+    // NEW: Helper methods for pay calculations
+    private bool HasNormalActivity(DailyWorkRecord day)
+    {
+        // A day has normal activity if they have any normal sign-in time
+        return day.NormalSignIn.HasValue;
+    }
+
+    private decimal CalculateNormalPay(DailyWorkRecord day)
+    {
+        if (WeeklyData?.SettingsSnapshot == null) return 0;
+
+        // TODO: Check for pay adjustment override first when we implement adjustments
+        // var payAdjustment = GetPayAdjustment(day.Date);
+        // if (payAdjustment?.AdjustedNormalPay != null)
+        //     return payAdjustment.AdjustedNormalPay;
+
+        // Default logic: If worker has normal activity, they get full daily rate
+        // This represents the "normal work" portion of their pay
+        return HasNormalActivity(day) ? WeeklyData.SettingsSnapshot.DailyPayRate : 0;
+    }
+
+    private decimal CalculateOTPay(decimal otHours)
+    {
+        if (WeeklyData?.SettingsSnapshot == null) return 0;
+
+        // Round OT hours and multiply by hourly rate (same logic as WorkerPaymentCalculator)
+        return Math.Round(otHours, 0) * WeeklyData.SettingsSnapshot.OvertimeHourlyRate;
+    }
+
+    private decimal CalculateWeeklyNormalPay()
+    {
+        if (WeeklyData?.SettingsSnapshot == null) return 0;
+
+        // Sum up all normal pay portions for the week
+        return WeeklyData.DailyRecords
+            .Where(d => d.HasData && HasNormalActivity(d))
+            .Sum(d => CalculateNormalPay(d));
+    }
+
+    private decimal CalculateWeeklyOTPay()
+    {
+        if (WeeklyData?.SettingsSnapshot == null) return 0;
+
+        // Sum up all OT pay for the week
+        return WeeklyData.DailyRecords
+            .Where(d => d.HasData)
+            .Sum(d => CalculateOTPay(d.OTHours));
+    }
+
+    // Existing helper methods
     private DateTime GetWeekStartDate(int weeksAgo)
     {
         var today = DateTime.Today;
@@ -280,3 +364,11 @@
         return "";
     }
 }
+
+<style>
+    /* Simple override - just change Bootstrap's hover color */
+    .table-hover tbody tr:hover > td,
+    .table-hover tbody tr:hover > th {
+        background-color: rgba(13, 110, 253, 0.1);
+    }
+</style>

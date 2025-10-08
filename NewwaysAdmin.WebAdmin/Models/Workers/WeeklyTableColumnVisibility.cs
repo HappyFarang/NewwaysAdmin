@@ -12,4 +12,6 @@ public class WeeklyTableColumnVisibility
     public bool Variance { get; set; } = true;
     public bool OnTime { get; set; } = true;
     public bool DailyPay { get; set; } = true;
+    public bool NormalPay { get; set; } = false;
+    public bool OTPay { get; set; } = false;
 }
