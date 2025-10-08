@@ -1,12 +1,12 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Models/Workers/DailyWorkRecord.cs
-// Purpose: Single day work record with hours, variance, and payment
+// Purpose: Single day work record with hours, variance, payment, and adjustment tracking
 
 namespace NewwaysAdmin.WebAdmin.Models.Workers
 {
     public class DailyWorkRecord
     {
         /// <summary>
-        /// The date of this work record
+        /// The date of this work record - CRITICAL for date-range queries
         /// </summary>
         public DateTime Date { get; set; }
 
@@ -16,23 +16,23 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         public DayOfWeek DayOfWeek => Date.DayOfWeek;
 
         /// <summary>
-        /// Total regular work hours for the day
+        /// Total regular work hours for the day (FINAL adjusted values)
         /// </summary>
         public decimal WorkHours { get; set; }
 
         /// <summary>
-        /// Total overtime hours for the day
+        /// Total overtime hours for the day (FINAL adjusted values)
         /// </summary>
         public decimal OTHours { get; set; }
 
         /// <summary>
-        /// Variance in minutes from expected hours (can be negative or positive)
+        /// Variance in minutes from expected hours (FINAL adjusted values)
         /// Positive = worked extra, Negative = left early
         /// </summary>
         public int VarianceMinutes { get; set; }
 
         /// <summary>
-        /// Whether worker arrived on time
+        /// Whether worker arrived on time (FINAL adjusted values)
         /// </summary>
         public bool OnTime { get; set; }
 
@@ -42,7 +42,7 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         public int LateMinutes { get; set; }
 
         /// <summary>
-        /// Total pay for this day (base + OT)
+        /// Total pay for this day (base + OT) - calculated from final adjusted values
         /// </summary>
         public decimal DailyPay { get; set; }
 
@@ -57,7 +57,7 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         public DateTime? NormalSignIn { get; set; }
 
         /// <summary>
-        /// Normal shift sign-out time
+        /// Normal shift sign-out time (may be adjusted)
         /// </summary>
         public DateTime? NormalSignOut { get; set; }
 
@@ -67,11 +67,25 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         public DateTime? OTSignIn { get; set; }
 
         /// <summary>
-        /// Overtime shift sign-out time
+        /// Overtime shift sign-out time (may be adjusted)
         /// </summary>
         public DateTime? OTSignOut { get; set; }
 
-        // NEW: Formatted timestamp helpers (24-hour format as you requested)
+        // === NEW: ADJUSTMENT TRACKING ===
+        /// <summary>
+        /// Whether this day has been manually adjusted
+        /// </summary>
+        public bool HasAdjustments { get; set; }
+
+        /// <summary>
+        /// Details of the adjustment made (null if no adjustments)
+        /// </summary>
+        public DailyAdjustment? AppliedAdjustment { get; set; }
+
+        // === EXISTING: FORMATTED HELPERS ===
+        /// <summary>
+        /// Formatted timestamp helpers (24-hour format)
+        /// </summary>
         public string NormalSignInFormatted => NormalSignIn?.ToString("HH:mm") ?? "--:--";
         public string NormalSignOutFormatted => NormalSignOut?.ToString("HH:mm") ?? "--:--";
         public string OTSignInFormatted => OTSignIn?.ToString("HH:mm") ?? "--:--";
@@ -95,5 +109,32 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         /// Formatted on-time status for display
         /// </summary>
         public string OnTimeDisplay => HasData ? (OnTime ? "Yes" : $"Late {LateMinutes} min") : "--";
+
+        // === NEW: ADJUSTMENT DISPLAY HELPERS ===
+        /// <summary>
+        /// Display indicator for adjusted days
+        /// </summary>
+        public string AdjustmentIndicator => HasAdjustments ? "🔧" : "";
+
+        /// <summary>
+        /// CSS class for styling adjusted rows
+        /// </summary>
+        public string AdjustmentCssClass => HasAdjustments ? "adjusted-day" : "";
+
+        /// <summary>
+        /// Tooltip text showing adjustment details
+        /// </summary>
+        public string AdjustmentTooltip
+        {
+            get
+            {
+                if (!HasAdjustments || AppliedAdjustment == null)
+                    return "";
+
+                return $"Adjusted: {AppliedAdjustment.Description}\n" +
+                       $"Applied: {AppliedAdjustment.AppliedAt:yyyy-MM-dd HH:mm}\n" +
+                       $"By: {AppliedAdjustment.AppliedBy}";
+            }
+        }
     }
 }

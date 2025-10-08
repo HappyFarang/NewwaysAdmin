@@ -1,0 +1,107 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/AdjustmentButton.razor *@
+@* Purpose: Adjustment button for each day in the weekly table *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="adjustment-button-container">
+    @if (DailyRecord.HasData && IsPastDay)
+    {
+        <button type="button"
+                class="btn btn-sm @GetButtonClass()"
+                @onclick="HandleAdjustClick"
+                title="@GetTooltipText()">
+            <i class="bi bi-gear-fill me-1"></i>
+            @if (DailyRecord.HasAdjustments)
+            {
+                <i class="bi bi-check-circle-fill text-success ms-1"></i>
+            }
+        </button>
+    }
+    else if (!IsPastDay)
+    {
+        <span class="text-muted small">--</span>
+    }
+    else
+    {
+        <span class="text-muted">No data</span>
+    }
+</div>
+
+@code {
+    [Parameter] public DailyWorkRecord DailyRecord { get; set; } = new();
+    [Parameter] public EventCallback<DailyWorkRecord> OnAdjustmentClick { get; set; }
+
+    private bool IsPastDay => DailyRecord.Date <= DateTime.Today;
+
+    private async Task HandleAdjustClick()
+    {
+        await OnAdjustmentClick.InvokeAsync(DailyRecord);
+    }
+
+    private string GetButtonClass()
+    {
+        if (DailyRecord.HasAdjustments)
+            return "btn-success"; // Green for adjusted days
+        else if (HasIssues())
+            return "btn-warning"; // Orange for days that might need adjustment
+        else
+            return "btn-outline-secondary"; // Default gray
+    }
+
+    private string GetTooltipText()
+    {
+        if (DailyRecord.HasAdjustments)
+        {
+            return $"Adjusted: {DailyRecord.AppliedAdjustment?.Description}\nClick to modify";
+        }
+        else if (HasIssues())
+        {
+            return "Day has issues that might need adjustment\nClick to adjust";
+        }
+        else
+        {
+            return "Click to make adjustments";
+        }
+    }
+
+    private bool HasIssues()
+    {
+        // Check for common issues that might need adjustment
+        return !DailyRecord.OnTime ||           // Late arrival
+               DailyRecord.VarianceMinutes > 15 || // Significant positive variance
+               DailyRecord.NormalSignOut == null;   // Missing sign-out
+    }
+}
+
+<style>
+    .adjustment-button-container {
+        text-align: center;
+        min-width: 80px;
+    }
+
+    .btn-sm {
+        font-size: 0.775rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .btn-success {
+        border-color: #198754;
+        background-color: #198754;
+    }
+
+    .btn-warning {
+        border-color: #fd7e14;
+        background-color: #fd7e14;
+    }
+
+    .btn-outline-secondary {
+        color: #6c757d;
+        border-color: #6c757d;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        color: white;
+    }
+</style>

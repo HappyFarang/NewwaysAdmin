@@ -14,7 +14,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips
         public double BinarizationK { get; set; } = 0.2;
         public bool PreserveGrays { get; set; } = true;
         public int BorderSize { get; set; } = 20;
-
+        
         // ✅ NEW: Colored background removal settings
         public bool RemoveColoredBackground { get; set; } = false;
         public int ColoredBgBlackPoint { get; set; } = 127;  // X value for black (0-255)

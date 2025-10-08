@@ -1,11 +1,16 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
-@* Purpose: Weekly breakdown table showing daily work hours and payment *@
+@* Purpose: Weekly breakdown table showing daily work hours and payment with adjustment support *@
+
+@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerWeeklyTable.razor *@
+@* Purpose: Weekly breakdown table showing daily work hours and payment with adjustment support *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WebAdmin.Services.Workers
 @using NewwaysAdmin.WebAdmin.Services.Auth
 @inject WorkerColumnPreferencesService PreferencesService
 @inject IAuthenticationService AuthService
+@inject AdjustmentService AdjustmentService
+@inject WorkerWeeklyService WeeklyService
 
 <div class="card">
     <div class="card-header bg-primary text-white">
@@ -13,6 +18,12 @@
             <h5 class="mb-0">
                 <span class="bi bi-calendar-week me-2"></span>
                 Weekly Breakdown
+                @if (WeeklyData?.HasAdjustments == true)
+                {
+                    <span class="badge bg-warning text-dark ms-2" title="This week has @WeeklyData.TotalAdjustmentsMade adjustment(s)">
+                        <i class="bi bi-gear-fill me-1"></i>@WeeklyData.TotalAdjustmentsMade
+                    </span>
+                }
             </h5>
             <div class="btn-group btn-group-sm" role="group">
                 @for (int i = 0; i < 8; i++)
@@ -93,16 +104,26 @@
                                     <i class="bi bi-clock-fill me-1"></i>OT Pay
                                 </th>
                             }
+                            <!-- NEW: Adjustment column -->
+                            <th class="text-center">
+                                <i class="bi bi-gear me-1"></i>Adjust
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var day in WeeklyData.DailyRecords)
                         {
                             var isPastDay = day.Date <= DateTime.Today;
-                            var rowClass = day.HasData ? "" : "table-secondary text-muted";
+                            var rowClass = day.HasData ? (day.HasAdjustments ? "table-warning-subtle" : "") : "table-secondary text-muted";
 
                             <tr class="@rowClass">
-                                <td><strong>@day.Date.DayOfWeek</strong></td>
+                                <td>
+                                    <strong>@day.Date.DayOfWeek</strong>
+                                    @if (day.HasAdjustments)
+                                    {
+                                        <i class="bi bi-gear-fill text-warning ms-1" title="@day.AdjustmentTooltip"></i>
+                                    }
+                                </td>
                                 <td>@day.Date.ToString("MMM dd")</td>
 
                                 @if (_columnVisibility.NormalSignIn)
@@ -169,6 +190,11 @@
                                         @(day.HasData ? CalculateOTPay(day.OTHours).ToString("F2") + " ฿" : "--")
                                     </td>
                                 }
+                                <!-- NEW: Adjustment button column -->
+                                <td class="text-center">
+                                    <AdjustmentButton DailyRecord="@day"
+                                                      OnAdjustmentClick="@HandleAdjustmentClick" />
+                                </td>
                             </tr>
                         }
 
@@ -213,20 +239,38 @@
                             }
                             @if (_columnVisibility.NormalPay)
                             {
-                                <td class="text-end">
-                                    <strong>@CalculateWeeklyNormalPay().ToString("F2") ฿</strong>
-                                </td>
+                                <td class="text-end">@CalculateWeeklyNormalPay().ToString("F2") ฿</td>
                             }
                             @if (_columnVisibility.OTPay)
                             {
-                                <td class="text-end">
-                                    <strong>@CalculateWeeklyOTPay().ToString("F2") ฿</strong>
-                                </td>
+                                <td class="text-end">@CalculateWeeklyOTPay().ToString("F2") ฿</td>
                             }
+                            <!-- Adjustment column total -->
+                            <td class="text-center">
+                                @if (WeeklyData.HasAdjustments)
+                                {
+                                    <span class="badge bg-info">@WeeklyData.TotalAdjustmentsMade</span>
+                                }
+                                else
+                                {
+                                    <text>--</text>
+                                }
+                            </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
+
+            <!-- NEW: Adjustment Summary -->
+            @if (WeeklyData.HasAdjustments)
+            {
+                <div class="card-footer">
+                    <small class="text-muted">
+                        <i class="bi bi-info-circle me-1"></i>
+                        <strong>Adjustments:</strong> @string.Join(", ", WeeklyData.AdjustmentSummary)
+                    </small>
+                </div>
+            }
         }
         else
         {
@@ -240,10 +284,15 @@
     </div>
 </div>
 
+<!-- NEW: Adjustment Modal -->
+<AdjustmentModal @ref="_adjustmentModal"
+                 OnAdjustmentApplied="@HandleAdjustmentApplied" />
+
 @code {
     [Parameter] public WorkerWeeklyData? WeeklyData { get; set; }
     [Parameter] public int SelectedWeekOffset { get; set; }
     [Parameter] public EventCallback<int> OnWeekSelected { get; set; }
+    [Parameter] public EventCallback<WorkerWeeklyData> OnWeeklyDataUpdated { get; set; }
 
     private WeeklyTableColumnVisibility _columnVisibility = new();
 
@@ -252,6 +301,67 @@
         await LoadUserColumnPreferences();
     }
 
+    // === NEW: ADJUSTMENT HANDLING ===
+    private AdjustmentModal? _adjustmentModal;
+
+    private async Task HandleAdjustmentClick(DailyWorkRecord day)
+    {
+        if (_adjustmentModal != null && WeeklyData?.SettingsSnapshot != null)
+        {
+            await _adjustmentModal.ShowAsync(day, WeeklyData.SettingsSnapshot);
+        }
+    }
+
+    private async Task HandleAdjustmentApplied(DailyWorkRecord adjustedDay)
+    {
+        if (WeeklyData == null) return;
+
+        try
+        {
+            Console.WriteLine($"[WorkerWeeklyTable] HandleAdjustmentApplied called for {adjustedDay.Date:yyyy-MM-dd}");
+            Console.WriteLine($"[WorkerWeeklyTable] Adjusted day - HasAdjustments: {adjustedDay.HasAdjustments}, WorkHours: {adjustedDay.WorkHours}, OTHours: {adjustedDay.OTHours}");
+
+            // Update the day in the weekly data
+            var existingDay = WeeklyData.DailyRecords.FirstOrDefault(d => d.Date.Date == adjustedDay.Date.Date);
+            if (existingDay != null)
+            {
+                var index = WeeklyData.DailyRecords.IndexOf(existingDay);
+                WeeklyData.DailyRecords[index] = adjustedDay;
+                Console.WriteLine($"[WorkerWeeklyTable] Updated day at index {index}");
+            }
+            else
+            {
+                Console.WriteLine($"[WorkerWeeklyTable] ERROR: Could not find existing day for {adjustedDay.Date:yyyy-MM-dd}");
+                return;
+            }
+
+            // Recalculate weekly totals
+            WeeklyData.RecalculateWeeklyTotals();
+            Console.WriteLine($"[WorkerWeeklyTable] Recalculated totals - TotalAdjustments: {WeeklyData.TotalAdjustmentsMade}");
+
+            // Save the updated weekly data
+            await WeeklyService.SaveWeeklyDataAsync(WeeklyData);
+            Console.WriteLine($"[WorkerWeeklyTable] Saved weekly data to storage");
+
+            // Notify parent component of the update
+            await OnWeeklyDataUpdated.InvokeAsync(WeeklyData);
+            Console.WriteLine($"[WorkerWeeklyTable] Notified parent component");
+
+            // Close the modal
+            _adjustmentModal?.CloseModal();
+
+            // Refresh the display
+            StateHasChanged();
+            Console.WriteLine($"[WorkerWeeklyTable] StateHasChanged called");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WorkerWeeklyTable] Error handling adjustment: {ex.Message}");
+            Console.WriteLine($"[WorkerWeeklyTable] Stack trace: {ex.StackTrace}");
+        }
+    }
+
+    // === EXISTING METHODS ===
     private async Task LoadUserColumnPreferences()
     {
         try
@@ -264,7 +374,6 @@
         }
         catch (Exception ex)
         {
-            // Log error but continue with defaults
             Console.WriteLine($"Error loading column preferences: {ex.Message}");
         }
     }
@@ -283,47 +392,32 @@
         }
         catch (Exception ex)
         {
-            // Log error but continue
             Console.WriteLine($"Error saving column preferences: {ex.Message}");
         }
 
         StateHasChanged();
     }
 
-    // NEW: Helper methods for pay calculations
     private bool HasNormalActivity(DailyWorkRecord day)
     {
-        // A day has normal activity if they have any normal sign-in time
         return day.NormalSignIn.HasValue;
     }
 
     private decimal CalculateNormalPay(DailyWorkRecord day)
     {
         if (WeeklyData?.SettingsSnapshot == null) return 0;
-
-        // TODO: Check for pay adjustment override first when we implement adjustments
-        // var payAdjustment = GetPayAdjustment(day.Date);
-        // if (payAdjustment?.AdjustedNormalPay != null)
-        //     return payAdjustment.AdjustedNormalPay;
-
-        // Default logic: If worker has normal activity, they get full daily rate
-        // This represents the "normal work" portion of their pay
         return HasNormalActivity(day) ? WeeklyData.SettingsSnapshot.DailyPayRate : 0;
     }
 
     private decimal CalculateOTPay(decimal otHours)
     {
         if (WeeklyData?.SettingsSnapshot == null) return 0;
-
-        // Round OT hours and multiply by hourly rate (same logic as WorkerPaymentCalculator)
         return Math.Round(otHours, 0) * WeeklyData.SettingsSnapshot.OvertimeHourlyRate;
     }
 
     private decimal CalculateWeeklyNormalPay()
     {
         if (WeeklyData?.SettingsSnapshot == null) return 0;
-
-        // Sum up all normal pay portions for the week
         return WeeklyData.DailyRecords
             .Where(d => d.HasData && HasNormalActivity(d))
             .Sum(d => CalculateNormalPay(d));
@@ -332,14 +426,11 @@
     private decimal CalculateWeeklyOTPay()
     {
         if (WeeklyData?.SettingsSnapshot == null) return 0;
-
-        // Sum up all OT pay for the week
         return WeeklyData.DailyRecords
             .Where(d => d.HasData)
             .Sum(d => CalculateOTPay(d.OTHours));
     }
 
-    // Existing helper methods
     private DateTime GetWeekStartDate(int weeksAgo)
     {
         var today = DateTime.Today;
@@ -366,9 +457,16 @@
 }
 
 <style>
-    /* Simple override - just change Bootstrap's hover color */
     .table-hover tbody tr:hover > td,
     .table-hover tbody tr:hover > th {
         background-color: rgba(13, 110, 253, 0.1);
     }
+
+    .table-warning-subtle {
+        background-color: rgba(255, 193, 7, 0.1);
+    }
+
+        .table-warning-subtle:hover td {
+            background-color: rgba(255, 193, 7, 0.2) !important;
+        }
 </style>

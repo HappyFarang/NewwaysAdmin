@@ -1,5 +1,5 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetails.razor *@
-@* Purpose: Worker details page - orchestrates child components with real data *@
+@* Purpose: Worker details page - orchestrates child components with real data and adjustment support *@
 
 @page "/worker-details"
 @page "/worker-details/{WorkerId:int}"
@@ -46,10 +46,11 @@
             <WorkerStatsCard WeeklyData="@_weeklyData"
                              WeekNumber="@_currentWeekNumber" />
 
-            <!-- Weekly Table -->
+            <!-- Weekly Table with Adjustment Support -->
             <WorkerWeeklyTable WeeklyData="@_weeklyData"
                                SelectedWeekOffset="@_selectedWeekOffset"
-                               OnWeekSelected="@HandleWeekSelected" />
+                               OnWeekSelected="@HandleWeekSelected"
+                               OnWeeklyDataUpdated="@HandleWeeklyDataUpdated" />
         }
     }
     else
@@ -188,6 +189,30 @@
                 _isLoadingWeeklyData = false;
             }
         }
+    }
+
+    // === NEW: ADJUSTMENT HANDLING ===
+    private async Task HandleWeeklyDataUpdated(WorkerWeeklyData updatedWeeklyData)
+    {
+        Console.WriteLine($"[WorkerDetails] HandleWeeklyDataUpdated called");
+        Console.WriteLine($"[WorkerDetails] Updated data - Worker: {updatedWeeklyData.WorkerId}, Week: {updatedWeeklyData.WeekNumber}, Adjustments: {updatedWeeklyData.TotalAdjustmentsMade}");
+
+        // Update the local reference to the weekly data
+        _weeklyData = updatedWeeklyData;
+
+        // Log the update for debugging
+        Logger.LogInformation(
+            "Weekly data updated for worker {WorkerId} - Week {WeekNumber}. Adjustments: {AdjustmentCount}",
+            updatedWeeklyData.WorkerId,
+            updatedWeeklyData.WeekNumber,
+            updatedWeeklyData.TotalAdjustmentsMade);
+
+        // Refresh the UI
+        StateHasChanged();
+        Console.WriteLine($"[WorkerDetails] StateHasChanged called");
+
+        // Optional: Show a brief success message
+        // You could add a toast notification here if desired
     }
 
     private DateTime GetWeekStartDate(int weeksAgo)
