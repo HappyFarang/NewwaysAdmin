@@ -62,10 +62,48 @@
     private DashboardData? _dashboardData;
     private bool _isLoading = true;
     private string? _error;
+    private Dictionary<int, DailyWorkRecord> _todaysAdjustments = new();
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDashboard();
+        await LoadTodaysAdjustments();
+    }
+
+    private async Task LoadTodaysAdjustments()
+    {
+        try
+        {
+            _todaysAdjustments = await DashboardService.GetTodaysAdjustmentsAsync();
+            ApplyAdjustmentsToWorkers();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load today's adjustments");
+        }
+    }
+
+    private void ApplyAdjustmentsToWorkers()
+    {
+        if (_dashboardData == null) return;
+
+        // Apply adjustments to active workers
+        foreach (var worker in _dashboardData.ActiveWorkers)
+        {
+            if (_todaysAdjustments.TryGetValue(worker.WorkerId, out var adjustment))
+            {
+                worker.ApplyTodaysAdjustments(adjustment);
+            }
+        }
+
+        // Apply adjustments to inactive workers
+        foreach (var worker in _dashboardData.InactiveWorkers)
+        {
+            if (_todaysAdjustments.TryGetValue(worker.WorkerId, out var adjustment))
+            {
+                worker.ApplyTodaysAdjustments(adjustment);
+            }
+        }
     }
 
     private async Task LoadDashboard()

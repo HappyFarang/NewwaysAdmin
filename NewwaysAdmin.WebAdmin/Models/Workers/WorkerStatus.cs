@@ -44,6 +44,16 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
             ? LastActivity.ToString("HH:mm")
             : "No activity";
 
+        /// <summary>
+        /// Whether this worker has adjustments applied for today
+        /// </summary>
+        public bool HasAdjustments { get; set; }
+
+        /// <summary>
+        /// Tooltip showing adjustment details
+        /// </summary>
+        public string AdjustmentTooltip { get; set; } = string.Empty;
+
         public string CycleDateFormatted => CycleDate.ToString("MMM dd, yyyy");
 
         public string DurationFormatted => CurrentDuration?.ToString(@"hh\:mm") ?? "--:--";

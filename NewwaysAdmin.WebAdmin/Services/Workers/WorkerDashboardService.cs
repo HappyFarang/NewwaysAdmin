@@ -15,9 +15,11 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
         private readonly IDataStorage<DailyWorkCycle> _cycleStorage;
         private readonly IDataStorage<Worker> _workerStorage;
         private readonly ILogger<WorkerDashboardService> _logger;
+        private readonly WorkerWeeklyService _weeklyService;
 
         public WorkerDashboardService(
             StorageManager storageManager,
+            WorkerWeeklyService weeklyService,
             ILogger<WorkerDashboardService> logger)
         {
             // WorkerAttendance folder = daily cycle files (2025-10-02_Worker3.json)
@@ -25,8 +27,61 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
 
             // Workers folder = worker profile files (3.json with face encodings)
             _workerStorage = storageManager.GetStorageSync<Worker>("WorkerAttendance");
+            _weeklyService = weeklyService;
 
             _logger = logger;
+        }
+
+        public async Task<Dictionary<int, DailyWorkRecord>> GetTodaysAdjustmentsAsync()
+        {
+            var adjustments = new Dictionary<int, DailyWorkRecord>();
+            var today = DateTime.Today;
+
+            try
+            {
+                // Get all workers and check for today's adjustments
+                var workers = await GetTodaysDashboardDataAsync();
+                var allWorkers = workers.ActiveWorkers.Concat(workers.InactiveWorkers);
+
+                foreach (var worker in allWorkers)
+                {
+                    try
+                    {
+                        // Check if there's weekly data for this week that contains today
+                        var weekStartDate = GetWeekStartDate(today);
+                        var weeklyData = await _weeklyService.LoadWeeklyDataAsync(worker.WorkerId, weekStartDate);
+
+                        if (weeklyData != null)
+                        {
+                            // Find today's record
+                            var todaysRecord = weeklyData.DailyRecords.FirstOrDefault(d => d.Date.Date == today);
+
+                            // If today's record has adjustments, add it to our dictionary
+                            if (todaysRecord?.HasAdjustments == true)
+                            {
+                                adjustments[worker.WorkerId] = todaysRecord;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log but don't fail the whole operation
+                        _logger.LogWarning(ex, "Failed to check adjustments for worker {WorkerId}", worker.WorkerId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get today's adjustments");
+            }
+
+            return adjustments;
+        }
+
+        private DateTime GetWeekStartDate(DateTime date)
+        {
+            var daysSinceSunday = (int)date.DayOfWeek;
+            return date.AddDays(-daysSinceSunday);
         }
 
         /// <summary>
