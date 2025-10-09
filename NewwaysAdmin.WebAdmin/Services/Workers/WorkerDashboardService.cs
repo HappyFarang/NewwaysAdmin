@@ -1,6 +1,6 @@
 // File: NewwaysAdmin.WebAdmin/Services/Workers/WorkerDashboardService.cs
 // Purpose: Load and process worker attendance data for dashboard display
-// IMPROVED: Shows ALL registered workers with their latest activity (any date)
+// UPDATED: Fixed GetTodaysAdjustmentsAsync to work with current working cycles instead of just "today's date"
 
 using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
@@ -32,47 +32,80 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             _logger = logger;
         }
 
+        /// <summary>
+        /// Get adjustments for current working cycles (CYCLE-BASED, NOT DATE-BASED)
+        /// CRITICAL FIX: Look for adjustments based on the worker's current cycle date, not today's date
+        /// </summary>
         public async Task<Dictionary<int, DailyWorkRecord>> GetTodaysAdjustmentsAsync()
         {
             var adjustments = new Dictionary<int, DailyWorkRecord>();
-            var today = DateTime.Today;
 
             try
             {
-                // Get all workers and check for today's adjustments
-                var workers = await GetTodaysDashboardDataAsync();
-                var allWorkers = workers.ActiveWorkers.Concat(workers.InactiveWorkers);
+                // STEP 1: First get the current dashboard data to understand each worker's current cycle
+                var dashboardData = await GetTodaysDashboardDataAsync();
+                var allWorkers = dashboardData.ActiveWorkers.Concat(dashboardData.InactiveWorkers);
+
+                _logger.LogInformation("Checking adjustments for {WorkerCount} workers based on their current working cycles", allWorkers.Count());
 
                 foreach (var worker in allWorkers)
                 {
                     try
                     {
-                        // Check if there's weekly data for this week that contains today
-                        var weekStartDate = GetWeekStartDate(today);
+                        // CRITICAL FIX: Use the worker's cycle date, not today's date
+                        var workerCycleDate = worker.CycleDate.Date;
+
+                        _logger.LogDebug("Checking adjustments for worker {WorkerId} on cycle date {CycleDate}",
+                            worker.WorkerId, workerCycleDate.ToString("yyyy-MM-dd"));
+
+                        // Find the week that contains this worker's cycle date
+                        var weekStartDate = GetWeekStartDate(workerCycleDate);
                         var weeklyData = await _weeklyService.LoadWeeklyDataAsync(worker.WorkerId, weekStartDate);
 
                         if (weeklyData != null)
                         {
-                            // Find today's record
-                            var todaysRecord = weeklyData.DailyRecords.FirstOrDefault(d => d.Date.Date == today);
+                            // Find the record for this worker's cycle date (not today's date)
+                            var cycleRecord = weeklyData.DailyRecords.FirstOrDefault(d => d.Date.Date == workerCycleDate);
 
-                            // If today's record has adjustments, add it to our dictionary
-                            if (todaysRecord?.HasAdjustments == true)
+                            // If the cycle record has adjustments, add it to our dictionary
+                            if (cycleRecord?.HasAdjustments == true)
                             {
-                                adjustments[worker.WorkerId] = todaysRecord;
+                                adjustments[worker.WorkerId] = cycleRecord;
+                                _logger.LogInformation("Found adjustment for worker {WorkerId} on cycle date {CycleDate}: {Description}",
+                                    worker.WorkerId,
+                                    workerCycleDate.ToString("yyyy-MM-dd"),
+                                    cycleRecord.AppliedAdjustment?.Description ?? "Unknown");
                             }
+                            else if (cycleRecord?.HasData == true)
+                            {
+                                _logger.LogDebug("Worker {WorkerId} has data for cycle date {CycleDate} but no adjustments",
+                                    worker.WorkerId, workerCycleDate.ToString("yyyy-MM-dd"));
+                            }
+                            else
+                            {
+                                _logger.LogDebug("No data found for worker {WorkerId} on cycle date {CycleDate}",
+                                    worker.WorkerId, workerCycleDate.ToString("yyyy-MM-dd"));
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogDebug("No weekly data found for worker {WorkerId}, week starting {WeekStart}",
+                                worker.WorkerId, weekStartDate.ToString("yyyy-MM-dd"));
                         }
                     }
                     catch (Exception ex)
                     {
-                        // Log but don't fail the whole operation
-                        _logger.LogWarning(ex, "Failed to check adjustments for worker {WorkerId}", worker.WorkerId);
+                        // Log but don't fail the whole operation for one worker
+                        _logger.LogWarning(ex, "Failed to check adjustments for worker {WorkerId} on cycle date {CycleDate}",
+                            worker.WorkerId, worker.CycleDate.ToString("yyyy-MM-dd"));
                     }
                 }
+
+                _logger.LogInformation("Found {AdjustmentCount} workers with current cycle adjustments", adjustments.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to get today's adjustments");
+                _logger.LogError(ex, "Failed to get current cycle adjustments");
             }
 
             return adjustments;
@@ -88,17 +121,23 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
         /// Get ALL registered workers, grouped by active status
         /// Shows latest activity data regardless of date
         /// </summary>
+        /// <summary>
+        /// Get ALL registered workers, grouped by active status
+        /// FIXED: Properly filter out invalid/empty workers to prevent ghost entries
+        /// </summary>
         public async Task<DashboardData> GetTodaysDashboardDataAsync()
         {
             var today = DateTime.Today;
 
-            // Get all registered workers
+            // Get all registered workers (with better filtering)
             var allWorkers = await GetAllRegisteredWorkersAsync();
 
+            _logger.LogInformation("Found {WorkerCount} valid registered workers", allWorkers.Count);
+
             // Load cycles from last 2 days to catch night shifts that started yesterday
-            var todaysCycles = await LoadCyclesForDateAsync(today);
-            var yesterdaysCycles = await LoadCyclesForDateAsync(today.AddDays(-1));
-            var allRecentCycles = todaysCycles.Concat(yesterdaysCycles).ToList();
+            var todaysCyclesWithFiles = await LoadCyclesForDateWithFileNamesAsync(today);
+            var yesterdaysCyclesWithFiles = await LoadCyclesForDateWithFileNamesAsync(today.AddDays(-1));
+            var allRecentCyclesWithFiles = todaysCyclesWithFiles.Concat(yesterdaysCyclesWithFiles).ToList();
 
             var activeWorkers = new List<WorkerStatus>();
             var inactiveWorkers = new List<WorkerStatus>();
@@ -106,44 +145,53 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             // Process each registered worker
             foreach (var worker in allWorkers)
             {
+                // CRITICAL FIX: Skip any worker with invalid data
+                if (worker.Id <= 0 || string.IsNullOrWhiteSpace(worker.Name))
+                {
+                    _logger.LogWarning("Skipping invalid worker: ID={WorkerId}, Name='{WorkerName}'", worker.Id, worker.Name ?? "NULL");
+                    continue;
+                }
+
                 // Find the most recent cycle for this worker (could be from today or yesterday)
-                var recentCycles = allRecentCycles
-                    .Where(c => c.WorkerId == worker.Id)
-                    .OrderByDescending(c => c.LastRecord?.Timestamp ?? c.CycleDate)
+                var recentCycles = allRecentCyclesWithFiles
+                    .Where(c => c.Cycle.WorkerId == worker.Id)
+                    .OrderByDescending(c => c.Cycle.LastRecord?.Timestamp ?? DateTime.MinValue)
                     .ToList();
 
-                var mostRecentCycle = recentCycles.FirstOrDefault();
+                if (recentCycles.Any())
+                {
+                    var mostRecentCycleWithFile = recentCycles.First();
+                    var workerStatus = CreateWorkerStatus(worker, mostRecentCycleWithFile.Cycle, mostRecentCycleWithFile.FileName);
 
-                if (mostRecentCycle != null && mostRecentCycle.IsCurrentlyCheckedIn)
-                {
-                    // Worker is currently checked in (active)
-                    var status = DetermineWorkerStatus(mostRecentCycle);
-                    activeWorkers.Add(status);
-                }
-                else if (mostRecentCycle != null && mostRecentCycle.CycleDate == today)
-                {
-                    // Worker has activity today but is signed out
-                    var status = DetermineWorkerStatus(mostRecentCycle);
-                    inactiveWorkers.Add(status);
-                }
-                else
-                {
-                    // No recent activity - find their LATEST activity from any date
-                    var latestCycle = await FindLatestCycleForWorkerAsync(worker.Id);
-
-                    if (latestCycle != null)
+                    // Determine if worker is currently active (checked in)
+                    if (mostRecentCycleWithFile.Cycle.IsCurrentlyCheckedIn)
                     {
-                        var status = DetermineWorkerStatus(latestCycle);
-                        status.IsActive = false;
-                        status.ShowDate = true;
-                        inactiveWorkers.Add(status);
+                        activeWorkers.Add(workerStatus);
                     }
                     else
                     {
-                        inactiveWorkers.Add(CreateEmptyWorkerStatus(worker));
+                        inactiveWorkers.Add(workerStatus);
                     }
                 }
+                else
+                {
+                    // Worker has no recent activity - create inactive status with no cycle data
+                    var workerStatus = new WorkerStatus
+                    {
+                        WorkerId = worker.Id,
+                        WorkerName = worker.Name,
+                        IsActive = false,
+                        LastActivity = DateTime.MinValue,
+                        CycleDate = today, // Default to today if no cycle data
+                        ShowDate = false
+                    };
+                    inactiveWorkers.Add(workerStatus);
+                    _logger.LogDebug("Worker {WorkerId} ({WorkerName}) has no recent activity", worker.Id, worker.Name);
+                }
             }
+
+            _logger.LogInformation("Dashboard loaded: {ActiveCount} active workers, {InactiveCount} inactive workers",
+                activeWorkers.Count, inactiveWorkers.Count);
 
             return new DashboardData
             {
@@ -153,114 +201,126 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             };
         }
 
-        /// <summary>
-        /// Get all registered workers from the Workers folder
-        /// Worker files are named like: 3.json, 5.json (numeric IDs only)
-        /// NOT the date-based cycle files like: 2025-10-02_Worker3.json
-        /// </summary>
+        private WorkerStatus CreateWorkerStatus(Worker worker, DailyWorkCycle cycle, string fileName)
+        {
+            var lastRecord = cycle.LastRecord;
+            var cycleDate = ExtractCycleDateFromFileName(fileName);
+
+            var status = new WorkerStatus
+            {
+                WorkerId = worker.Id,
+                WorkerName = worker.Name,
+                IsActive = cycle.IsCurrentlyCheckedIn,
+                LastActivity = lastRecord?.Timestamp ?? DateTime.MinValue,
+                CycleDate = cycleDate,
+                CurrentCycle = lastRecord?.WorkCycle ?? WorkCycle.Normal,
+                ShowDate = cycleDate.Date != DateTime.Today // Show date if not today's cycle
+            };
+
+            // Calculate current duration for active workers
+            if (cycle.IsCurrentlyCheckedIn && lastRecord != null)
+            {
+                status.CurrentDuration = DateTime.Now - lastRecord.Timestamp;
+            }
+
+            // Set OT flag
+            status.HasOT = cycle.Records.Any(r => r.WorkCycle == WorkCycle.OT);
+
+            // Set timing details for completed shifts
+            var normalRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.Normal).ToList();
+            var otRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.OT).ToList();
+
+            if (normalRecords.Any())
+            {
+                var firstNormalSignIn = normalRecords.Where(r => r.Type == AttendanceType.CheckIn).FirstOrDefault();
+                var lastNormalSignOut = normalRecords.Where(r => r.Type == AttendanceType.CheckOut).LastOrDefault();
+
+                status.NormalSignIn = firstNormalSignIn?.Timestamp;
+                status.NormalSignOut = lastNormalSignOut?.Timestamp;
+
+                if (status.NormalSignIn.HasValue && status.NormalSignOut.HasValue)
+                {
+                    status.NormalHoursWorked = status.NormalSignOut.Value - status.NormalSignIn.Value;
+                }
+            }
+
+            if (otRecords.Any())
+            {
+                var firstOTSignIn = otRecords.Where(r => r.Type == AttendanceType.CheckIn).FirstOrDefault();
+                var lastOTSignOut = otRecords.Where(r => r.Type == AttendanceType.CheckOut).LastOrDefault();
+
+                status.OTSignIn = firstOTSignIn?.Timestamp;
+                status.OTSignOut = lastOTSignOut?.Timestamp;
+
+                if (status.OTSignIn.HasValue && status.OTSignOut.HasValue)
+                {
+                    status.OTHoursWorked = status.OTSignOut.Value - status.OTSignIn.Value;
+                }
+            }
+
+            return status;
+        }
+
+        private DateTime ExtractCycleDateFromFileName(string fileName)
+        {
+            // Extract date from filename like "2025-10-02_Worker3.json"
+            try
+            {
+                var datePart = fileName.Split('_')[0];
+                return DateTime.ParseExact(datePart, "yyyy-MM-dd", null);
+            }
+            catch
+            {
+                // Fallback to today if can't parse
+                return DateTime.Today;
+            }
+        }
+
         private async Task<List<Worker>> GetAllRegisteredWorkersAsync()
         {
             var workers = new List<Worker>();
-
             try
             {
                 var identifiers = await _workerStorage.ListIdentifiersAsync();
-
-                // Filter to only numeric worker files (3.json, 5.json, etc.)
-                // Exclude date-based cycle files (2025-10-02_Worker3.json)
-                var workerFiles = identifiers
-                    .Where(id =>
-                    {
-                        // Get filename without extension
-                        var fileName = Path.GetFileNameWithoutExtension(id);
-                        // Check if it's purely numeric (worker ID files)
-                        return int.TryParse(fileName, out _);
-                    })
-                    .ToList();
-
-                _logger.LogInformation("Found {Count} registered worker files", workerFiles.Count);
-
-                foreach (var id in workerFiles)
+                foreach (var identifier in identifiers)
                 {
                     try
                     {
-                        var worker = await _workerStorage.LoadAsync(id);
-                        if (worker != null && !string.IsNullOrWhiteSpace(worker.Name))
+                        var worker = await _workerStorage.LoadAsync(identifier);
+                        if (worker != null)
                         {
                             workers.Add(worker);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Skipping invalid worker with ID: {Identifier} (empty or null name)", id);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to load worker: {Identifier}", id);
+                        _logger.LogWarning(ex, "Failed to load worker with identifier {Identifier}", identifier);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading registered workers");
+                _logger.LogError(ex, "Failed to get registered workers");
             }
 
             return workers.OrderBy(w => w.Id).ToList();
         }
 
-        /// <summary>
-        /// Find the most recent work cycle for a worker (from any date)
-        /// </summary>
-        private async Task<DailyWorkCycle?> FindLatestCycleForWorkerAsync(int workerId)
-        {
-            try
-            {
-                var allIdentifiers = await _cycleStorage.ListIdentifiersAsync();
-                var workerFiles = allIdentifiers
-                    .Where(id => id.Contains($"_Worker{workerId}.json"))
-                    .OrderByDescending(id => id) // Newest first (by filename date)
-                    .ToList();
-
-                if (!workerFiles.Any())
-                    return null;
-
-                // Get the most recent file
-                var latestFile = workerFiles.First();
-
-                _logger.LogDebug("Found latest cycle for Worker {WorkerId}: {FileName}", workerId, latestFile);
-
-                return await _cycleStorage.LoadAsync(latestFile);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error finding latest cycle for Worker {WorkerId}", workerId);
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Load all work cycles for a specific date
-        /// </summary>
         private async Task<List<DailyWorkCycle>> LoadCyclesForDateAsync(DateTime date)
         {
             var cycles = new List<DailyWorkCycle>();
+            var datePrefix = date.ToString("yyyy-MM-dd");
 
             try
             {
-                var allIdentifiers = await _cycleStorage.ListIdentifiersAsync();
-                var datePrefix = date.ToString("yyyy-MM-dd");
-                var dateIdentifiers = allIdentifiers
-                    .Where(id => id.StartsWith(datePrefix))
-                    .ToList();
+                var identifiers = await _cycleStorage.ListIdentifiersAsync();
+                var dateFiles = identifiers.Where(id => id.StartsWith(datePrefix)).ToList();
 
-                _logger.LogDebug("Found {Count} work cycles for {Date}",
-                    dateIdentifiers.Count, date.ToString("yyyy-MM-dd"));
-
-                foreach (var identifier in dateIdentifiers)
+                foreach (var fileName in dateFiles)
                 {
                     try
                     {
-                        var cycle = await _cycleStorage.LoadAsync(identifier);
+                        var cycle = await _cycleStorage.LoadAsync(fileName);
                         if (cycle != null)
                         {
                             cycles.Add(cycle);
@@ -268,122 +328,53 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to load cycle: {Identifier}", identifier);
+                        _logger.LogWarning(ex, "Failed to load cycle file {FileName}", fileName);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading cycles for date {Date}", date);
+                _logger.LogError(ex, "Failed to load cycles for date {Date}", date.ToString("yyyy-MM-dd"));
             }
 
             return cycles;
         }
 
         /// <summary>
-        /// Create an empty worker status for workers with no recent activity
+        /// Load cycles for a date and return both cycle and filename for date extraction
         /// </summary>
-        private WorkerStatus CreateEmptyWorkerStatus(Worker worker)
+        private async Task<List<(DailyWorkCycle Cycle, string FileName)>> LoadCyclesForDateWithFileNamesAsync(DateTime date)
         {
-            return new WorkerStatus
+            var cyclesWithFiles = new List<(DailyWorkCycle Cycle, string FileName)>();
+            var datePrefix = date.ToString("yyyy-MM-dd");
+
+            try
             {
-                WorkerId = worker.Id,
-                WorkerName = worker.Name,
-                IsActive = false,
-                LastActivity = DateTime.MinValue,
-                CurrentCycle = WorkCycle.Normal,
-                HasOT = false,
-                CurrentDuration = null,
-                NormalSignIn = null,
-                NormalSignOut = null,
-                NormalHoursWorked = null,
-                OTSignIn = null,
-                OTSignOut = null,
-                OTHoursWorked = null,
-                ShowDate = false
-            };
-        }
+                var identifiers = await _cycleStorage.ListIdentifiersAsync();
+                var dateFiles = identifiers.Where(id => id.StartsWith(datePrefix)).ToList();
 
-        /// <summary>
-        /// Determine if a worker is currently active based on their last record
-        /// </summary>
-        private WorkerStatus DetermineWorkerStatus(DailyWorkCycle cycle)
-        {
-            var lastRecord = cycle.LastRecord;
-            var isActive = lastRecord?.Type == AttendanceType.CheckIn;
-
-            var status = new WorkerStatus
-            {
-                WorkerId = cycle.WorkerId,
-                WorkerName = cycle.WorkerName,
-                IsActive = isActive,
-                LastActivity = lastRecord?.Timestamp ?? cycle.CycleDate,
-                CycleDate = cycle.CycleDate, // Store the cycle date for display
-                CurrentCycle = lastRecord?.WorkCycle ?? WorkCycle.Normal,
-                HasOT = cycle.HasOT,
-                ShowDate = false // Will be set to true if showing old data
-            };
-
-            // Calculate duration if currently active
-            if (isActive && lastRecord != null)
-            {
-                status.CurrentDuration = DateTime.Now - lastRecord.Timestamp;
-            }
-
-            // Calculate detailed work hours for both Normal and OT cycles
-            CalculateWorkHours(cycle, status);
-
-            return status;
-        }
-
-        /// <summary>
-        /// Calculate detailed work hours for Normal and OT cycles
-        /// </summary>
-        private void CalculateWorkHours(DailyWorkCycle cycle, WorkerStatus status)
-        {
-            // Get Normal work records (CheckIn/CheckOut pairs)
-            var normalRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.Normal).ToList();
-            if (normalRecords.Any())
-            {
-                var normalCheckIn = normalRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckIn);
-                var normalCheckOut = normalRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckOut);
-
-                status.NormalSignIn = normalCheckIn?.Timestamp;
-                status.NormalSignOut = normalCheckOut?.Timestamp;
-
-                // Calculate hours worked for Normal shift
-                if (normalCheckIn != null && normalCheckOut != null)
+                foreach (var fileName in dateFiles)
                 {
-                    status.NormalHoursWorked = normalCheckOut.Timestamp - normalCheckIn.Timestamp;
-                }
-                else if (normalCheckIn != null && !status.IsActive)
-                {
-                    // Signed in but never signed out (and not currently active) - show as incomplete
-                    status.NormalHoursWorked = null;
+                    try
+                    {
+                        var cycle = await _cycleStorage.LoadAsync(fileName);
+                        if (cycle != null)
+                        {
+                            cyclesWithFiles.Add((cycle, fileName));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to load cycle file {FileName}", fileName);
+                    }
                 }
             }
-
-            // Get OT work records (CheckIn/CheckOut pairs)
-            var otRecords = cycle.Records.Where(r => r.WorkCycle == WorkCycle.OT).ToList();
-            if (otRecords.Any())
+            catch (Exception ex)
             {
-                var otCheckIn = otRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckIn);
-                var otCheckOut = otRecords.FirstOrDefault(r => r.Type == AttendanceType.CheckOut);
-
-                status.OTSignIn = otCheckIn?.Timestamp;
-                status.OTSignOut = otCheckOut?.Timestamp;
-
-                // Calculate hours worked for OT shift
-                if (otCheckIn != null && otCheckOut != null)
-                {
-                    status.OTHoursWorked = otCheckOut.Timestamp - otCheckIn.Timestamp;
-                }
-                else if (otCheckIn != null && status.IsActive && status.CurrentCycle == WorkCycle.OT)
-                {
-                    // Currently working OT - calculate current duration
-                    status.OTHoursWorked = DateTime.Now - otCheckIn.Timestamp;
-                }
+                _logger.LogError(ex, "Failed to load cycles for date {Date}", date.ToString("yyyy-MM-dd"));
             }
+
+            return cyclesWithFiles;
         }
     }
 }

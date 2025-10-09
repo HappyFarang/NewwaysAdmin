@@ -1,5 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerSelector.razor *@
 @* Purpose: Worker button selector with status display *@
+@* FIXED: Handle potential duplicates and improve styling *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WorkerAttendance.Models
@@ -10,22 +11,27 @@
         <div class="mb-3">
             <label class="form-label">
                 <span class="bi bi-person me-2"></span>
-                Select Worker
+                Select Worker (@UniqueWorkers.Count() workers)
             </label>
-            <div class="btn-group flex-wrap" role="group">
-                @foreach (var worker in Workers)
+            <div class="worker-button-container">
+                @foreach (var worker in UniqueWorkers)
                 {
                     var isSelected = worker.WorkerId == SelectedWorkerId;
                     var buttonClass = isSelected ? "btn-success" : "btn-outline-secondary";
 
                     <button type="button"
-                            class="btn @buttonClass btn-sm"
-                            @onclick="() => HandleWorkerClick(worker.WorkerId)">
+                            class="btn @buttonClass btn-sm worker-btn"
+                            @onclick="() => HandleWorkerClick(worker.WorkerId)"
+                            @onclick:preventDefault="true">
                         @worker.WorkerName
                         @if (worker.IsActive)
                         {
                             var dotColor = worker.CurrentCycle == WorkCycle.OT ? "text-warning" : "text-success";
                             <span class="bi bi-circle-fill @dotColor ms-1" style="font-size: 0.5rem;"></span>
+                        }
+                        @if (worker.HasAdjustments)
+                        {
+                            <span class="bi bi-gear-fill text-info ms-1" style="font-size: 0.6rem;" title="Has adjustments"></span>
                         }
                     </button>
                 }
@@ -36,14 +42,23 @@
         @if (SelectedWorker != null)
         {
             <div class="border-top pt-3">
-                <div class="d-flex align-items-center">
-                    <span class="badge @(SelectedWorker.IsActive ? "bg-success" : "bg-secondary") me-2">
-                        @(SelectedWorker.IsActive ? "Active" : "Inactive")
-                    </span>
-                    <span class="text-muted small">
-                        ID: @SelectedWorker.WorkerId |
-                        Last Activity: @SelectedWorker.LastActivityFormatted
-                    </span>
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center">
+                        <span class="badge @(SelectedWorker.IsActive ? "bg-success" : "bg-secondary") me-2">
+                            @(SelectedWorker.IsActive ? "Active" : "Inactive")
+                        </span>
+                        <span class="text-muted small">
+                            ID: @SelectedWorker.WorkerId |
+                            Last Activity: @SelectedWorker.LastActivityFormatted
+                        </span>
+                    </div>
+                    @if (SelectedWorker.HasAdjustments)
+                    {
+                        <span class="badge bg-info">
+                            <span class="bi bi-gear-fill me-1"></span>
+                            Adjusted
+                        </span>
+                    }
                 </div>
             </div>
         }
@@ -51,9 +66,57 @@
 </div>
 
 <style>
+    .worker-button-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .worker-btn {
+        margin-bottom: 0.25rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+        .worker-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
     .btn-group {
         gap: 0.25rem;
     }
+
+    /* Ensure no weird CSS inheritance issues */
+    .worker-button-container button {
+        border: 1px solid #ccc;
+        background: #fff;
+        color: #333;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+        .worker-button-container button.btn-success {
+            background-color: #198754 !important;
+            border-color: #198754 !important;
+            color: white !important;
+        }
+
+        .worker-button-container button.btn-outline-secondary {
+            background-color: transparent;
+            border-color: #6c757d;
+            color: #6c757d;
+        }
+
+            .worker-button-container button.btn-outline-secondary:hover {
+                background-color: #6c757d;
+                color: white;
+            }
 </style>
 
 @code {
@@ -69,8 +132,26 @@
     [Parameter]
     public EventCallback<int> OnWorkerSelected { get; set; }
 
+    /// <summary>
+    /// CRITICAL FIX: Remove duplicates and ensure stable ordering
+    /// </summary>
+    private IEnumerable<WorkerStatus> UniqueWorkers =>
+        Workers
+            .GroupBy(w => w.WorkerId)
+            .Select(g => g.First()) // Take first occurrence of each worker ID
+            .OrderBy(w => w.WorkerName)
+            .ToList();
+
     private async Task HandleWorkerClick(int workerId)
     {
-        await OnWorkerSelected.InvokeAsync(workerId);
+        try
+        {
+            await OnWorkerSelected.InvokeAsync(workerId);
+        }
+        catch (Exception ex)
+        {
+            // Log error but don't crash the UI
+            Console.WriteLine($"Error selecting worker {workerId}: {ex.Message}");
+        }
     }
 }

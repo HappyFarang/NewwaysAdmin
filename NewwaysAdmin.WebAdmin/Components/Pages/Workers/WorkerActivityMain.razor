@@ -1,6 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerActivityMain.razor *@
 @* Purpose: Main worker activity dashboard page - orchestrates child components *@
-@* UPDATED: Added navigation tabs, removed large header *@
+@* UPDATED: Fixed adjustment application to use returned objects *@
 
 @page "/worker-activity"
 @using NewwaysAdmin.WebAdmin.Services.Workers
@@ -30,31 +30,31 @@
 
     @if (_isLoading && _dashboardData == null)
     {
-            <div class="text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading worker activity...</p>
                 </div>
-                <p class="mt-2">Loading worker activity...</p>
-            </div>
     }
     else if (_dashboardData != null)
     {
-            <ActiveWorkersCard Workers="@_dashboardData.ActiveWorkers" />
-            <InactiveWorkersCard Workers="@_dashboardData.InactiveWorkers" />
+                <ActiveWorkersCard Workers="@_dashboardData.ActiveWorkers" />
+                <InactiveWorkersCard Workers="@_dashboardData.InactiveWorkers" />
     }
     else if (_error != null)
     {
-            <div class="alert alert-danger" role="alert">
-                <h5 class="alert-heading">
-                    <span class="bi bi-exclamation-triangle me-2"></span>
-                    Error Loading Data
-                </h5>
-                <p>@_error</p>
-                <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
-                    <span class="bi bi-arrow-clockwise me-1"></span>
-                    Try Again
-                </button>
-            </div>
+                <div class="alert alert-danger" role="alert">
+                    <h5 class="alert-heading">
+                        <span class="bi bi-exclamation-triangle me-2"></span>
+                        Error Loading Data
+                    </h5>
+                    <p>@_error</p>
+                    <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
+                        <span class="bi bi-arrow-clockwise me-1"></span>
+                        Try Again
+                    </button>
+                </div>
     }
 </div>
 
@@ -75,6 +75,7 @@
         try
         {
             _todaysAdjustments = await DashboardService.GetTodaysAdjustmentsAsync();
+            Logger.LogInformation("Loaded {Count} adjustments for current working cycles", _todaysAdjustments.Count);
             ApplyAdjustmentsToWorkers();
         }
         catch (Exception ex)
@@ -87,23 +88,38 @@
     {
         if (_dashboardData == null) return;
 
-        // Apply adjustments to active workers
-        foreach (var worker in _dashboardData.ActiveWorkers)
+        Logger.LogInformation("Applying adjustments to {ActiveCount} active and {InactiveCount} inactive workers",
+            _dashboardData.ActiveWorkers.Count, _dashboardData.InactiveWorkers.Count);
+
+        // Apply adjustments to active workers - CRITICAL FIX: Use returned objects
+        for (int i = 0; i < _dashboardData.ActiveWorkers.Count; i++)
         {
+            var worker = _dashboardData.ActiveWorkers[i];
             if (_todaysAdjustments.TryGetValue(worker.WorkerId, out var adjustment))
             {
-                worker.ApplyTodaysAdjustments(adjustment);
+                var adjustedWorker = worker.ApplyTodaysAdjustments(adjustment);
+                _dashboardData.ActiveWorkers[i] = adjustedWorker; // Replace with adjusted version
+                Logger.LogInformation("Applied adjustment to active worker {WorkerId}: {Description}",
+                    worker.WorkerId, adjustment.AdjustmentTooltip);
             }
         }
 
-        // Apply adjustments to inactive workers
-        foreach (var worker in _dashboardData.InactiveWorkers)
+        // Apply adjustments to inactive workers - CRITICAL FIX: Use returned objects
+        for (int i = 0; i < _dashboardData.InactiveWorkers.Count; i++)
         {
+            var worker = _dashboardData.InactiveWorkers[i];
             if (_todaysAdjustments.TryGetValue(worker.WorkerId, out var adjustment))
             {
-                worker.ApplyTodaysAdjustments(adjustment);
+                var adjustedWorker = worker.ApplyTodaysAdjustments(adjustment);
+                _dashboardData.InactiveWorkers[i] = adjustedWorker; // Replace with adjusted version
+                Logger.LogInformation("Applied adjustment to inactive worker {WorkerId}: {Description}",
+                    worker.WorkerId, adjustment.AdjustmentTooltip);
             }
         }
+
+        // Force UI refresh to show updated data
+        StateHasChanged();
+        Logger.LogInformation("Applied adjustments and triggered UI refresh");
     }
 
     private async Task LoadDashboard()
@@ -113,6 +129,8 @@
             _isLoading = true;
             _error = null;
             _dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
+            Logger.LogInformation("Loaded dashboard data: {ActiveCount} active, {InactiveCount} inactive workers",
+                _dashboardData?.ActiveWorkers.Count ?? 0, _dashboardData?.InactiveWorkers.Count ?? 0);
         }
         catch (Exception ex)
         {
@@ -128,5 +146,6 @@
     private async Task RefreshDashboard()
     {
         await LoadDashboard();
+        await LoadTodaysAdjustments(); // Also reload adjustments on refresh
     }
 }
