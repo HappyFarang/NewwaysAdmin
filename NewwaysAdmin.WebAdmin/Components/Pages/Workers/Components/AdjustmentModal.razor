@@ -191,10 +191,19 @@
                                     <input type="text"
                                            class="form-control"
                                            @bind="_customDescription"
-                                           placeholder="Reason for adjustment (e.g., 'Extended coffee collection route')"
+                                           placeholder="Optional: Reason for adjustment (auto-generated if left empty)"
                                            maxlength="200" />
                                 </div>
-
+                                <!-- Manual Sign In Time -->
+                                <div class="col-md-6">
+                                    <label class="form-label">Custom Sign-In Time</label>
+                                    <input type="time"
+                                           class="form-control"
+                                           value="@_customSignInTime"
+                                           @onchange="@((ChangeEventArgs e) => _customSignInTime = e.Value?.ToString() ?? "")"
+                                           step="60" />
+                                    <small class="text-muted">Leave empty to keep original time</small>
+                                </div>
                                 <!-- Manual Sign Out Time -->
                                 <div class="col-md-6">
                                     <label class="form-label">Custom Sign-Out Time</label>
@@ -246,7 +255,7 @@
                                         <button type="button"
                                                 class="btn btn-primary"
                                                 @onclick="ApplyManualAdjustment"
-                                                disabled="@(_isProcessing || string.IsNullOrWhiteSpace(_customDescription))">
+                                                disabled="@_isProcessing">
                                             <i class="bi bi-check-lg me-2"></i>
                                             Apply Manual Adjustment
                                         </button>
@@ -303,6 +312,7 @@
 
     // Manual input fields
     private string _customDescription = "";
+    private string _customSignInTime = "";
     private string _customSignOutTime = "";
     private decimal? _customOTHours;
     private bool _overrideOnTime = false;
@@ -388,10 +398,17 @@
 
     private async Task ApplyManualAdjustment()
     {
-        if (_currentDay == null || _settings == null || string.IsNullOrWhiteSpace(_customDescription)) return;
+        if (_currentDay == null || _settings == null) return; // REMOVED: || string.IsNullOrWhiteSpace(_customDescription)
 
         await ProcessAdjustment(async () =>
         {
+            // Parse custom sign-in time if provided
+            DateTime? customSignIn = null;
+            if (!string.IsNullOrWhiteSpace(_customSignInTime) && TimeSpan.TryParse(_customSignInTime, out var signInTimeSpan))
+            {
+                customSignIn = _currentDay.Date.Add(signInTimeSpan);
+            }
+
             // Parse custom sign-out time if provided
             DateTime? customSignOut = null;
             if (!string.IsNullOrWhiteSpace(_customSignOutTime) && TimeSpan.TryParse(_customSignOutTime, out var timeSpan))
@@ -406,15 +423,43 @@
                 onTimeOverride = bool.Parse(_customOnTimeStatus);
             }
 
+            // Use description if provided, otherwise generate a smart default
+            var description = string.IsNullOrWhiteSpace(_customDescription)
+                ? GenerateDefaultDescription(customSignIn, customSignOut, _customOTHours, onTimeOverride)
+                : _customDescription;
+
             // Use the enhanced custom adjustment method with full timing preservation
             return await AdjustmentService.ApplyCustomAdjustmentAsync(
                 _currentDay,
                 _settings,
-                _customDescription,
+                description,
+                customSignIn,
                 customSignOut,
                 _customOTHours,
                 onTimeOverride);
         });
+    }
+
+    private string GenerateDefaultDescription(DateTime? customSignIn, DateTime? customSignOut, decimal? customOTHours, bool? onTimeOverride)
+    {
+        var changes = new List<string>();
+
+        if (customSignIn.HasValue)
+            changes.Add($"sign-in to {customSignIn.Value:HH:mm}");
+
+        if (customSignOut.HasValue)
+            changes.Add($"sign-out to {customSignOut.Value:HH:mm}");
+
+        if (customOTHours.HasValue)
+            changes.Add($"OT hours to {customOTHours.Value:F1}h");
+
+        if (onTimeOverride.HasValue)
+            changes.Add($"on-time status to {(onTimeOverride.Value ? "Yes" : "No")}");
+
+        if (changes.Any())
+            return $"Manual adjustment: {string.Join(", ", changes)}";
+
+        return "Manual timing adjustment";
     }
 
     private async Task ClearAdjustments()
