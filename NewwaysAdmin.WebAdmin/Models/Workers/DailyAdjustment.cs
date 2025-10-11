@@ -131,6 +131,19 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         /// <summary>
         /// Summary of what changed for display purposes
         /// </summary>
+        /// 
+        /// <summary>
+        /// Adjusted sign-in time for normal shift (if applicable)
+        
+        /// <summary>
+        /// Adjusted sign-in time for OT shift (if applicable)
+        /// </summary>
+        public DateTime? AdjustedOTSignIn { get; set; }
+
+        /// <summary>
+        /// Adjusted sign-out time for OT shift (if applicable)
+        /// </summary>
+        public DateTime? AdjustedOTSignOut { get; set; }
         public string ChangeSummary
         {
             get

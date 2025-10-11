@@ -255,6 +255,11 @@ public class Program
         services.AddScoped<WorkerWeeklyService>();
         services.AddScoped<AdjustmentService>();     // NEW
 
+        // Worker services
+        services.AddScoped<WorkerDataService>();
+        services.AddScoped<WorkerSettingsService>();
+        services.AddScoped<WorkerPaymentCalculator>();
+
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
         {
