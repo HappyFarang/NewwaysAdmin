@@ -253,7 +253,14 @@ public class Program
         services.AddScoped<WorkerSettingsService>();       
         services.AddScoped<WorkerPaymentCalculator>();       
         services.AddScoped<WorkerWeeklyService>();
-        services.AddScoped<AdjustmentService>();     // NEW
+        services.AddScoped<AdjustmentService>();     // a focile that stays for a while
+
+        // NEW: Worker Data Architecture Services
+        services.AddScoped<DailyAdjustmentStorage>();        // File I/O for adjustments
+        services.AddScoped<RawDataCalculator>();             // Load and extract raw times
+        services.AddScoped<WorkerDataService>();             // Data orchestration layer
+        services.AddSingleton<TimeCalculator>();             // Pure math functions (singleton - no state)
+        services.AddScoped<WorkerDisplayService>();          // 90% solution helper service
 
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
