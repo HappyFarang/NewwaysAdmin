@@ -282,19 +282,48 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             try
             {
                 var identifiers = await _workerStorage.ListIdentifiersAsync();
-                foreach (var identifier in identifiers)
+
+                // FILTER: Only load worker profile files, not attendance files
+                // Worker profiles: "3.json", "5.json", etc.
+                // Attendance files: "2025-10-11_Worker3.json.json" (skip these)
+                var workerProfileFiles = identifiers.Where(id =>
+                {
+                    // Skip attendance files with .json.json extension
+                    if (id.EndsWith(".json.json")) return false;
+
+                    // Skip files with date prefixes (attendance files)
+                    if (id.Contains("_Worker")) return false;
+
+                    // Skip adjustment files
+                    if (id.StartsWith("adjustment_")) return false;
+
+                    // Only load files that are just numbers with .json extension (worker profiles)
+                    var nameWithoutExtension = id.Replace(".json", "");
+                    return int.TryParse(nameWithoutExtension, out var workerId) && workerId > 0;
+                }).ToList();
+
+                _logger.LogDebug("Found {ProfileCount} worker profile files out of {TotalCount} total files",
+                    workerProfileFiles.Count, identifiers.Count());
+
+                foreach (var identifier in workerProfileFiles)
                 {
                     try
                     {
                         var worker = await _workerStorage.LoadAsync(identifier);
-                        if (worker != null)
+                        if (worker != null && worker.Id > 0 && !string.IsNullOrWhiteSpace(worker.Name))
                         {
                             workers.Add(worker);
+                            _logger.LogDebug("Loaded worker profile: ID={WorkerId}, Name={WorkerName}", worker.Id, worker.Name);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Invalid worker data in file {Identifier}: ID={WorkerId}, Name='{WorkerName}'",
+                                identifier, worker?.Id ?? 0, worker?.Name ?? "NULL");
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to load worker with identifier {Identifier}", identifier);
+                        _logger.LogWarning(ex, "Failed to load worker profile file {Identifier}", identifier);
                     }
                 }
             }
@@ -303,6 +332,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
                 _logger.LogError(ex, "Failed to get registered workers");
             }
 
+            _logger.LogInformation("Successfully loaded {WorkerCount} valid worker profiles", workers.Count);
             return workers.OrderBy(w => w.Id).ToList();
         }
 

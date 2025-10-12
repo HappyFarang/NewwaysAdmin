@@ -1,6 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerActivityMain.razor *@
-@* Purpose: Main worker activity dashboard page - orchestrates child components *@
-@* UPDATED: Fixed adjustment application to use returned objects *@
+@* Purpose: MIGRATED - Main worker activity dashboard using new WorkerDataService *@
+@* CHANGE: Now uses WorkerDataService + WorkerDisplayData instead of WorkerDashboardService + WorkerStatus *@
 
 @page "/worker-activity"
 @using NewwaysAdmin.WebAdmin.Services.Workers
@@ -8,6 +8,9 @@
 @using NewwaysAdmin.WebAdmin.Components.Pages.Workers.Components
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
+@inject WorkerDataService DataService
+@inject WorkerSettingsService SettingsService
+@* Keep DashboardService for worker list - will migrate later *@
 @inject WorkerDashboardService DashboardService
 @inject ILogger<WorkerActivityMain> Logger
 
@@ -20,7 +23,7 @@
     <!-- Refresh Controls -->
     <div class="d-flex justify-content-end mb-3">
         <span class="text-muted small me-2 align-self-center">
-            Last updated: @(_dashboardData?.RefreshTime.ToString("HH:mm:ss") ?? "--:--:--")
+            Last updated: @(_refreshTime.ToString("HH:mm:ss"))
         </span>
         <button class="btn btn-sm btn-outline-primary" @onclick="RefreshDashboard" disabled="@_isLoading">
             <span class="bi bi-arrow-clockwise"></span>
@@ -28,98 +31,76 @@
         </button>
     </div>
 
-    @if (_isLoading && _dashboardData == null)
+    @if (_isLoading && !_activeWorkers.Any() && !_inactiveWorkers.Any())
     {
-                <div class="text-center py-5">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-2">Loading worker activity...</p>
-                </div>
-    }
-    else if (_dashboardData != null)
-    {
-                <ActiveWorkersCard Workers="@_dashboardData.ActiveWorkers" />
-                <InactiveWorkersCard Workers="@_dashboardData.InactiveWorkers" />
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading worker activity...</p>
+        </div>
     }
     else if (_error != null)
     {
-                <div class="alert alert-danger" role="alert">
-                    <h5 class="alert-heading">
-                        <span class="bi bi-exclamation-triangle me-2"></span>
-                        Error Loading Data
-                    </h5>
-                    <p>@_error</p>
-                    <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
-                        <span class="bi bi-arrow-clockwise me-1"></span>
-                        Try Again
-                    </button>
-                </div>
+        <div class="alert alert-danger" role="alert">
+            <h5 class="alert-heading">
+                <span class="bi bi-exclamation-triangle me-2"></span>
+                Error Loading Data
+            </h5>
+            <p>@_error</p>
+            <button class="btn btn-danger btn-sm" @onclick="RefreshDashboard">
+                <span class="bi bi-arrow-clockwise me-1"></span>
+                Try Again
+            </button>
+        </div>
+    }
+    else
+    {
+        <!-- Active Workers Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                    <span class="bi bi-check-circle me-2"></span>
+                    Active Workers (@_activeWorkers.Count)
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <WorkerDisplayTable Workers="@_activeWorkers"
+                                    IsActive="true"
+                                    HeaderClass="table-success"
+                                    EmptyMessage="No workers are currently signed in." />
+            </div>
+        </div>
+
+        <!-- Inactive Workers Card -->
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">
+                    <span class="bi bi-dash-circle me-2"></span>
+                    Inactive Workers (@_inactiveWorkers.Count)
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <WorkerDisplayTable Workers="@_inactiveWorkers"
+                                    IsActive="false"
+                                    HeaderClass="table-light"
+                                    EmptyMessage="No inactive workers for today." />
+            </div>
+        </div>
     }
 </div>
 
 @code {
-    private DashboardData? _dashboardData;
+    // NEW: Clean state with WorkerDisplayData
+    private List<WorkerDisplayData> _activeWorkers = new();
+    private List<WorkerDisplayData> _inactiveWorkers = new();
     private bool _isLoading = true;
     private string? _error;
-    private Dictionary<int, DailyWorkRecord> _todaysAdjustments = new();
+    private DateTime _refreshTime = DateTime.Now;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadDashboard();
-        await LoadTodaysAdjustments();
-    }
-
-    private async Task LoadTodaysAdjustments()
-    {
-        try
-        {
-            _todaysAdjustments = await DashboardService.GetTodaysAdjustmentsAsync();
-            Logger.LogInformation("Loaded {Count} adjustments for current working cycles", _todaysAdjustments.Count);
-            ApplyAdjustmentsToWorkers();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to load today's adjustments");
-        }
-    }
-
-    private void ApplyAdjustmentsToWorkers()
-    {
-        if (_dashboardData == null) return;
-
-        Logger.LogInformation("Applying adjustments to {ActiveCount} active and {InactiveCount} inactive workers",
-            _dashboardData.ActiveWorkers.Count, _dashboardData.InactiveWorkers.Count);
-
-        // Apply adjustments to active workers - CRITICAL FIX: Use returned objects
-        for (int i = 0; i < _dashboardData.ActiveWorkers.Count; i++)
-        {
-            var worker = _dashboardData.ActiveWorkers[i];
-            if (_todaysAdjustments.TryGetValue(worker.WorkerId, out var adjustment))
-            {
-                var adjustedWorker = worker.ApplyTodaysAdjustments(adjustment);
-                _dashboardData.ActiveWorkers[i] = adjustedWorker; // Replace with adjusted version
-                Logger.LogInformation("Applied adjustment to active worker {WorkerId}: {Description}",
-                    worker.WorkerId, adjustment.AdjustmentTooltip);
-            }
-        }
-
-        // Apply adjustments to inactive workers - CRITICAL FIX: Use returned objects
-        for (int i = 0; i < _dashboardData.InactiveWorkers.Count; i++)
-        {
-            var worker = _dashboardData.InactiveWorkers[i];
-            if (_todaysAdjustments.TryGetValue(worker.WorkerId, out var adjustment))
-            {
-                var adjustedWorker = worker.ApplyTodaysAdjustments(adjustment);
-                _dashboardData.InactiveWorkers[i] = adjustedWorker; // Replace with adjusted version
-                Logger.LogInformation("Applied adjustment to inactive worker {WorkerId}: {Description}",
-                    worker.WorkerId, adjustment.AdjustmentTooltip);
-            }
-        }
-
-        // Force UI refresh to show updated data
-        StateHasChanged();
-        Logger.LogInformation("Applied adjustments and triggered UI refresh");
     }
 
     private async Task LoadDashboard()
@@ -128,13 +109,74 @@
         {
             _isLoading = true;
             _error = null;
-            _dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
-            Logger.LogInformation("Loaded dashboard data: {ActiveCount} active, {InactiveCount} inactive workers",
-                _dashboardData?.ActiveWorkers.Count ?? 0, _dashboardData?.InactiveWorkers.Count ?? 0);
+            _refreshTime = DateTime.Now;
+
+            // STEP 1: Get basic worker list from old service (temporary)
+            // TODO: Later migrate this to a simpler worker enumeration service
+            var dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
+            var allWorkers = dashboardData.ActiveWorkers.Concat(dashboardData.InactiveWorkers);
+
+            Logger.LogInformation("Processing {WorkerCount} workers with new WorkerDataService", allWorkers.Count());
+
+            var activeWorkers = new List<WorkerDisplayData>();
+            var inactiveWorkers = new List<WorkerDisplayData>();
+
+            // STEP 2: Process each worker with the new service
+            foreach (var workerStatus in allWorkers)
+            {
+                try
+                {
+                    // Generate filename from worker data
+                    var fileName = $"{workerStatus.CycleDate:yyyy-MM-dd}_Worker{workerStatus.WorkerId}.json";
+
+                    // Load worker settings
+                    var settings = await SettingsService.GetSettingsAsync(workerStatus.WorkerId, workerStatus.WorkerName);
+
+                    // Get complete data using new service - THIS IS THE KEY CHANGE
+                    var displayData = await DataService.GetCompleteDataAsync(fileName, settings);
+
+                    if (displayData != null)
+                    {
+                        // Set activity flags based on current status
+                        displayData.IsCurrentlyWorking = workerStatus.IsActive;
+                        displayData.HasWorkActivity = workerStatus.HasActivity;
+                        displayData.CurrentDuration = workerStatus.CurrentDuration ?? TimeSpan.Zero;
+
+                        // Add to appropriate list
+                        if (workerStatus.IsActive)
+                        {
+                            activeWorkers.Add(displayData);
+                        }
+                        else
+                        {
+                            inactiveWorkers.Add(displayData);
+                        }
+
+                        Logger.LogDebug("Processed worker {WorkerId} with new service - HasAdjustments: {HasAdjustments}",
+                            displayData.WorkerId, displayData.HasAdjustments);
+                    }
+                    else
+                    {
+                        Logger.LogWarning("Failed to get display data for worker {WorkerId} file {FileName}",
+                            workerStatus.WorkerId, fileName);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Error processing worker {WorkerId} with new service", workerStatus.WorkerId);
+                }
+            }
+
+            // Update state
+            _activeWorkers = activeWorkers.OrderBy(w => w.WorkerName).ToList();
+            _inactiveWorkers = inactiveWorkers.OrderBy(w => w.WorkerName).ToList();
+
+            Logger.LogInformation("Migration complete: {ActiveCount} active, {InactiveCount} inactive workers processed with new service",
+                _activeWorkers.Count, _inactiveWorkers.Count);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load worker dashboard");
+            Logger.LogError(ex, "Failed to load worker dashboard with new service");
             _error = "Failed to load worker data. Please try again.";
         }
         finally
@@ -146,6 +188,5 @@
     private async Task RefreshDashboard()
     {
         await LoadDashboard();
-        await LoadTodaysAdjustments(); // Also reload adjustments on refresh
     }
 }

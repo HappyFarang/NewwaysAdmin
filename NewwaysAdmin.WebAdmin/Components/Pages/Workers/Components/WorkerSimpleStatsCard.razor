@@ -1,0 +1,130 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/Components/WorkerSimpleStatsCard.razor *@
+@* Purpose: NEW - Simple stats card that aggregates daily WorkerDisplayData *@
+@* CLEAN: No complex weekly service logic, just aggregates the daily data we already have *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="card mb-3">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0">
+            <span class="bi bi-bar-chart me-2"></span>
+            Week @WeekNumber Summary
+            <span class="text-light small ms-2">(@WeekStartDate.ToString("MMM dd") - @WeekStartDate.AddDays(6).ToString("MMM dd"))</span>
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <!-- Days Worked -->
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="h4 text-primary mb-1">@_stats.DaysWorked</div>
+                    <small class="text-muted">Days Worked</small>
+                </div>
+            </div>
+
+            <!-- Total Hours -->
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="h4 text-success mb-1">@FormatHours(_stats.TotalNormalHours)</div>
+                    <small class="text-muted">Normal Hours</small>
+                </div>
+            </div>
+
+            <!-- OT Hours -->
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="h4 text-warning mb-1">@FormatHours(_stats.TotalOTHours)</div>
+                    <small class="text-muted">Overtime Hours</small>
+                </div>
+            </div>
+
+            <!-- Adjustments -->
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="h4 @(_stats.AdjustmentCount > 0 ? "text-warning" : "text-muted") mb-1">@_stats.AdjustmentCount</div>
+                    <small class="text-muted">Adjustments</small>
+                </div>
+            </div>
+        </div>
+
+        @if (_stats.AdjustmentCount > 0)
+        {
+            <hr class="my-3">
+            <div class="text-center">
+                <small class="text-warning">
+                    <span class="bi bi-exclamation-triangle me-1"></span>
+                    This week contains @_stats.AdjustmentCount manual adjustment(s)
+                </small>
+            </div>
+        }
+
+        <!-- Average Hours (if worker has worked any days) -->
+        @if (_stats.DaysWorked > 0)
+        {
+            <hr class="my-3">
+            <div class="row text-center">
+                <div class="col-6">
+                    <small class="text-muted">Average Normal Hours/Day</small>
+                    <div class="fw-bold">@FormatHours(_stats.AverageNormalHours)</div>
+                </div>
+                <div class="col-6">
+                    <small class="text-muted">Total All Hours</small>
+                    <div class="fw-bold">@FormatHours(_stats.GrandTotalHours)</div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public List<WorkerDisplayData> WeeklyDisplayData { get; set; } = new();
+
+    [Parameter]
+    public int WeekNumber { get; set; }
+
+    [Parameter]
+    public DateTime WeekStartDate { get; set; }
+
+    private WeekStats _stats = new();
+
+    protected override void OnParametersSet()
+    {
+        CalculateStats();
+    }
+
+    private void CalculateStats()
+    {
+        _stats = new WeekStats();
+
+        if (!WeeklyDisplayData.Any()) return;
+
+        var daysWithWork = WeeklyDisplayData.Where(d => d.HasWorkActivity && !d.HasError).ToList();
+
+        _stats.DaysWorked = daysWithWork.Count;
+        _stats.TotalNormalHours = daysWithWork.Sum(d => d.NormalWorkHours);
+        _stats.TotalOTHours = daysWithWork.Sum(d => d.OTWorkHours);
+        _stats.GrandTotalHours = _stats.TotalNormalHours + _stats.TotalOTHours;
+        _stats.AdjustmentCount = WeeklyDisplayData.Count(d => d.HasAdjustments);
+
+        _stats.AverageNormalHours = _stats.DaysWorked > 0 ? _stats.TotalNormalHours / _stats.DaysWorked : 0;
+    }
+
+    private string FormatHours(decimal hours)
+    {
+        if (hours == 0) return "0:00";
+        var timeSpan = TimeSpan.FromHours((double)hours);
+        return $"{(int)timeSpan.TotalHours}:{timeSpan.Minutes:D2}";
+    }
+
+    // Simple data structure for week statistics
+    private class WeekStats
+    {
+        public int DaysWorked { get; set; }
+        public decimal TotalNormalHours { get; set; }
+        public decimal TotalOTHours { get; set; }
+        public decimal GrandTotalHours { get; set; }
+        public decimal AverageNormalHours { get; set; }
+        public int AdjustmentCount { get; set; }
+    }
+}
