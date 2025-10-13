@@ -1,0 +1,57 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/WorkerListDisplay.razor *@
+@* Purpose: Display workers as horizontal buttons for selection *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+
+<div class="card mb-3">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <span class="bi bi-people me-2"></span>
+            Select Worker (@Workers.Count available)
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-2">
+            @foreach (var worker in Workers.OrderBy(w => w.WorkerName))
+            {
+                <button type="button"
+                        class="btn @(IsSelected(worker) ? "btn-primary" : "btn-outline-primary") btn-sm"
+                        @onclick="() => OnWorkerSelected(worker)">
+                    @worker.WorkerName
+                </button>
+            }
+        </div>
+
+        @if (!Workers.Any())
+        {
+            <div class="text-muted text-center py-3">
+                <span class="bi bi-info-circle me-2"></span>
+                No workers available
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public List<WorkerStatus> Workers { get; set; } = new();
+
+    [Parameter]
+    public WorkerStatus? SelectedWorker { get; set; }
+
+    [Parameter]
+    public EventCallback<WorkerStatus> OnWorkerClicked { get; set; }
+
+    private async Task OnWorkerSelected(WorkerStatus worker)
+    {
+        if (OnWorkerClicked.HasDelegate)
+        {
+            await OnWorkerClicked.InvokeAsync(worker);
+        }
+    }
+
+    private bool IsSelected(WorkerStatus worker)
+    {
+        return SelectedWorker?.WorkerId == worker.WorkerId;
+    }
+}

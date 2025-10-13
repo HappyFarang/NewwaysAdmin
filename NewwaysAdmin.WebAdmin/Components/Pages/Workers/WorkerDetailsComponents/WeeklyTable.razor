@@ -1,0 +1,393 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/WeeklyTable.razor *@
+@* Purpose: Main container for weekly worker table - orchestrates all child components *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@inject WorkerDataService DataService
+@inject WorkerSettingsService SettingsService
+@inject IWeeklyTableCalculationService CalculationService
+@inject IColumnDefinitionService ColumnDefinitionService
+@inject ILogger<WeeklyTable> Logger
+
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <span class="bi bi-table me-2"></span>
+            Weekly Overview
+        </h5>
+    </div>
+    <div class="card-body">
+        @if (_isLoading)
+        {
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-2">Loading weekly data...</p>
+            </div>
+        }
+        else if (_error != null)
+        {
+            <div class="alert alert-danger">
+                <span class="bi bi-exclamation-triangle me-2"></span>
+                @_error
+                <button class="btn btn-sm btn-outline-danger ms-2" @onclick="LoadWeeklyData">
+                    <span class="bi bi-arrow-clockwise me-1"></span>
+                    Retry
+                </button>
+            </div>
+        }
+        else
+        {
+            <!-- Week Navigation Bar -->
+            <!-- TODO: Create WeekNavigationBar component -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h6 class="mb-0">
+                        Week @_currentWeekNumber: @_currentWeekStart.ToString("MMM dd") - @_currentWeekEnd.ToString("MMM dd, yyyy")
+                    </h6>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary" @onclick="LoadPreviousWeek" disabled="@_isLoading">
+                        <span class="bi bi-chevron-left"></span> Previous
+                    </button>
+                    <button class="btn btn-outline-primary" @onclick="LoadCurrentWeek" disabled="@_isLoading">
+                        Current Week
+                    </button>
+                    <button class="btn btn-outline-primary" @onclick="LoadNextWeek" disabled="@_isLoading">
+                        Next <span class="bi bi-chevron-right"></span>
+                    </button>
+                </div>
+            </div>
+
+            <ColumnTogglePanel AllColumns="@_allColumns"
+                               Categories="@_categories"
+                               VisibleColumns="@_visibleColumns"
+                               OnColumnToggled="ToggleColumn"
+                               OnResetToDefault="ShowDefaultColumns"
+                               OnToggleAllColumns="ToggleAllColumns" />
+
+            <!-- Weekly Data Table -->
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle" style="table-layout: fixed; width: 100%;">
+                    <thead class="table-light">
+                        <tr>
+                            @foreach (var column in _allColumns.Where(c => _visibleColumns.Contains(c.Key)).OrderBy(c => c.SortOrder))
+                            {
+                                <th style="width: @GetColumnWidth(column.Key); text-align: center; white-space: nowrap; overflow: hidden;">
+                                    @if (!string.IsNullOrEmpty(column.Icon))
+                                    {
+                                        <span class="@column.Icon me-1"></span>
+                                    }
+                                    @column.DisplayName
+                                </th>
+                            }
+                            <th style="width: 80px; text-align: center;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _weekRows)
+                        {
+                            <tr class="@row.WorkerData?.GetRowCssClass()">
+                                @foreach (var column in _allColumns.Where(c => _visibleColumns.Contains(c.Key)).OrderBy(c => c.SortOrder))
+                                {
+                                    var cellClass = column.GetCellCssClass(row);
+                                    <td class="@cellClass" style="text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                        @column.GetDisplayValue(row, CalculationService)
+                                    </td>
+                                }
+                                <td style="text-align: center;">
+                                    <button class="btn btn-sm @(row.WorkerData?.HasAdjustments == true ? "btn-warning" : "btn-outline-secondary")"
+                                            @onclick="() => OpenAdjustmentModal(row)"
+                                            title="@(row.WorkerData?.HasAdjustments == true ? $"Adjust {row.DayName} data (Has adjustments)" : $"Adjust {row.DayName} data")">
+                                        <span class="bi bi-gear"></span>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot class="table-dark">
+                        <tr>
+                            @{
+                                var weeklyTotals = CalculateWeeklyTotals();
+                            }
+                            @foreach (var column in _allColumns.Where(c => _visibleColumns.Contains(c.Key)).OrderBy(c => c.SortOrder))
+                            {
+                                <td class="fw-bold text-center">
+                                    @weeklyTotals.GetValueOrDefault(column.Key, "--")
+                                </td>
+                            }
+                            <td class="text-center">
+                                <span class="bi bi-calculator text-white"></span>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public int WorkerId { get; set; }
+
+    [Parameter, EditorRequired]
+    public string WorkerName { get; set; } = string.Empty;
+
+    // State management
+    private bool _isLoading = true;
+    private string? _error;
+
+    // Week state
+    private DateTime _currentWeekStart;
+    private DateTime _currentWeekEnd;
+    private int _currentWeekNumber;
+
+    // Column state
+    private List<TableColumn> _allColumns = new();
+    private List<string> _categories = new();
+    private HashSet<string> _visibleColumns = new();
+
+    // Data state
+    private List<WeeklyTableRow> _weekRows = new();
+    private WorkerSettings? _workerSettings;
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeColumns();
+        SetCurrentWeek();
+        await LoadWeeklyData();
+    }
+
+    private string GetColumnWidth(string columnKey)
+    {
+        return columnKey switch
+        {
+            "dayName" => "80px",
+            "date" => "80px",
+            "signIn" => "80px",
+            "signOut" => "80px",
+            "otSignIn" => "80px",
+            "otSignOut" => "80px",
+            "normalHours" => "90px",
+            "otHours" => "80px",
+            "totalHours" => "90px",
+            "variance" => "90px",
+            "efficiency" => "90px",
+            "onTimeStatus" => "90px",
+            "dailyPay" => "90px",
+            "otPay" => "80px",
+            "totalPay" => "90px",
+            _ => "80px"
+        };
+    }
+
+    private Dictionary<string, string> CalculateWeeklyTotals()
+    {
+        var totals = new Dictionary<string, string>();
+
+        // Only sum for days with actual sign-ins
+        var workDays = _weekRows.Where(r => r.HasData && r.WorkerData?.SignIn != null).ToList();
+
+        // Calculate totals
+        var totalNormalHours = workDays.Sum(r => r.WorkerData!.NormalWorkHours);
+        var totalOTHours = workDays.Sum(r => r.WorkerData!.OTWorkHours);
+        var totalWorkHours = totalNormalHours + totalOTHours;
+        var totalDailyPay = workDays.Sum(r => CalculationService.CalculateDailyPay(r));
+        var totalOTPay = workDays.Sum(r => CalculationService.CalculateOTPay(r));
+        var totalPay = totalDailyPay + totalOTPay;
+        var daysWorked = workDays.Count;
+
+        // Populate totals dictionary
+        totals["dayName"] = "TOTAL";
+        totals["date"] = $"({daysWorked} days)";
+        totals["signIn"] = "--";
+        totals["signOut"] = "--";
+        totals["otSignIn"] = "--";
+        totals["otSignOut"] = "--";
+        totals["normalHours"] = $"{totalNormalHours:F1}h";
+        totals["otHours"] = $"{totalOTHours:F1}h";
+        totals["totalHours"] = $"{totalWorkHours:F1}h";
+        totals["variance"] = "--";
+        totals["efficiency"] = daysWorked > 0 ? $"{(totalWorkHours / (daysWorked * (_workerSettings?.ExpectedHoursPerDay ?? 8)) * 100):F1}%" : "--";
+        totals["onTimeStatus"] = "--";
+        totals["dailyPay"] = $"฿{totalDailyPay:F0}";
+        totals["otPay"] = $"฿{totalOTPay:F0}";
+        totals["totalPay"] = $"฿{totalPay:F0}";
+
+        return totals;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Reload data if worker changes
+        if (WorkerId > 0)
+        {
+            await LoadWeeklyData();
+        }
+    }
+
+    private void InitializeColumns()
+    {
+        _allColumns = ColumnDefinitionService.GetAllColumns();
+        _categories = ColumnDefinitionService.GetCategories();
+
+        // Set default visible columns
+        var defaultColumns = ColumnDefinitionService.GetDefaultVisibleColumns();
+        _visibleColumns = defaultColumns.Select(c => c.Key).ToHashSet();
+
+        Logger.LogInformation("Initialized {ColumnCount} columns in {CategoryCount} categories",
+            _allColumns.Count, _categories.Count);
+    }
+
+    private void SetCurrentWeek()
+    {
+        _currentWeekStart = GetWeekStart(DateTime.Today);
+        _currentWeekEnd = _currentWeekStart.AddDays(6);
+        _currentWeekNumber = GetWeekNumber(_currentWeekStart);
+
+        Logger.LogInformation("Set current week: {WeekStart} to {WeekEnd} (Week {WeekNumber})",
+            _currentWeekStart, _currentWeekEnd, _currentWeekNumber);
+    }
+
+    private async Task LoadWeeklyData()
+    {
+        try
+        {
+            _isLoading = true;
+            _error = null;
+
+            Logger.LogInformation("Loading weekly data for worker {WorkerId} for week {WeekStart}",
+                WorkerId, _currentWeekStart);
+
+            // Load worker settings
+            _workerSettings = await SettingsService.GetSettingsAsync(WorkerId, WorkerName);
+
+            // Create 7 rows (Sunday to Saturday)
+            _weekRows = new List<WeeklyTableRow>();
+
+            for (int i = 0; i < 7; i++)
+            {
+                var date = _currentWeekStart.AddDays(i);
+                var fileName = $"{date:yyyy-MM-dd}_Worker{WorkerId}.json";
+
+                // Try to load data for this day
+                WorkerDisplayData? workerData = null;
+                try
+                {
+                    workerData = await DataService.GetCompleteDataAsync(fileName, _workerSettings);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug("No data found for {FileName}: {Error}", fileName, ex.Message);
+                    // workerData remains null - this is expected for days with no attendance
+                }
+
+                _weekRows.Add(new WeeklyTableRow
+                    {
+                        DayOfWeek = date.DayOfWeek,
+                        Date = date,
+                        WorkerData = workerData,
+                        Settings = _workerSettings
+                    });
+            }
+
+            Logger.LogInformation("Loaded weekly data: {DaysWithData} days have attendance data",
+                _weekRows.Count(r => r.HasData));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load weekly data for worker {WorkerId}", WorkerId);
+            _error = $"Failed to load weekly data: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    // Week navigation
+    private async Task LoadPreviousWeek()
+    {
+        _currentWeekStart = _currentWeekStart.AddDays(-7);
+        _currentWeekEnd = _currentWeekStart.AddDays(6);
+        _currentWeekNumber = GetWeekNumber(_currentWeekStart);
+        await LoadWeeklyData();
+    }
+
+    private async Task LoadNextWeek()
+    {
+        _currentWeekStart = _currentWeekStart.AddDays(7);
+        _currentWeekEnd = _currentWeekStart.AddDays(6);
+        _currentWeekNumber = GetWeekNumber(_currentWeekStart);
+        await LoadWeeklyData();
+    }
+
+    private async Task LoadCurrentWeek()
+    {
+        SetCurrentWeek();
+        await LoadWeeklyData();
+    }
+
+    // Column management
+    private void ToggleColumn(string columnKey)
+    {
+        if (_visibleColumns.Contains(columnKey))
+        {
+            _visibleColumns.Remove(columnKey);
+        }
+        else
+        {
+            _visibleColumns.Add(columnKey);
+        }
+
+        Logger.LogDebug("Toggled column {ColumnKey}: {IsVisible}", columnKey, _visibleColumns.Contains(columnKey));
+    }
+
+    private void ShowDefaultColumns()
+    {
+        var defaultColumns = ColumnDefinitionService.GetDefaultVisibleColumns();
+        _visibleColumns = defaultColumns.Select(c => c.Key).ToHashSet();
+        Logger.LogInformation("Reset to default columns: {ColumnCount} visible", _visibleColumns.Count);
+    }
+
+    private void ToggleAllColumns()
+    {
+        if (_visibleColumns.Count == _allColumns.Count)
+        {
+            // Hide all except essential ones
+            _visibleColumns = new HashSet<string> { "dayName", "date" };
+        }
+        else
+        {
+            // Show all
+            _visibleColumns = _allColumns.Select(c => c.Key).ToHashSet();
+        }
+
+        Logger.LogInformation("Toggled all columns: {ColumnCount} visible", _visibleColumns.Count);
+    }
+
+    // Future: Adjustment modal
+    private void OpenAdjustmentModal(WeeklyTableRow row)
+    {
+        Logger.LogInformation("Opening adjustment modal for {DayName} {Date}", row.DayName, row.Date);
+        // TODO: Open adjustment modal
+    }
+
+    // Helper methods
+    private static DateTime GetWeekStart(DateTime date)
+    {
+        var dayOfWeek = (int)date.DayOfWeek;
+        return date.AddDays(-dayOfWeek).Date; // Sunday as start of week
+    }
+
+    private static int GetWeekNumber(DateTime date)
+    {
+        var jan1 = new DateTime(date.Year, 1, 1);
+        var daysOffset = (int)jan1.DayOfWeek;
+        var firstWeekStart = jan1.AddDays(-daysOffset);
+        var weekNumber = (int)Math.Ceiling((date - firstWeekStart).TotalDays / 7.0);
+        return weekNumber;
+    }
+}

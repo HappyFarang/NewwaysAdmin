@@ -1,0 +1,274 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/WorkerSettingsPanel.razor *@
+@* Purpose: Collapsible worker settings form - copied from working implementation *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@inject WorkerSettingsService SettingsService
+@inject ILogger<WorkerSettingsPanel> Logger
+
+<div class="card mb-3">
+    <div class="card-header" style="cursor: pointer;" @onclick="ToggleSettings">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">
+                <span class="bi bi-gear me-2"></span>
+                Worker Settings
+            </h5>
+            <span class="bi @(_isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></span>
+        </div>
+    </div>
+    @if (_isExpanded)
+    {
+        <div class="card-body">
+            @if (_isLoading)
+            {
+                <div class="text-center py-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2">Loading settings...</span>
+                </div>
+            }
+            else if (_settings != null)
+            {
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Work Schedule</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Start Time (Expected arrival)</label>
+                            <input type="time" class="form-control"
+                                   value="@_expectedArrivalTimeString"
+                                   @onchange="OnTimeChanged" />
+                            <div class="form-text">When worker is expected to arrive</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Working Hours (per day)</label>
+                            <input type="number" class="form-control"
+                                   value="@_expectedHoursPerDay"
+                                   @onchange="@(e => _expectedHoursPerDay = decimal.Parse(e.Value?.ToString() ?? "8.0"))"
+                                   step="0.5"
+                                   min="0"
+                                   max="24" />
+                            <div class="form-text">Expected working hours per day</div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Pay Rates (THB)</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Daily Salary</label>
+                            <input type="number" class="form-control"
+                                   value="@_dailyPayRate"
+                                   @onchange="@(e => _dailyPayRate = decimal.Parse(e.Value?.ToString() ?? "350"))"
+                                   step="10"
+                                   min="0" />
+                            <div class="form-text">Daily base salary</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">OT Salary (per hour)</label>
+                            <input type="number" class="form-control"
+                                   value="@_overtimeHourlyRate"
+                                   @onchange="@(e => _overtimeHourlyRate = decimal.Parse(e.Value?.ToString() ?? "50"))"
+                                   step="5"
+                                   min="0" />
+                            <div class="form-text">Hourly rate for overtime work</div>
+                        </div>
+                    </div>
+                </div>
+
+                @if (_saveMessage != null)
+                {
+                    <div class="alert alert-@(_saveSuccess ? "success" : "danger") alert-dismissible fade show" role="alert">
+                        @if (_saveSuccess)
+                        {
+                            <span class="bi bi-check-circle me-2"></span>
+                        }
+                        else
+                        {
+                            <span class="bi bi-exclamation-triangle me-2"></span>
+                        }
+                        @_saveMessage
+                        <button type="button" class="btn-close" @onclick="ClearMessage"></button>
+                    </div>
+                }
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">
+                        @if (_lastSaveTime != null)
+                        {
+                            <span>Last updated: @_lastSaveTime.Value.ToString("yyyy-MM-dd HH:mm")</span>
+                        }
+                    </small>
+                    <button class="btn btn-primary" @onclick="SaveSettings" disabled="@_isSaving">
+                        <span class="bi bi-save me-2"></span>
+                        @(_isSaving ? "Saving..." : "Save Settings")
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-warning">
+                    <span class="bi bi-exclamation-triangle me-2"></span>
+                    Failed to load settings. Please try refreshing the page.
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int WorkerId { get; set; }
+
+    [Parameter]
+    public string WorkerName { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback OnSettingsSaved { get; set; }
+
+    private bool _isExpanded = false;
+    private bool _isLoading = false;
+    private WorkerSettings? _settings;
+
+    // Local state to prevent modifications - EXACT COPY from working version
+    private string _expectedArrivalTimeString = "08:00";
+    private decimal _expectedHoursPerDay = 8.0m;
+    private decimal _dailyPayRate = 350m;
+    private decimal _overtimeHourlyRate = 50m;
+
+    private bool _isSaving = false;
+    private string? _saveMessage;
+    private bool _saveSuccess;
+    private int _lastLoadedWorkerId = 0;
+    private DateTime? _lastSaveTime;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (WorkerId > 0 && WorkerId != _lastLoadedWorkerId)
+        {
+            await LoadSettings();
+            _lastLoadedWorkerId = WorkerId;
+        }
+    }
+
+    private async Task LoadSettings()
+    {
+        try
+        {
+            _isLoading = true;
+            _saveMessage = null;
+
+            _settings = await SettingsService.GetSettingsAsync(WorkerId, WorkerName);
+
+            _expectedArrivalTimeString = $"{_settings.ExpectedArrivalTime.Hours:D2}:{_settings.ExpectedArrivalTime.Minutes:D2}";
+            _expectedHoursPerDay = _settings.ExpectedHoursPerDay;
+            _dailyPayRate = _settings.DailyPayRate;
+            _overtimeHourlyRate = _settings.OvertimeHourlyRate;
+            _lastSaveTime = _settings.UpdatedAt != DateTime.MinValue ? _settings.UpdatedAt : null;
+
+            Logger.LogInformation("Loaded settings for worker {WorkerId}: {WorkerName}", WorkerId, WorkerName);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load settings for worker {WorkerId}", WorkerId);
+            _settings = null;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void OnTimeChanged(ChangeEventArgs e)
+    {
+        _expectedArrivalTimeString = e.Value?.ToString() ?? "08:00";
+    }
+
+    private void ToggleSettings()
+    {
+        _isExpanded = !_isExpanded;
+    }
+
+    private async Task SaveSettings()
+    {
+        if (_settings == null) return;
+
+        try
+        {
+            _isSaving = true;
+            _saveMessage = null;
+
+            if (!TimeSpan.TryParse(_expectedArrivalTimeString, out var timeSpan))
+            {
+                _saveMessage = "Invalid time format. Please use HH:mm format.";
+                _saveSuccess = false;
+                return;
+            }
+
+            var settingsToSave = new WorkerSettings
+                {
+                    WorkerId = this.WorkerId,
+                    WorkerName = this.WorkerName,
+                    ExpectedHoursPerDay = _expectedHoursPerDay,
+                    ExpectedArrivalTime = timeSpan,
+                    DailyPayRate = _dailyPayRate,
+                    OvertimeHourlyRate = _overtimeHourlyRate,
+                    CreatedAt = _settings.CreatedAt == DateTime.MinValue ? DateTime.Now : _settings.CreatedAt,
+                    UpdatedAt = DateTime.Now
+                };
+
+            if (settingsToSave.WorkerId == 0)
+            {
+                Logger.LogError("WorkerId is 0 before save! this.WorkerId={WorkerId}", this.WorkerId);
+                _saveMessage = "Error: Invalid Worker ID. Please refresh the page.";
+                _saveSuccess = false;
+                return;
+            }
+
+            await SettingsService.SaveSettingsAsync(settingsToSave);
+
+            _settings = settingsToSave;
+            _lastSaveTime = settingsToSave.UpdatedAt;
+
+            _saveMessage = "Settings saved successfully!";
+            _saveSuccess = true;
+
+            Logger.LogInformation("Saved settings for worker {WorkerId}: {WorkerName}", WorkerId, WorkerName);
+
+            _ = NotifyParentAfterDelay();
+            _ = HideMessageAfterDelay();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save settings for worker {WorkerId}", WorkerId);
+            _saveMessage = $"Failed to save settings: {ex.Message}";
+            _saveSuccess = false;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task NotifyParentAfterDelay()
+    {
+        await Task.Delay(200);
+        await OnSettingsSaved.InvokeAsync();
+    }
+
+    private async Task HideMessageAfterDelay()
+    {
+        await Task.Delay(3000);
+        await InvokeAsync(() =>
+        {
+            if (_saveSuccess)
+            {
+                _saveMessage = null;
+                StateHasChanged();
+            }
+        });
+    }
+
+    private void ClearMessage()
+    {
+        _saveMessage = null;
+    }
+}

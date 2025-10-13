@@ -1,0 +1,133 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetails.razor *@
+@* Purpose: Main container for worker details - using components *@
+
+@page "/worker-details"
+@using Microsoft.AspNetCore.Authorization
+@using NewwaysAdmin.WebAdmin.Components.Pages.Workers.Components
+@using NewwaysAdmin.WebAdmin.Components.Pages.Workers.WorkerDetailsComponents
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@attribute [Authorize]
+@inject WorkerDashboardService DashboardService
+@inject ILogger<WorkerDetails> Logger
+
+<PageTitle>Worker Details</PageTitle>
+
+<div class="container-fluid mt-3">
+    <!-- Navigation Tabs -->
+    <WorkerNavigationTabs />
+
+    <h2>
+        <span class="bi bi-person-lines-fill me-2"></span>
+        Worker Details
+        @if (_selectedWorker != null)
+        {
+            <span class="text-muted">- @_selectedWorker.WorkerName</span>
+        }
+    </h2>
+
+    @if (_isLoading)
+    {
+        <div class="alert alert-info">
+            <span class="bi bi-clock me-2"></span>
+            Loading workers...
+        </div>
+    }
+    else if (_error != null)
+    {
+        <div class="alert alert-danger" role="alert">
+            <h5 class="alert-heading">
+                <span class="bi bi-exclamation-triangle me-2"></span>
+                Error Loading Data
+            </h5>
+            <p>@_error</p>
+            <button class="btn btn-danger btn-sm" @onclick="LoadWorkers">
+                <span class="bi bi-arrow-clockwise me-1"></span>
+                Try Again
+            </button>
+        </div>
+    }
+    else if (_workers.Any())
+    {
+        <WorkerListDisplay Workers="@_workers"
+                           SelectedWorker="@_selectedWorker"
+                           OnWorkerClicked="OnWorkerSelected" />
+
+        @if (_selectedWorker != null)
+        {
+            <!-- Worker Settings -->
+            <WorkerSettingsPanel WorkerId="@_selectedWorker.WorkerId"
+                                 WorkerName="@_selectedWorker.WorkerName"
+                                 OnSettingsSaved="OnSettingsSaved" />
+
+            <!-- Weekly Table -->
+            <WeeklyTable WorkerId="@_selectedWorker.WorkerId"
+                         WorkerName="@_selectedWorker.WorkerName" />
+        }
+        else
+        {
+            <div class="alert alert-info mt-3">
+                <span class="bi bi-hand-index me-2"></span>
+                Click on a worker name above to view their details.
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-warning">
+            <span class="bi bi-exclamation-triangle me-2"></span>
+            No workers found.
+        </div>
+    }
+</div>
+
+@code {
+    private List<WorkerStatus> _workers = new();
+    private WorkerStatus? _selectedWorker;
+    private bool _isLoading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Logger.LogInformation("WorkerDetails page initialized");
+        await LoadWorkers();
+    }
+
+    private async Task LoadWorkers()
+    {
+        try
+        {
+            _isLoading = true;
+            _error = null;
+
+            var dashboardData = await DashboardService.GetTodaysDashboardDataAsync();
+            _workers = dashboardData.ActiveWorkers.Concat(dashboardData.InactiveWorkers).ToList();
+
+            Logger.LogInformation("Loaded {Count} workers", _workers.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load workers");
+            _error = "Failed to load worker data. Please try again.";
+            _workers = new();
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnWorkerSelected(WorkerStatus worker)
+    {
+        _selectedWorker = worker;
+        Logger.LogInformation("Selected worker: {WorkerId} - {WorkerName}", worker.WorkerId, worker.WorkerName);
+
+        StateHasChanged();
+    }
+
+    private async Task OnSettingsSaved()
+    {
+        Logger.LogInformation("Settings saved for worker {WorkerId}", _selectedWorker?.WorkerId);
+        // TODO: Could refresh weekly table data here if needed
+    }
+}

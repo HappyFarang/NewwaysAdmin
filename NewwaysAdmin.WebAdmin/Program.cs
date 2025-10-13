@@ -259,6 +259,8 @@ public class Program
         services.AddScoped<WorkerDataService>();
         services.AddScoped<WorkerSettingsService>();
         services.AddScoped<WorkerPaymentCalculator>();
+        services.AddScoped<IWeeklyTableCalculationService, WeeklyTableCalculationService>();
+        services.AddScoped<IColumnDefinitionService, ColumnDefinitionService>();
 
         // Google Sheets Configuration
         var googleSheetsConfig = new GoogleSheetsConfig
