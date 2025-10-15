@@ -60,7 +60,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             var actualTime = actualArrival.Value.TimeOfDay;
 
             // Allow 5 minute grace period
-            var gracePeriod = TimeSpan.FromMinutes(5);
+            var gracePeriod = TimeSpan.FromMinutes(10);
             var latestAcceptable = expectedArrival.Add(gracePeriod);
 
             return actualTime <= latestAcceptable;

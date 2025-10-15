@@ -70,7 +70,8 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         {
             return Key switch
             {
-                "onTimeStatus" => row.HasData ? GetOnTimeStatusCss(row) : "", // Remove badge class for no data
+                "onTimeStatus" => row.HasData ? GetOnTimeStatusCss(row) : "",
+                "normalHours" => row.HasData ? GetNormalHoursCss(row) : "", // NEW: Light blue for overtime
                 _ => CssClass ?? ""
             };
         }
@@ -85,17 +86,64 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         private static string FormatOnTimeStatus(WeeklyTableRow row)
         {
             // Only show status if there's actually a sign-in time
-            if (!row.HasData || row.WorkerData?.SignIn == null) return "--";
-            return row.WorkerData.IsOnTime ? "On Time" : "Late";
+            if (!row.HasData || row.WorkerData?.SignIn == null || row.Settings == null) return "--";
+
+            // FIXED: Calculate on-time status dynamically based on current displayed sign-in time
+            var isOnTime = CalculateIsOnTime(row.WorkerData.SignIn.Value, row.Settings.ExpectedArrivalTime);
+            return isOnTime ? "On Time" : "Late";
         }
 
         private static string GetOnTimeStatusCss(WeeklyTableRow row)
         {
             // Only apply badge styling if there's actually a sign-in time
-            if (!row.HasData || row.WorkerData?.SignIn == null) return "";
+            if (!row.HasData || row.WorkerData?.SignIn == null || row.Settings == null) return "";
 
-            var badgeClass = row.WorkerData.IsOnTime ? "badge bg-success" : "badge bg-danger";
+            // FIXED: Calculate on-time status dynamically based on current displayed sign-in time
+            var isOnTime = CalculateIsOnTime(row.WorkerData.SignIn.Value, row.Settings.ExpectedArrivalTime);
+            var badgeClass = isOnTime ? "badge bg-success" : "badge bg-danger";
             return $"{badgeClass} d-flex justify-content-center";
+        }
+
+        // NEW: Helper method to calculate on-time status with 10-minute tolerance
+        private static bool CalculateIsOnTime(DateTime actualArrival, TimeSpan expectedArrival)
+        {
+            var actualTime = actualArrival.TimeOfDay;
+
+            // Allow 10 minute grace period (matching WorkerPaymentCalculator)
+            var gracePeriod = TimeSpan.FromMinutes(10);
+            var latestAcceptable = expectedArrival.Add(gracePeriod);
+
+            return actualTime <= latestAcceptable;
+        }
+
+        /// <summary>
+        /// Get CSS class for Normal Hours cell - light blue background if worked over expected hours
+        /// </summary>
+        /// <summary>
+        /// Get CSS class for Normal Hours cell - light blue background if worked significantly over expected hours
+        /// UPDATED: Added 20-minute grace period for hanging around after work
+        /// </summary>
+        private static string GetNormalHoursCss(WeeklyTableRow row)
+        {
+            // Only apply styling if there's actual work data and settings
+            if (!row.HasData || row.WorkerData?.SignIn == null || row.Settings == null)
+                return "";
+
+            // Check if normal hours worked exceeds expected hours with 20-minute grace period
+            var actualHours = row.WorkerData.NormalWorkHours;
+            var expectedHours = row.Settings.ExpectedHoursPerDay;
+
+            // Convert 20 minutes to decimal hours (20/60 = 0.333...)
+            var gracePeriodHours = 20m / 60m; // 0.33 hours
+            var overtimeThreshold = expectedHours + gracePeriodHours;
+
+            if (actualHours > overtimeThreshold)
+            {
+                // Light blue background only if worked more than expected + 20 min grace period
+                return "bg-info bg-opacity-25";
+            }
+
+            return "";
         }
     }
 }
