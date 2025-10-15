@@ -1,5 +1,6 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Services/Workers/WeeklyTableCalculationService.cs
 // Purpose: All calculations for weekly table display
+// FIXED: CalculateDailyPay() now properly checks for adjusted daily pay overrides
 
 using NewwaysAdmin.WebAdmin.Models.Workers;
 
@@ -60,6 +61,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
             // Only calculate daily pay if there's actual sign-in data
             if (!row.HasData || row.Settings == null || row.WorkerData?.SignIn == null) return 0;
 
+            // FIXED: Check if WorkerData already has the calculated daily pay (includes overrides)
+            // WorkerDataService.GetCompleteDataAsync() already handles pay override logic
+            if (row.WorkerData.DailyPay > 0)
+            {
+                return row.WorkerData.DailyPay;
+            }
+
+            // Fallback: Calculate from settings (should rarely happen as WorkerDataService handles this)
             return row.Settings.DailyPayRate;
         }
 

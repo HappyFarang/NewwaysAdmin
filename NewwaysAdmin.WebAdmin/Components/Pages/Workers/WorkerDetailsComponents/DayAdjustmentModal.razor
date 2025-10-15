@@ -194,11 +194,44 @@
     {
         Logger.LogInformation("Reset to raw times requested for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
 
-        // Set flag to indicate we're removing adjustments
-        _isResettingToRaw = true;
+        // IMMEDIATELY save the "no adjustments" file instead of waiting for save button
+        try
+        {
+            _isSaving = true;
+            StateHasChanged();
 
-        // The time picker already loaded the raw times, so we can proceed with save
-        // The save will create a "no adjustment" record
+            var fileName = $"{Date:yyyy-MM-dd}_Worker{WorkerId}.json";
+            var adjustmentFileName = $"adjustment_{fileName.Replace(".json", "")}";
+
+            Logger.LogInformation("Removing adjustments (reset to raw) for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+
+            var noAdjustmentRecord = new DailyWorkRecord
+                {
+                    Date = Date,
+                    HasAdjustments = false,  // KEY: This removes the adjustment
+                    AppliedAdjustment = null
+                };
+
+            await _adjustmentStorage!.SaveAsync(adjustmentFileName, noAdjustmentRecord);
+            Logger.LogInformation("Successfully removed adjustments for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+
+            // Notify parent that data has changed so it can refresh
+            await OnDataChanged.InvokeAsync();
+
+            // Close the modal since we've completed the reset
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to reset adjustments for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            // TODO: Show error message to user
+            // For now, we'll still close the modal
+            await OnSaved.InvokeAsync();
+        }
+        finally
+        {
+            _isSaving = false;
+        }
     }
 
     private decimal CalculateHours(DateTime? signIn, DateTime? signOut)
