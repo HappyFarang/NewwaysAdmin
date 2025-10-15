@@ -177,6 +177,27 @@ namespace NewwaysAdmin.WebAdmin.Services.Workers
                                             (data.OTSignIn.HasValue && !data.OTSignOut.HasValue);
                 }
 
+                if (adjustment?.HasAdjustments == true && adjustment.AppliedAdjustment != null)
+                {
+                    var adj = adjustment.AppliedAdjustment;
+
+                    // Apply pay override if it exists, otherwise calculate normally
+                    if (adj.AdjustedDailyPay.HasValue)
+                    {
+                        data.DailyPay = adj.AdjustedDailyPay.Value;
+                    }
+                    else
+                    {
+                        // Calculate normal pay from settings
+                        data.DailyPay = settings?.DailyPayRate ?? 350m;
+                    }
+                }
+                else
+                {
+                    // No adjustments - use normal calculation
+                    data.DailyPay = settings?.DailyPayRate ?? 350m;
+                }
+
                 _logger.LogDebug("Complete data for {WorkerId}: Normal={NormalHours:F1}h, OT={OTHours:F1}h, HasAdjustments={HasAdjustments}",
                     workerId, data.NormalWorkHours, data.OTWorkHours, data.HasAdjustments);
 

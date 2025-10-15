@@ -1,0 +1,45 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/QuickActionsPanel.razor *@
+@* Purpose: Reset buttons and other quick actions *@
+
+<div class="card">
+    <div class="card-header">
+        <h6 class="mb-0">
+            <span class="bi bi-tools me-2"></span>
+            Quick Actions
+        </h6>
+    </div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-6">
+                <button type="button" class="btn btn-outline-success btn-sm w-100" @onclick="OnResetToRaw">
+                    <span class="bi bi-arrow-counterclockwise me-1"></span>
+                    Reset to Raw Times
+                </button>
+                <small class="text-muted d-block">Remove all adjustments</small>
+            </div>
+
+            <div class="col-md-6">
+                <button type="button" class="btn btn-outline-secondary btn-sm w-100" @onclick="OnResetToCurrent">
+                    <span class="bi bi-arrow-clockwise me-1"></span>
+                    Reset to Current
+                </button>
+                <small class="text-muted d-block">Restore displayed times</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnResetToRawClicked { get; set; }
+    [Parameter] public EventCallback OnResetToCurrentClicked { get; set; }
+
+    private async Task OnResetToRaw()
+    {
+        await OnResetToRawClicked.InvokeAsync();
+    }
+
+    private async Task OnResetToCurrent()
+    {
+        await OnResetToCurrentClicked.InvokeAsync();
+    }
+}

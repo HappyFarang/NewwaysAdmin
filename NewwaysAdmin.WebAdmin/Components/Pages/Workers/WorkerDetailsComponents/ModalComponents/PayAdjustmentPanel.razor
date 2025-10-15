@@ -1,0 +1,68 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/PayAdjustmentPanel.razor *@
+@* Purpose: Daily pay override for partial days, sick days, etc. *@
+
+<div class="card mb-3">
+    <div class="card-header">
+        <h6 class="mb-0">
+            <span class="bi bi-cash me-2"></span>
+            Daily Pay Override
+        </h6>
+    </div>
+    <div class="card-body">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <label class="form-label">
+                    <span class="bi bi-currency-exchange me-1"></span>
+                    Override Amount (Optional)
+                </label>
+                <div class="input-group">
+                    <span class="input-group-text">฿</span>
+                    <input type="number"
+                           class="form-control"
+                           @bind="PayOverride"
+                           @bind:event="oninput"
+                           @onchange="OnPayChanged"
+                           placeholder="Leave empty for normal pay"
+                           step="0.01"
+                           min="0" />
+                </div>
+            </div>
+            <div class="col-md-6">
+                <small class="text-muted">
+                    <strong>Current Daily Pay:</strong> ฿@CurrentDailyPay.ToString("F2")<br />
+                    <strong>Override:</strong> @(HasOverride ? $"฿{PayOverride:F2}" : "None")
+                </small>
+            </div>
+        </div>
+
+        @if (HasOverride)
+        {
+            <div class="alert alert-warning mt-2 mb-0">
+                <span class="bi bi-exclamation-triangle me-1"></span>
+                <strong>Pay Override Active:</strong> Worker will receive ฿@(PayOverride?.ToString("F2") ?? "0.00") instead of normal daily pay.
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public decimal CurrentDailyPay { get; set; }
+    [Parameter] public decimal? InitialPayOverride { get; set; }
+    [Parameter] public EventCallback<decimal?> OnPayOverrideChanged { get; set; }
+
+    private decimal? PayOverride { get; set; }
+    private bool HasOverride => PayOverride.HasValue && PayOverride > 0;
+
+    protected override void OnParametersSet()
+    {
+        if (PayOverride == null && InitialPayOverride.HasValue)
+        {
+            PayOverride = InitialPayOverride;
+        }
+    }
+
+    private async Task OnPayChanged()
+    {
+        await OnPayOverrideChanged.InvokeAsync(PayOverride);
+    }
+}

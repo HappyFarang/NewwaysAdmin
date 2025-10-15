@@ -1,0 +1,31 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/AdjustmentModalHeader.razor *@
+@* Purpose: Focused component for displaying worker information and date in adjustment modal *@
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6">
+                <h6 class="mb-1">
+                    <span class="bi bi-person me-2"></span>
+                    Worker
+                </h6>
+                <p class="mb-0 text-muted">@WorkerName (ID: @WorkerId)</p>
+            </div>
+            <div class="col-md-6">
+                <h6 class="mb-1">
+                    <span class="bi bi-calendar me-2"></span>
+                    Date
+                </h6>
+                <p class="mb-0 text-muted">
+                    @Date.ToString("dddd, MMMM dd, yyyy")
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int WorkerId { get; set; }
+    [Parameter, EditorRequired] public string WorkerName { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public DateTime Date { get; set; }
+}

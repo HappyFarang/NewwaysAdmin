@@ -50,6 +50,8 @@ namespace NewwaysAdmin.WebAdmin.Models.Workers
         public string OTSignOutFormatted => OTSignOut?.ToString("HH:mm") ?? "--:--";
         public string VarianceFormatted => VarianceMinutes == 0 ? "0 min" : $"{(VarianceMinutes > 0 ? "+" : "")}{VarianceMinutes} min";
 
+        public decimal DailyPay { get; set; }
+
         /// <summary>
         /// Get CSS class for table rows based on status
         /// </summary>

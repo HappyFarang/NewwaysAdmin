@@ -1,0 +1,275 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/AdjustmentModalBody.razor *@
+@* Purpose: Container that orchestrates all adjustment panels with mutual exclusivity *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@using NewwaysAdmin.Shared.IO
+@using NewwaysAdmin.WorkerAttendance.Models
+@using NewwaysAdmin.WebAdmin.Infrastructure.Storage
+@inject WorkerDataService DataService
+@inject WorkerSettingsService SettingsService
+@inject StorageManager StorageManager
+@inject ILogger<AdjustmentModalBody> Logger
+
+@if (_isLoading)
+{
+    <div class="text-center py-4">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading adjustment data...</p>
+    </div>
+}
+else if (_error != null)
+{
+    <div class="alert alert-danger">
+        <span class="bi bi-exclamation-triangle me-2"></span>
+        <strong>Error:</strong> @_error
+    </div>
+}
+else if (_dayData == null)
+{
+    <div class="alert alert-info">
+        <span class="bi bi-info-circle me-2"></span>
+        <strong>No data found</strong> for this date.
+    </div>
+}
+else
+{
+    <!-- Current Day Data Display (Always Visible) -->
+    <DayDataDisplay WorkerId="WorkerId"
+                    WorkerName="WorkerName"
+                    Date="Date" />
+
+    <!-- Shortcuts Section (Collapsible, Open by Default) -->
+    <ShortcutsPanel IsExpanded="_shortcutsExpanded"
+                    OnExpandedChanged="HandleShortcutsExpandedChanged"
+                    OnWorkerOnTimeClicked="HandleWorkerOnTime"
+                    OnVarianceToOTClicked="HandleVarianceToOT"
+                    OnManualSignOutClicked="HandleManualSignOut" />
+
+    <!-- Manual Time Adjustments (Collapsible, Closed by Default) -->
+    <TimeAdjustmentPanel IsExpanded="_manualAdjustmentsExpanded"
+                         OnExpandedChanged="HandleManualAdjustmentsExpandedChanged"
+                         OriginalSignIn="_dayData.SignIn"
+                         OriginalSignOut="_dayData.SignOut"
+                         OriginalOTSignIn="_dayData.OTSignIn"
+                         OriginalOTSignOut="_dayData.OTSignOut"
+                         OriginalNormalHours="_dayData.NormalWorkHours"
+                         OriginalOTHours="_dayData.OTWorkHours"
+                         OriginalDailyPay="@CalculateCurrentDailyPay()"
+                         RawSignIn="_rawSignIn"
+                         RawSignOut="_rawSignOut"
+                         RawOTSignIn="_rawOTSignIn"
+                         RawOTSignOut="_rawOTSignOut"
+                         Date="Date"
+                         OnTimeChanged="HandleTimeChanged"
+                         OnPayOverrideChanged="HandlePayOverrideChanged" />
+
+    <!-- Quick Actions (Always Visible) -->
+    <QuickActionsPanel OnResetToRawClicked="HandleResetToRaw"
+                       OnResetToCurrentClicked="HandleResetToCurrent" />
+
+}
+
+@code {
+    [Parameter, EditorRequired] public int WorkerId { get; set; }
+    [Parameter, EditorRequired] public string WorkerName { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public DateTime Date { get; set; }
+    [Parameter] public EventCallback<TimeAdjustmentPanel.TimeAdjustmentData> OnAdjustmentChanged { get; set; }
+    [Parameter] public EventCallback OnResetToRaw { get; set; }
+
+    // State
+    private bool _isLoading = true;
+    private string? _error;
+    private WorkerDisplayData? _dayData;
+    private WorkerSettings? _workerSettings;
+
+    // Raw times (before any adjustments)
+    private DateTime? _rawSignIn;
+    private DateTime? _rawSignOut;
+    private DateTime? _rawOTSignIn;
+    private DateTime? _rawOTSignOut;
+
+    // Panel expansion state (mutual exclusivity)
+    private bool _shortcutsExpanded = true;        // Open by default
+    private bool _manualAdjustmentsExpanded = false;  // Closed by default
+
+    // Adjustment data
+    private decimal? _payOverride;
+
+    // Track what we've loaded to prevent unnecessary reloads
+    private int _lastLoadedWorkerId = 0;
+    private DateTime _lastLoadedDate = DateTime.MinValue;
+    private IDataStorage<DailyWorkCycle>? _rawDataStorage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Only load data if we don't have it yet or if the parameters actually changed
+        if (_dayData == null || _lastLoadedWorkerId != WorkerId || _lastLoadedDate != Date.Date)
+        {
+            await LoadData();
+            _lastLoadedWorkerId = WorkerId;
+            _lastLoadedDate = Date.Date;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        // Get raw data storage
+        _rawDataStorage = StorageManager.GetStorageSync<DailyWorkCycle>("WorkerAttendance");
+    }
+
+    // === MUTUAL EXCLUSIVITY LOGIC ===
+
+    private async Task HandleShortcutsExpandedChanged(bool isExpanded)
+    {
+        _shortcutsExpanded = isExpanded;
+
+        // If shortcuts opened, close manual adjustments
+        if (isExpanded && _manualAdjustmentsExpanded)
+        {
+            _manualAdjustmentsExpanded = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleManualAdjustmentsExpandedChanged(bool isExpanded)
+    {
+        _manualAdjustmentsExpanded = isExpanded;
+
+        // If manual adjustments opened, close shortcuts
+        if (isExpanded && _shortcutsExpanded)
+        {
+            _shortcutsExpanded = false;
+        }
+
+        StateHasChanged();
+    }
+
+    // === EVENT HANDLERS ===
+
+    private async Task HandleTimeChanged(TimeAdjustmentPanel.TimeAdjustmentData adjustmentData)
+    {
+        Logger.LogInformation("Time adjustment changed for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        await OnAdjustmentChanged.InvokeAsync(adjustmentData);
+    }
+
+    private async Task HandleResetToRaw()
+    {
+        Logger.LogInformation("Reset to raw times requested for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        await OnResetToRaw.InvokeAsync();
+    }
+
+    private async Task HandleResetToCurrent()
+    {
+        Logger.LogInformation("Reset to current times requested for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        // TODO: Implement reset to current functionality
+    }
+
+    private async Task HandlePayOverrideChanged(decimal? payOverride)
+    {
+        _payOverride = payOverride;
+        Logger.LogInformation("Pay override changed for {WorkerId} on {Date}: {PayOverride}",
+            WorkerId, Date.ToString("yyyy-MM-dd"), payOverride?.ToString("F2") ?? "None");
+        // TODO: Pass pay override to parent
+    }
+
+    // === SHORTCUT HANDLERS (Placeholders for now) ===
+
+    private async Task HandleWorkerOnTime()
+    {
+        Logger.LogInformation("Worker On Time shortcut clicked for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        // TODO: Implement worker on time logic
+    }
+
+    private async Task HandleVarianceToOT()
+    {
+        Logger.LogInformation("Variance to OT shortcut clicked for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        // TODO: Implement variance to OT logic
+    }
+
+    private async Task HandleManualSignOut()
+    {
+        Logger.LogInformation("Manual sign-out shortcut clicked for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        // TODO: Implement manual sign-out logic
+    }
+
+    // === HELPER METHODS ===
+
+    private decimal CalculateCurrentDailyPay()
+    {
+        return _workerSettings?.DailyPayRate ?? 350m;  // Default daily pay
+    }
+
+    // ... (Keep all your existing LoadData, LoadRawTimes methods exactly as they are)
+
+    private async Task LoadData()
+    {
+        try
+        {
+            _isLoading = true;
+            _error = null;
+
+            // Load worker settings
+            _workerSettings = await SettingsService.GetSettingsAsync(WorkerId, WorkerName);
+
+            // Load day data
+            var fileName = $"{Date:yyyy-MM-dd}_Worker{WorkerId}.json";
+            _dayData = await DataService.GetCompleteDataAsync(fileName, _workerSettings);
+
+            // Load raw times (before any adjustments)
+            await LoadRawTimes(fileName);
+
+            Logger.LogInformation("Loaded adjustment data for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load adjustment data for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task LoadRawTimes(string fileName)
+    {
+        try
+        {
+            if (_rawDataStorage == null) return;
+
+            var rawCycle = await _rawDataStorage.LoadAsync(fileName);
+            if (rawCycle == null) return;
+
+            // Extract raw times from the attendance records
+            _rawSignIn = rawCycle.Records
+                .Where(r => r.Type == WorkerAttendance.Models.AttendanceType.CheckIn && r.WorkCycle == WorkerAttendance.Models.WorkCycle.Normal)
+                .FirstOrDefault()?.Timestamp;
+
+            _rawSignOut = rawCycle.Records
+                .Where(r => r.Type == WorkerAttendance.Models.AttendanceType.CheckOut && r.WorkCycle == WorkerAttendance.Models.WorkCycle.Normal)
+                .LastOrDefault()?.Timestamp;
+
+            _rawOTSignIn = rawCycle.Records
+                .Where(r => r.Type == WorkerAttendance.Models.AttendanceType.CheckIn && r.WorkCycle == WorkerAttendance.Models.WorkCycle.OT)
+                .FirstOrDefault()?.Timestamp;
+
+            _rawOTSignOut = rawCycle.Records
+                .Where(r => r.Type == WorkerAttendance.Models.AttendanceType.CheckOut && r.WorkCycle == WorkerAttendance.Models.WorkCycle.OT)
+                .LastOrDefault()?.Timestamp;
+
+            Logger.LogDebug("Loaded raw times: SignIn={SignIn}, SignOut={SignOut}, OTSignIn={OTSignIn}, OTSignOut={OTSignOut}",
+                _rawSignIn?.ToString("HH:mm") ?? "--", _rawSignOut?.ToString("HH:mm") ?? "--",
+                _rawOTSignIn?.ToString("HH:mm") ?? "--", _rawOTSignOut?.ToString("HH:mm") ?? "--");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load raw times for {FileName}", fileName);
+            // Set to null if we can't load raw times
+            _rawSignIn = _rawSignOut = _rawOTSignIn = _rawOTSignOut = null;
+        }
+    }
+}

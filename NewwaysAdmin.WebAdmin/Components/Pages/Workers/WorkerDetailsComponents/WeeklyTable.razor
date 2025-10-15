@@ -1,5 +1,5 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/WeeklyTable.razor *@
-@* Purpose: Main container for weekly worker table - orchestrates all child components *@
+@* Purpose: Main container for weekly worker table - WITH MODAL INTEGRATION *@
 
 @using NewwaysAdmin.WebAdmin.Models.Workers
 @using NewwaysAdmin.WebAdmin.Services.Workers
@@ -40,7 +40,6 @@
         else
         {
             <!-- Week Navigation Bar -->
-            <!-- TODO: Create WeekNavigationBar component -->
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <div>
                     <h6 class="mb-0">
@@ -128,6 +127,15 @@
     </div>
 </div>
 
+<!-- Day Adjustment Modal -->
+<DayAdjustmentModal IsVisible="_isAdjustmentModalVisible"
+                    WorkerId="WorkerId"
+                    WorkerName="WorkerName"
+                    Date="_selectedAdjustmentDate"
+                    OnClose="CloseAdjustmentModal"
+                    OnSaved="HandleAdjustmentSaved"
+                    OnDataChanged="HandleDataChanged" />
+
 @code {
     [Parameter, EditorRequired]
     public int WorkerId { get; set; }
@@ -153,64 +161,95 @@
     private List<WeeklyTableRow> _weekRows = new();
     private WorkerSettings? _workerSettings;
 
+    // NEW: Modal state
+    private bool _isAdjustmentModalVisible = false;
+    private DateTime _selectedAdjustmentDate = DateTime.Today;
+
     protected override async Task OnInitializedAsync()
     {
         InitializeColumns();
         SetCurrentWeek();
+    }
+
+    // NEW: Modal event handlers
+    private void OpenAdjustmentModal(WeeklyTableRow row)
+    {
+        Logger.LogInformation("Opening adjustment modal for {DayName} {Date}", row.DayName, row.Date);
+
+        _selectedAdjustmentDate = row.Date;
+        _isAdjustmentModalVisible = true;
+    }
+
+    private void CloseAdjustmentModal()
+    {
+        Logger.LogInformation("Closing adjustment modal");
+        _isAdjustmentModalVisible = false;
+    }
+
+    private async Task HandleAdjustmentSaved()
+    {
+        Logger.LogInformation("Adjustment saved for {Date}", _selectedAdjustmentDate);
+
+        // Close modal
+        _isAdjustmentModalVisible = false;
+    }
+
+    private async Task HandleDataChanged()
+    {
+        Logger.LogInformation("Data changed, refreshing weekly table for {Date}", _selectedAdjustmentDate);
+
+        // Reload the weekly data to show the adjustments
         await LoadWeeklyData();
     }
 
-    private string GetColumnWidth(string columnKey)
-    {
-        return columnKey switch
-        {
-            "dayName" => "80px",
-            "date" => "80px",
-            "signIn" => "80px",
-            "signOut" => "80px",
-            "otSignIn" => "80px",
-            "otSignOut" => "80px",
-            "normalHours" => "90px",
-            "otHours" => "80px",
-            "totalHours" => "90px",
-            "variance" => "90px",
-            "efficiency" => "90px",
-            "onTimeStatus" => "90px",
-            "dailyPay" => "90px",
-            "otPay" => "80px",
-            "totalPay" => "90px",
-            _ => "80px"
-        };
-    }
+    // ... rest of existing methods remain the same ...
 
     private Dictionary<string, string> CalculateWeeklyTotals()
     {
         var totals = new Dictionary<string, string>();
 
-        // Only sum for days with actual sign-ins
-        var workDays = _weekRows.Where(r => r.HasData && r.WorkerData?.SignIn != null).ToList();
+        if (!_weekRows.Any() || _weekRows.All(r => !r.HasData))
+        {
+            // No data available - show all dashes
+            foreach (var column in _allColumns.Where(c => _visibleColumns.Contains(c.Key)))
+            {
+                totals[column.Key] = "--";
+            }
+            return totals;
+        }
 
-        // Calculate totals
-        var totalNormalHours = workDays.Sum(r => r.WorkerData!.NormalWorkHours);
-        var totalOTHours = workDays.Sum(r => r.WorkerData!.OTWorkHours);
-        var totalWorkHours = totalNormalHours + totalOTHours;
-        var totalDailyPay = workDays.Sum(r => CalculationService.CalculateDailyPay(r));
-        var totalOTPay = workDays.Sum(r => CalculationService.CalculateOTPay(r));
+        var daysWithData = _weekRows.Where(r => r.HasData && r.WorkerData?.SignIn != null).ToList();
+        var daysWorked = daysWithData.Count;
+
+        if (daysWorked == 0)
+        {
+            foreach (var column in _allColumns.Where(c => _visibleColumns.Contains(c.Key)))
+            {
+                totals[column.Key] = "--";
+            }
+            return totals;
+        }
+
+        // Calculate totals (only for days with actual sign-in data)
+        var totalWorkHours = daysWithData.Sum(r => CalculationService.CalculateTotalHours(r));
+        var totalVarianceMinutes = daysWithData.Sum(r => CalculationService.CalculateVarianceMinutes(r));
+        var totalDailyPay = daysWithData.Sum(r => CalculationService.CalculateDailyPay(r));
+        var totalOTPay = daysWithData.Sum(r => CalculationService.CalculateOTPay(r));
         var totalPay = totalDailyPay + totalOTPay;
-        var daysWorked = workDays.Count;
 
-        // Populate totals dictionary
+        // Populate totals
         totals["dayName"] = "TOTAL";
-        totals["date"] = $"({daysWorked} days)";
+        totals["date"] = $"{daysWorked}d";
         totals["signIn"] = "--";
         totals["signOut"] = "--";
+        totals["workHours"] = $"{totalWorkHours:F1}h";
         totals["otSignIn"] = "--";
         totals["otSignOut"] = "--";
-        totals["normalHours"] = $"{totalNormalHours:F1}h";
-        totals["otHours"] = $"{totalOTHours:F1}h";
+        totals["otHours"] = $"{daysWithData.Sum(r => r.WorkerData?.OTWorkHours ?? 0):F1}h";
         totals["totalHours"] = $"{totalWorkHours:F1}h";
-        totals["variance"] = "--";
-        totals["efficiency"] = daysWorked > 0 ? $"{(totalWorkHours / (daysWorked * (_workerSettings?.ExpectedHoursPerDay ?? 8)) * 100):F1}%" : "--";
+        totals["variance"] = totalVarianceMinutes != 0 ? $"{totalVarianceMinutes} min" : "0 min";
+        totals["efficiency"] = daysWorked > 0 && _workerSettings != null ?
+            $"{(totalWorkHours / (daysWorked * (_workerSettings?.ExpectedHoursPerDay ?? 8)) * 100):F1}%" : "--";
         totals["onTimeStatus"] = "--";
         totals["dailyPay"] = $"฿{totalDailyPay:F0}";
         totals["otPay"] = $"฿{totalOTPay:F0}";
@@ -368,13 +407,6 @@
         Logger.LogInformation("Toggled all columns: {ColumnCount} visible", _visibleColumns.Count);
     }
 
-    // Future: Adjustment modal
-    private void OpenAdjustmentModal(WeeklyTableRow row)
-    {
-        Logger.LogInformation("Opening adjustment modal for {DayName} {Date}", row.DayName, row.Date);
-        // TODO: Open adjustment modal
-    }
-
     // Helper methods
     private static DateTime GetWeekStart(DateTime date)
     {
@@ -389,5 +421,22 @@
         var firstWeekStart = jan1.AddDays(-daysOffset);
         var weekNumber = (int)Math.Ceiling((date - firstWeekStart).TotalDays / 7.0);
         return weekNumber;
+    }
+
+    private string GetColumnWidth(string columnKey)
+    {
+        // Return appropriate widths for different columns
+        return columnKey switch
+        {
+            "dayName" => "100px",
+            "date" => "110px",
+            "signIn" or "signOut" or "otSignIn" or "otSignOut" => "90px",
+            "workHours" or "otHours" or "totalHours" => "80px",
+            "variance" => "100px",
+            "efficiency" => "90px",
+            "onTimeStatus" => "100px",
+            "dailyPay" or "otPay" or "totalPay" => "100px",
+            _ => "80px"
+        };
     }
 }

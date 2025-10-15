@@ -1,0 +1,37 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/AdjustmentModalFooter.razor *@
+@* Purpose: Focused component for modal action buttons (Cancel/Save) *@
+
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" @onclick="HandleCancel" disabled="@IsSaving">
+        <span class="bi bi-x me-1"></span>
+        Cancel
+    </button>
+    <button type="button" class="btn btn-primary" @onclick="HandleSave" disabled="@IsSaving">
+        @if (IsSaving)
+        {
+            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+            <span>Saving...</span>
+        }
+        else
+        {
+            <span class="bi bi-check me-1"></span>
+            <span>Save Changes</span>
+        }
+    </button>
+</div>
+
+@code {
+    [Parameter] public bool IsSaving { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback OnSave { get; set; }
+
+    private async Task HandleCancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+
+    private async Task HandleSave()
+    {
+        await OnSave.InvokeAsync();
+    }
+}

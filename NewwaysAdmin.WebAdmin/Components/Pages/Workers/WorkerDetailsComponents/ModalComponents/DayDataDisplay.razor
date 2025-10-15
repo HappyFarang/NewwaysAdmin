@@ -1,0 +1,173 @@
+﻿@* Updated DayDataDisplay.razor - Compact Layout *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@inject WorkerDataService DataService
+@inject WorkerSettingsService SettingsService
+@inject ILogger<DayDataDisplay> Logger
+
+@if (_isLoading)
+{
+    <div class="text-center py-2">
+        <div class="spinner-border spinner-border-sm text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-1 mb-0 text-muted small">Loading day data...</p>
+    </div>
+}
+else if (_error != null)
+{
+    <div class="alert alert-danger py-2 mb-2">
+        <span class="bi bi-exclamation-triangle me-2"></span>
+        <strong>Error loading data:</strong> @_error
+        <button class="btn btn-sm btn-outline-danger ms-2" @onclick="LoadDayData">
+            <span class="bi bi-arrow-clockwise me-1"></span>
+            Retry
+        </button>
+    </div>
+}
+else if (_workerData == null)
+{
+    <div class="alert alert-info py-2 mb-2">
+        <span class="bi bi-info-circle me-2"></span>
+        <strong>No data found</strong> for this date.
+    </div>
+}
+else
+{
+    <div class="card-body py-2">
+        <div class="row">
+            <!-- Normal Shift - Table Layout -->
+            <div class="col-md-6">
+                <div class="d-flex align-items-center mb-2">
+                    <span class="bi bi-sun text-primary me-2"></span>
+                    <strong class="text-primary">Normal Shift</strong>
+                </div>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <div class="text-muted small">Sign In</div>
+                        <div class="fw-bold">@(_workerData.SignIn?.ToString("HH:mm") ?? "--")</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small">Sign Out</div>
+                        <div class="fw-bold">@(_workerData.SignOut?.ToString("HH:mm") ?? "--")</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small">Hours</div>
+                        <div class="fw-bold text-success">@_workerData.NormalWorkHours.ToString("F1")h</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- OT Shift - Table Layout -->
+            <div class="col-md-6">
+                <div class="d-flex align-items-center mb-2">
+                    <span class="bi bi-moon text-warning me-2"></span>
+                    <strong class="text-warning">Overtime Shift</strong>
+                </div>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <div class="text-muted small">OT Sign In</div>
+                        <div class="fw-bold">@(_workerData.OTSignIn?.ToString("HH:mm") ?? "--")</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small">OT Sign Out</div>
+                        <div class="fw-bold">@(_workerData.OTSignOut?.ToString("HH:mm") ?? "--")</div>
+                    </div>
+                    <div class="col-4">
+                        <div class="text-muted small">OT Hours</div>
+                        <div class="fw-bold text-warning">@_workerData.OTWorkHours.ToString("F1")h</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Row -->
+        <div class="row mt-2 pt-2 border-top text-center">
+            <div class="col-md-4">
+                <div class="text-muted small">Total Hours</div>
+                <div class="fw-bold">@((_workerData.NormalWorkHours + _workerData.OTWorkHours).ToString("F1"))h</div>
+            </div>
+            <div class="col-md-4">
+                <div class="text-muted small">Status</div>
+                <div class="fw-bold @(_workerData.IsOnTime ? "text-success" : "text-danger")">
+                    @(_workerData.IsOnTime ? "On Time" : $"Late {_workerData.LateMinutes} min")
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="text-muted small">Variance</div>
+                <div class="fw-bold @(_workerData.VarianceMinutes >= 0 ? "text-success" : "text-warning")">
+                    @_workerData.VarianceFormatted
+                </div>
+            </div>
+        </div>
+
+            <!-- Compact Adjustment Indicator -->
+            @if (_workerData.HasAdjustments)
+            {
+                <div class="alert alert-warning mt-2 mb-0 py-1">
+                    <small>
+                        <span class="bi bi-gear me-1"></span>
+                        <strong>Previously Adjusted:</strong> @_workerData.AdjustmentDescription
+                    </small>
+                </div>
+            }
+        </div>
+   
+}
+
+@code {
+    // ... keep all your existing @code section exactly the same
+    [Parameter, EditorRequired] public int WorkerId { get; set; }
+    [Parameter, EditorRequired] public string WorkerName { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public DateTime Date { get; set; }
+
+    // State
+    private bool _isLoading = true;
+    private string? _error;
+    private WorkerDisplayData? _workerData;
+    private WorkerSettings? _workerSettings;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Reload data if parameters change
+        await LoadDayData();
+    }
+
+    private async Task LoadDayData()
+    {
+        try
+        {
+            _isLoading = true;
+            _error = null;
+
+            // Load worker settings first
+            _workerSettings = await SettingsService.GetSettingsAsync(WorkerId, WorkerName);
+
+            var fileName = $"{Date:yyyy-MM-dd}_Worker{WorkerId}.json";
+            Logger.LogInformation("Loading day data from file: {FileName}", fileName);
+
+            // Load the complete data with settings for proper calculations
+            _workerData = await DataService.GetCompleteDataAsync(fileName, _workerSettings);
+
+            if (_workerData != null)
+            {
+                Logger.LogInformation("Successfully loaded data for worker {WorkerId} on {Date}: {HasAdjustments}",
+                    WorkerId, Date.ToString("yyyy-MM-dd"), _workerData.HasAdjustments ? "Has adjustments" : "No adjustments");
+            }
+            else
+            {
+                Logger.LogInformation("No data found for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load day data for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+}

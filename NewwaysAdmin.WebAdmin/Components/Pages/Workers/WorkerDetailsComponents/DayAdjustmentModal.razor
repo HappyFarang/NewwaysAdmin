@@ -1,0 +1,218 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/DayAdjustmentModal.razor *@
+@* Purpose: Modal orchestrator for adjusting daily work records - Component-based approach *@
+
+@using NewwaysAdmin.WebAdmin.Models.Workers
+@using NewwaysAdmin.WebAdmin.Components.Pages.Workers.WorkerDetailsComponents.ModalComponents
+@using NewwaysAdmin.WebAdmin.Services.Workers
+@using NewwaysAdmin.Shared.IO
+@using NewwaysAdmin.WebAdmin.Infrastructure.Storage
+@inject StorageManager StorageManager
+@inject ILogger<DayAdjustmentModal> Logger
+
+@if (IsVisible)
+{
+    <div class="modal fade show" style="display: block;" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <span class="bi bi-gear-fill me-2"></span>
+                        Adjust Daily Record
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="HandleClose"></button>
+                </div>
+
+                <div class="modal-body">
+                    @if (WorkerId > 0 && !string.IsNullOrEmpty(WorkerName))
+                    {                       
+                        <!-- Main Body with Data Display and Time Adjustments -->
+                        <AdjustmentModalBody WorkerId="WorkerId"
+                                             WorkerName="WorkerName"
+                                             Date="Date"
+                                             OnAdjustmentChanged="HandleAdjustmentChanged"
+                                             OnResetToRaw="HandleResetToRaw" />
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            <span class="bi bi-exclamation-triangle me-2"></span>
+                            Missing worker information. Please ensure WorkerId and WorkerName are provided.
+                        </div>
+                    }
+                </div>
+
+                <AdjustmentModalFooter OnCancel="HandleCancel"
+                                       OnSave="HandleSave"
+                                       IsSaving="_isSaving" />
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public int WorkerId { get; set; }
+    [Parameter] public string WorkerName { get; set; } = string.Empty;
+    [Parameter] public DateTime Date { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnSaved { get; set; }
+    [Parameter] public EventCallback OnDataChanged { get; set; }  // New parameter for data refresh
+
+    // Store the current adjustment data
+    private TimeAdjustmentPanel.TimeAdjustmentData? _currentAdjustment;
+    private bool _isSaving = false;
+    private bool _isResettingToRaw = false;  // Track if we're removing adjustments
+    private IDataStorage<DailyWorkRecord>? _adjustmentStorage;
+
+    protected override void OnInitialized()
+    {
+        // Get the same adjustment storage that WorkerDataService uses
+        _adjustmentStorage = StorageManager.GetStorageSync<DailyWorkRecord>("WorkerWeeklyData");
+    }
+
+    private async Task HandleClose()
+    {
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task HandleCancel()
+    {
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task HandleSave()
+    {
+        if (_currentAdjustment == null || _adjustmentStorage == null)
+        {
+            Logger.LogWarning("No adjustments to save for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            await OnSaved.InvokeAsync();
+            return;
+        }
+
+        try
+        {
+            _isSaving = true;
+            StateHasChanged();
+
+            var fileName = $"{Date:yyyy-MM-dd}_Worker{WorkerId}.json";
+            var adjustmentFileName = $"adjustment_{fileName.Replace(".json", "")}";
+
+            if (_isResettingToRaw)
+            {
+                // RESET TO RAW: Create a "no adjustment" record
+                Logger.LogInformation("Removing adjustments (reset to raw) for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+
+                var noAdjustmentRecord = new DailyWorkRecord
+                    {
+                        Date = Date,
+                        HasAdjustments = false,  // KEY: This removes the adjustment
+                        AppliedAdjustment = null
+                    };
+
+                await _adjustmentStorage.SaveAsync(adjustmentFileName, noAdjustmentRecord);
+                Logger.LogInformation("Successfully removed adjustments for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            }
+            else
+            {
+                // NORMAL SAVE: Create/update adjustment record
+                Logger.LogInformation("Saving time adjustments for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+
+                // Load existing adjustment or create new one
+                DailyWorkRecord adjustmentRecord;
+                try
+                {
+                    adjustmentRecord = await _adjustmentStorage.LoadAsync(adjustmentFileName);
+                    Logger.LogDebug("Loaded existing adjustment file: {AdjustmentFileName}", adjustmentFileName);
+                }
+                catch
+                {
+                    // Create new adjustment record
+                    adjustmentRecord = new DailyWorkRecord
+                        {
+                            Date = Date,
+                            HasAdjustments = false,
+                            AppliedAdjustment = null
+                        };
+                    Logger.LogDebug("Creating new adjustment file: {AdjustmentFileName}", adjustmentFileName);
+                }
+
+                // Create the adjustment
+                var adjustment = new DailyAdjustment
+                    {
+                        Type = AdjustmentType.ManualTimeEntry,
+                        Description = _isResettingToRaw ? "Reset to raw times - adjustments removed" : "Manual time adjustment via adjustment modal",
+                        AppliedAt = DateTime.Now,
+                        AppliedBy = "Admin", // TODO: Get current user
+
+                        // Store the adjusted times
+                        AdjustedSignIn = _currentAdjustment.AdjustedSignIn,
+                        AdjustedSignOut = _currentAdjustment.AdjustedSignOut,
+                        AdjustedOTSignIn = _currentAdjustment.AdjustedOTSignIn,
+                        AdjustedOTSignOut = _currentAdjustment.AdjustedOTSignOut,
+
+                        // TODO: Calculate and store original values and adjusted hours
+                        // For now, we'll set basic values
+                        OriginalWorkHours = 0,
+                        OriginalOTHours = 0,
+                        AdjustedWorkHours = CalculateHours(_currentAdjustment.AdjustedSignIn, _currentAdjustment.AdjustedSignOut),
+                        AdjustedOTHours = CalculateHours(_currentAdjustment.AdjustedOTSignIn, _currentAdjustment.AdjustedOTSignOut),
+
+                        // Store pay override if provided
+                        AdjustedDailyPay = _currentAdjustment.PayOverride
+                    };
+
+                // Apply adjustment to record
+                adjustmentRecord.HasAdjustments = true;
+                adjustmentRecord.AppliedAdjustment = adjustment;
+
+                // Save the adjustment
+                await _adjustmentStorage.SaveAsync(adjustmentFileName, adjustmentRecord);
+                Logger.LogInformation("Successfully saved adjustments for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            }
+
+            // Notify parent that data has changed so it can refresh
+            await OnDataChanged.InvokeAsync();
+
+            await OnSaved.InvokeAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save adjustments for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            // TODO: Show error message to user
+            // For now, we'll still close the modal
+            await OnSaved.InvokeAsync();
+        }
+        finally
+        {
+            _isSaving = false;
+            _isResettingToRaw = false;  // Reset the flag
+        }
+    }
+
+    private async Task HandleResetToRaw()
+    {
+        Logger.LogInformation("Reset to raw times requested for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+
+        // Set flag to indicate we're removing adjustments
+        _isResettingToRaw = true;
+
+        // The time picker already loaded the raw times, so we can proceed with save
+        // The save will create a "no adjustment" record
+    }
+
+    private decimal CalculateHours(DateTime? signIn, DateTime? signOut)
+    {
+        if (!signIn.HasValue || !signOut.HasValue) return 0;
+        if (signOut <= signIn) return 0;
+
+        var duration = signOut.Value - signIn.Value;
+        return (decimal)duration.TotalHours;
+    }
+
+    private void HandleAdjustmentChanged(TimeAdjustmentPanel.TimeAdjustmentData adjustmentData)
+    {
+        _currentAdjustment = adjustmentData;
+        Logger.LogDebug("Captured adjustment data for worker {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+    }
+}

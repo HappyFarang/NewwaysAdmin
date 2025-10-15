@@ -1,0 +1,394 @@
+﻿@using NewwaysAdmin.WebAdmin.Models.Workers
+@inject ILogger<TimeAdjustmentPanel> Logger
+
+<div class="card">
+    <div class="card-header" style="cursor: pointer;" @onclick="ToggleCollapse">
+        <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">
+                <span class="bi bi-clock-history me-2"></span>
+                Manual Time Adjustments
+            </h6>
+            <span class="bi @(_isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></span>
+        </div>
+    </div>
+    @if (_isExpanded)
+    {
+        <!-- Daily Pay Override Section -->
+        <hr class="my-3" />
+        <div class="row">
+            <div class="col-12">
+                <h6 class="text-secondary mb-2">
+                    <span class="bi bi-cash me-1"></span>
+                    Daily Pay Override
+                </h6>
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <label class="form-label small">Override Amount (Optional)</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">฿</span>
+                            <input type="number"
+                                   class="form-control"
+                                   @bind="PayOverride"
+                                   @bind:event="oninput"
+                                   @onchange="HandlePayOverrideChanged"
+                                   placeholder="Leave empty for normal pay"
+                                   step="0.01"
+                                   min="0" />
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <small class="text-muted">
+                            Normal: ฿@(OriginalDailyPay.ToString("F2"))<br />
+                            Override: @(PayOverride?.ToString("F2") ?? "None")
+                        </small>
+                    </div>
+                </div>
+                @if (PayOverride.HasValue && PayOverride > 0)
+                {
+                    <div class="alert alert-warning mt-2 mb-0 py-1">
+                        <small>
+                            <span class="bi bi-exclamation-triangle me-1"></span>
+                            Pay will be overridden to ฿@PayOverride.Value.ToString("F2")
+                        </small>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <!-- Normal Shift Adjustments -->
+                <div class="col-md-6">
+                    <h6 class="text-primary mb-3">
+                        <span class="bi bi-sun me-1"></span>
+                        Normal Shift
+                    </h6>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <span class="bi bi-box-arrow-in-right me-1"></span>
+                            Sign In Time
+                        </label>
+                        <input type="time"
+                        class="form-control"
+                        value="@_normalSignInTime"
+                        @onchange="@(async (e) => await OnNormalSignInChanged(e.Value?.ToString()))" />
+                        <small class="form-text text-muted">
+                            Current: @(OriginalSignIn?.ToString("HH:mm") ?? "--:--")
+                        </small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <span class="bi bi-box-arrow-left me-1"></span>
+                            Sign Out Time
+                        </label>
+                        <input type="time"
+                        class="form-control"
+                        value="@_normalSignOutTime"
+                        @onchange="@(async (e) => await OnNormalSignOutChanged(e.Value?.ToString()))" />
+                        <small class="form-text text-muted">
+                            Current: @(OriginalSignOut?.ToString("HH:mm") ?? "--:--")
+                        </small>
+                    </div>
+                </div>
+
+                <!-- OT Shift Adjustments -->
+                <div class="col-md-6">
+                    <h6 class="text-warning mb-3">
+                        <span class="bi bi-moon me-1"></span>
+                        Overtime Shift
+                    </h6>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <span class="bi bi-box-arrow-in-right me-1"></span>
+                            OT Sign In Time
+                        </label>
+                        <input type="time"
+                        class="form-control"
+                        value="@_otSignInTime"
+                        @onchange="@(async (e) => await OnOTSignInChanged(e.Value?.ToString()))" />
+                        <small class="form-text text-muted">
+                            Current: @(OriginalOTSignIn?.ToString("HH:mm") ?? "--:--")
+                        </small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <span class="bi bi-box-arrow-left me-1"></span>
+                            OT Sign Out Time
+                        </label>
+                        <input type="time"
+                        class="form-control"
+                        value="@_otSignOutTime"
+                        @onchange="@(async (e) => await OnOTSignOutChanged(e.Value?.ToString()))" />
+                        <small class="form-text text-muted">
+                            Current: @(OriginalOTSignOut?.ToString("HH:mm") ?? "--:--")
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reset Button -->
+            <div class="row">
+                <div class="col-12 text-end">
+                    <button type="button" class="btn btn-success btn-sm" @onclick="ResetToRawTimes">
+                        <span class="bi bi-arrow-clockwise me-1"></span>
+                        Reset to Current Times
+                    </button>
+                    <button type="button" class="btn btn-success btn-sm" @onclick="ResetToRawTimes">
+                        <span class="bi bi-arrow-counterclockwise me-1"></span>
+                        Reset to Raw Times (Remove Adjustments)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Preview Section (if any times changed) -->
+            @if (HasChanges)
+            {
+                <hr class="my-3" />
+                <div class="alert alert-info">
+                    <h6 class="alert-heading mb-2">
+                        <span class="bi bi-eye me-1"></span>
+                        Preview Changes
+                    </h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>Normal Hours:</strong>
+                            <br />
+                            <span class="text-muted">@(OriginalNormalHours.ToString("F1"))h</span>
+                            <span class="bi bi-arrow-right mx-2"></span>
+                            <span class="fw-bold text-primary">@(CalculatedNormalHours.ToString("F1"))h</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>OT Hours:</strong>
+                            <br />
+                            <span class="text-muted">@(OriginalOTHours.ToString("F1"))h</span>
+                            <span class="bi bi-arrow-right mx-2"></span>
+                            <span class="fw-bold text-warning">@(CalculatedOTHours.ToString("F1"))h</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Total Hours:</strong>
+                            <br />
+                            <span class="text-muted">@((OriginalNormalHours + OriginalOTHours).ToString("F1"))h</span>
+                            <span class="bi bi-arrow-right mx-2"></span>
+                            <span class="fw-bold text-success">@((CalculatedNormalHours + CalculatedOTHours).ToString("F1"))h</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    </div>
+
+@code {
+    // Parameters - Original times from the day's data
+    [Parameter] public DateTime? OriginalSignIn { get; set; }
+    [Parameter] public DateTime? OriginalSignOut { get; set; }
+    [Parameter] public DateTime? OriginalOTSignIn { get; set; }
+    [Parameter] public DateTime? OriginalOTSignOut { get; set; }
+    [Parameter] public decimal OriginalNormalHours { get; set; }
+    [Parameter] public decimal OriginalOTHours { get; set; }
+    [Parameter] public DateTime Date { get; set; }
+    [Parameter] public DateTime? RawSignIn { get; set; }
+    [Parameter] public DateTime? RawSignOut { get; set; }
+    [Parameter] public DateTime? RawOTSignIn { get; set; }
+    [Parameter] public DateTime? RawOTSignOut { get; set; }
+    [Parameter] public EventCallback OnResetToRaw { get; set; }
+
+
+    // Event callback to notify parent of changes
+    [Parameter] public EventCallback<TimeAdjustmentData> OnTimeChanged { get; set; }
+    [Parameter] public decimal OriginalDailyPay { get; set; } = 350m;
+    [Parameter] public EventCallback<decimal?> OnPayOverrideChanged { get; set; }
+
+    // Local state for time pickers (string format for HTML time inputs)
+    private string _normalSignInTime = "";
+    private string _normalSignOutTime = "";
+    private string _otSignInTime = "";
+    private string _otSignOutTime = "";
+    
+
+    public decimal? PayOverride { get; set; }
+
+    private async Task HandlePayOverrideChanged()
+    {
+        await OnPayOverrideChanged.InvokeAsync(PayOverride);
+        await NotifyParent();
+    }
+    // Track if values have been manually changed (to prevent reset on re-render)
+    private bool _hasManualChanges = false;
+
+        [Parameter] public bool IsExpanded { get; set; } = false;  // Closed by default
+        [Parameter] public EventCallback<bool> OnExpandedChanged { get; set; }
+
+        private bool _isExpanded;
+
+    private async Task ResetToRawTimes()
+    {
+        Logger.LogInformation("Resetting to raw times (removing adjustments) for {Date}", Date.ToString("yyyy-MM-dd"));
+
+        // Load raw times into the time pickers
+        _normalSignInTime = RawSignIn?.ToString("HH:mm") ?? "";
+        _normalSignOutTime = RawSignOut?.ToString("HH:mm") ?? "";
+        _otSignInTime = RawOTSignIn?.ToString("HH:mm") ?? "";
+        _otSignOutTime = RawOTSignOut?.ToString("HH:mm") ?? "";
+        _hasManualChanges = true; // Mark as changed so it doesn't get reset
+
+        // Notify parent that we want to reset to raw (remove adjustments)
+        await OnResetToRaw.InvokeAsync();
+
+        // Notify of the time changes
+        await NotifyParent();
+
+        StateHasChanged();
+    }
+
+        protected override void OnParametersSet()
+        {
+            _isExpanded = IsExpanded;
+        Logger.LogDebug("OnParametersSet called: _hasManualChanges={HasManualChanges}, SignIn={SignIn}",
+            _hasManualChanges, _normalSignInTime);
+
+        // Only initialize if we haven't made manual changes
+        if (!_hasManualChanges)
+        {
+            Logger.LogDebug("Initializing time pickers from original values");
+            InitializeTimePickers();
+        }
+        else
+        {
+            Logger.LogDebug("Skipping initialization due to manual changes");
+        }
+    }
+
+        private async Task ToggleCollapse()
+        {
+            _isExpanded = !_isExpanded;
+            await OnExpandedChanged.InvokeAsync(_isExpanded);
+        }
+
+    private void InitializeTimePickers()
+    {
+        _normalSignInTime = OriginalSignIn?.ToString("HH:mm") ?? "";
+        _normalSignOutTime = OriginalSignOut?.ToString("HH:mm") ?? "";
+        _otSignInTime = OriginalOTSignIn?.ToString("HH:mm") ?? "";
+        _otSignOutTime = OriginalOTSignOut?.ToString("HH:mm") ?? "";
+        _hasManualChanges = false;
+
+        Logger.LogDebug("Initialized time pickers: SignIn={SignIn}, SignOut={SignOut}",
+            _normalSignInTime, _normalSignOutTime);
+    }
+
+    private void ResetToOriginal()
+    {
+        _hasManualChanges = false;
+        InitializeTimePickers();
+        NotifyParent();
+    }
+
+    // Individual change handlers for each time input
+    private async Task OnNormalSignInChanged(string? value)
+    {
+        Logger.LogDebug("Normal SignIn changed from {Old} to {New}", _normalSignInTime, value);
+        _normalSignInTime = value ?? "";
+        _hasManualChanges = true;
+        await NotifyParent();
+        StateHasChanged();
+    }
+
+    private async Task OnNormalSignOutChanged(string? value)
+    {
+        _normalSignOutTime = value ?? "";
+        _hasManualChanges = true;
+        await NotifyParent();
+        StateHasChanged();
+    }
+
+    private async Task OnOTSignInChanged(string? value)
+    {
+        _otSignInTime = value ?? "";
+        _hasManualChanges = true;
+        await NotifyParent();
+        StateHasChanged();
+    }
+
+    private async Task OnOTSignOutChanged(string? value)
+    {
+        _otSignOutTime = value ?? "";
+        _hasManualChanges = true;
+        await NotifyParent();
+        StateHasChanged();
+    }
+
+    private async Task NotifyParent()
+    {
+        var adjustmentData = new TimeAdjustmentData
+            {
+                AdjustedSignIn = ParseTimeString(_normalSignInTime),
+                AdjustedSignOut = ParseTimeString(_normalSignOutTime),
+                AdjustedOTSignIn = ParseTimeString(_otSignInTime),
+                AdjustedOTSignOut = ParseTimeString(_otSignOutTime),
+                PayOverride = PayOverride  // Add this
+            };
+
+        await OnTimeChanged.InvokeAsync(adjustmentData);
+    }
+
+    private DateTime? ParseTimeString(string timeString)
+    {
+        if (string.IsNullOrWhiteSpace(timeString)) return null;
+
+        if (TimeSpan.TryParse(timeString, out var timeSpan))
+        {
+            return Date.Date.Add(timeSpan);
+        }
+
+        return null;
+    }
+
+    // Computed properties
+    private bool HasChanges =>
+        !string.IsNullOrEmpty(_normalSignInTime) ||
+        !string.IsNullOrEmpty(_normalSignOutTime) ||
+        !string.IsNullOrEmpty(_otSignInTime) ||
+        !string.IsNullOrEmpty(_otSignOutTime);
+
+    private decimal CalculatedNormalHours
+    {
+        get
+        {
+            var signIn = ParseTimeString(_normalSignInTime);
+            var signOut = ParseTimeString(_normalSignOutTime);
+
+            if (!signIn.HasValue || !signOut.HasValue || signOut <= signIn)
+                return 0;
+
+            return (decimal)(signOut.Value - signIn.Value).TotalHours;
+        }
+    }
+
+    private decimal CalculatedOTHours
+    {
+        get
+        {
+            var signIn = ParseTimeString(_otSignInTime);
+            var signOut = ParseTimeString(_otSignOutTime);
+
+            if (!signIn.HasValue || !signOut.HasValue || signOut <= signIn)
+                return 0;
+
+            return (decimal)(signOut.Value - signIn.Value).TotalHours;
+        }
+    }
+
+    // Data structure to pass back to parent
+    public class TimeAdjustmentData
+    {
+        public DateTime? AdjustedSignIn { get; set; }
+        public DateTime? AdjustedSignOut { get; set; }
+        public DateTime? AdjustedOTSignIn { get; set; }
+        public DateTime? AdjustedOTSignOut { get; set; }
+        public decimal? PayOverride { get; set; }
+    }
+}

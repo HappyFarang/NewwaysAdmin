@@ -1,0 +1,94 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/ShortcutsPanel.razor *@
+@* Purpose: Quick adjustment shortcuts for common scenarios *@
+
+<div class="card mb-3">
+    <div class="card-header" style="cursor: pointer;" @onclick="ToggleCollapse">
+        <div class="d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">
+                <span class="bi bi-lightning me-2"></span>
+                Quick Adjustment Shortcuts
+            </h6>
+            <span class="bi @(_isExpanded ? "bi-chevron-up" : "bi-chevron-down")"></span>
+        </div>
+    </div>
+
+    @if (_isExpanded)
+    {
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-success btn-sm w-100" @onclick="OnWorkerOnTime">
+                        <span class="bi bi-check-circle me-1"></span>
+                        Worker On Time
+                    </button>
+                    <small class="text-muted d-block">Override late status (coffee collection)</small>
+                </div>
+
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-info btn-sm w-100" @onclick="OnVarianceToOT">
+                        <span class="bi bi-arrow-right me-1"></span>
+                        Variance → OT
+                    </button>
+                    <small class="text-muted d-block">Convert extra hours to overtime</small>
+                </div>
+
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-warning btn-sm w-100" @onclick="OnManualSignOut">
+                        <span class="bi bi-box-arrow-left me-1"></span>
+                        Manual Sign-out
+                    </button>
+                    <small class="text-muted d-block">Set automatic sign-out time</small>
+                </div>
+
+                <div class="col-md-6">
+                    <button type="button" class="btn btn-secondary btn-sm w-100" disabled>
+                        <span class="bi bi-plus me-1"></span>
+                        More Shortcuts
+                    </button>
+                    <small class="text-muted d-block">Coming soon...</small>
+                </div>
+            </div>
+
+            <div class="alert alert-info mt-3 mb-0">
+                <span class="bi bi-info-circle me-1"></span>
+                <strong>Shortcuts:</strong> One-click solutions for common adjustment scenarios.
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool IsExpanded { get; set; } = true;  // Open by default
+    [Parameter] public EventCallback<bool> OnExpandedChanged { get; set; }
+    [Parameter] public EventCallback OnWorkerOnTimeClicked { get; set; }
+    [Parameter] public EventCallback OnVarianceToOTClicked { get; set; }
+    [Parameter] public EventCallback OnManualSignOutClicked { get; set; }
+
+    private bool _isExpanded;
+
+    protected override void OnParametersSet()
+    {
+        _isExpanded = IsExpanded;
+    }
+
+    private async Task ToggleCollapse()
+    {
+        _isExpanded = !_isExpanded;
+        await OnExpandedChanged.InvokeAsync(_isExpanded);
+    }
+
+    private async Task OnWorkerOnTime()
+    {
+        await OnWorkerOnTimeClicked.InvokeAsync();
+    }
+
+    private async Task OnVarianceToOT()
+    {
+        await OnVarianceToOTClicked.InvokeAsync();
+    }
+
+    private async Task OnManualSignOut()
+    {
+        await OnManualSignOutClicked.InvokeAsync();
+    }
+}
