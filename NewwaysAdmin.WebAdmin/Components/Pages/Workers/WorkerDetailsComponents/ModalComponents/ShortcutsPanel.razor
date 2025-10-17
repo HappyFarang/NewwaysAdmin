@@ -1,6 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Pages/Workers/WorkerDetailsComponents/ModalComponents/ShortcutsPanel.razor *@
 @* Purpose: Quick adjustment shortcuts for common scenarios with feedback *@
-@* UPDATED: Added processing states and feedback messages *@
+@* FIXED: Added Make Normal Day button and fixed broken HTML *@
 
 <div class="card mb-3">
     <div class="card-header" style="cursor: pointer;" @onclick="ToggleCollapse">
@@ -25,6 +25,7 @@
             }
 
             <div class="row g-2">
+                <!-- Row 1: Worker On Time and Variance to OT -->
                 <div class="col-md-6">
                     <button type="button"
                             class="btn @GetButtonClass("workerOnTime") btn-sm w-100"
@@ -61,6 +62,7 @@
                     <small class="text-muted d-block">Convert extra hours to overtime</small>
                 </div>
 
+                <!-- Row 2: Manual Sign Out and Make Normal Day -->
                 <div class="col-md-6">
                     <button type="button"
                             class="btn @GetButtonClass("manualSignOut") btn-sm w-100"
@@ -80,11 +82,21 @@
                 </div>
 
                 <div class="col-md-6">
-                    <button type="button" class="btn btn-secondary btn-sm w-100" disabled>
-                        <span class="bi bi-plus me-1"></span>
-                        More Shortcuts
+                    <button type="button"
+                            class="btn @GetButtonClass("makeNormalDay") btn-sm w-100"
+                            @onclick="OnMakeNormalDay"
+                            disabled="@IsProcessing">
+                        @if (IsProcessing && CurrentOperation == "makeNormalDay")
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        else
+                        {
+                            <span class="bi bi-calendar-check me-1"></span>
+                        }
+                        Make Normal Day
                     </button>
-                    <small class="text-muted d-block">Coming soon...</small>
+                    <small class="text-muted d-block">Create perfect attendance</small>
                 </div>
             </div>
 
@@ -103,8 +115,9 @@
     [Parameter] public EventCallback OnWorkerOnTimeClicked { get; set; }
     [Parameter] public EventCallback OnVarianceToOTClicked { get; set; }
     [Parameter] public EventCallback OnManualSignOutClicked { get; set; }
+    [Parameter] public EventCallback OnMakeNormalDayClicked { get; set; }  // NEW
 
-    // NEW: Feedback parameters
+    // Feedback parameters
     [Parameter] public bool IsProcessing { get; set; } = false;
     [Parameter] public string CurrentOperation { get; set; } = "";
     [Parameter] public string FeedbackMessage { get; set; } = "";
@@ -137,6 +150,11 @@
         await OnManualSignOutClicked.InvokeAsync();
     }
 
+    private async Task OnMakeNormalDay()  // NEW
+    {
+        await OnMakeNormalDayClicked.InvokeAsync();
+    }
+
     // Helper methods for dynamic styling
     private string GetButtonClass(string operation)
     {
@@ -147,6 +165,7 @@
                 "workerOnTime" => "btn-success", // Keep original color while processing
                 "varianceToOT" => "btn-info",
                 "manualSignOut" => "btn-warning",
+                "makeNormalDay" => "btn-primary",  // NEW
                 _ => "btn-secondary"
             };
         }
@@ -156,6 +175,7 @@
             "workerOnTime" => "btn-success",
             "varianceToOT" => "btn-info",
             "manualSignOut" => "btn-warning",
+            "makeNormalDay" => "btn-primary",  // NEW
             _ => "btn-secondary"
         };
     }

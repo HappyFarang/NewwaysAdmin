@@ -48,6 +48,7 @@ else
                     OnWorkerOnTimeClicked="HandleWorkerOnTime"
                     OnVarianceToOTClicked="HandleVarianceToOT"
                     OnManualSignOutClicked="HandleManualSignOut"
+                    OnMakeNormalDayClicked="HandleMakeNormalDay"
                     IsProcessing="_isProcessingShortcut"
                     CurrentOperation="_currentShortcutOperation"
                     FeedbackMessage="_lastShortcutMessage" />
@@ -485,6 +486,115 @@ else
             Logger.LogWarning(ex, "Could not load raw data for {FileName}", fileName);
             // Set to null if we can't load raw times
             _rawSignIn = _rawSignOut = _rawOTSignIn = _rawOTSignOut = null;
+        }
+    }
+    private async Task HandleMakeNormalDay()
+    {
+        if (_isProcessingShortcut || _workerSettings == null)
+            return;
+
+        try
+        {
+            _isProcessingShortcut = true;
+            _currentShortcutOperation = "makeNormalDay";
+            _lastShortcutMessage = "Creating normal day...";
+            StateHasChanged();
+
+            Logger.LogInformation("Make Normal Day shortcut clicked for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+
+            // Get current daily work record (or create empty one for no-shows)
+            var currentRecord = await GetOrCreateDailyRecord();
+
+            // ENHANCED: If this worker had NO attendance data, create an empty raw data file
+            // This ensures the system knows this worker exists for this date
+            if (!currentRecord.HasData)
+            {
+                await EnsureRawDataFileExists();
+            }
+
+            // Apply the make normal day adjustment (simplified version without storage)
+            var adjustedRecord = await AdjustmentService.ApplyMakeNormalDayAdjustmentAsync(
+                currentRecord,
+                _workerSettings
+            );
+
+            // Save the adjustment
+            var fileName = $"{Date:yyyy-MM-dd}_Worker{WorkerId}.json";
+            var adjustmentFileName = $"adjustment_{fileName.Replace(".json", "")}";
+            await SaveAdjustmentRecord(adjustmentFileName, adjustedRecord);
+
+            // Show success feedback with the perfect schedule
+            var perfectSignIn = Date.Date.Add(_workerSettings.ExpectedArrivalTime);
+            var perfectSignOut = perfectSignIn.AddHours((double)_workerSettings.ExpectedHoursPerDay);
+            _lastShortcutMessage = $"✓ Perfect day: {perfectSignIn.ToString("HH:mm")}-{perfectSignOut.ToString("HH:mm")} ({_workerSettings.ExpectedHoursPerDay:F1}h)";
+            StateHasChanged();
+
+            // Auto-close modal after brief delay
+            await Task.Delay(1500);
+            await CloseModalWithRefresh();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to apply Make Normal Day shortcut for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            _lastShortcutMessage = "✗ Failed to create normal day";
+            StateHasChanged();
+            await Task.Delay(2000);
+            _lastShortcutMessage = "";
+        }
+        finally
+        {
+            _isProcessingShortcut = false;
+            _currentShortcutOperation = "";
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Ensure that a raw data file exists for this worker/date combination
+    /// Creates an empty attendance cycle if the worker never showed up
+    /// This allows the adjustment system to work properly
+    /// Following established pattern: UI components handle storage operations
+    /// </summary>
+    private async Task EnsureRawDataFileExists()
+    {
+        try
+        {
+            var fileName = $"{Date:yyyy-MM-dd}_Worker{WorkerId}.json";
+            var rawDataStorage = StorageManager.GetStorageSync<DailyWorkCycle>("WorkerAttendance");
+
+            // Check if raw data file already exists
+            try
+            {
+                var existingCycle = await rawDataStorage.LoadAsync(fileName);
+                if (existingCycle != null)
+                {
+                    Logger.LogDebug("Raw data file already exists for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+                    return; // File exists, nothing to do
+                }
+            }
+            catch
+            {
+                // File doesn't exist, which is what we're trying to handle
+            }
+
+            // Create an empty attendance cycle for this worker/date
+            var emptyCycle = new DailyWorkCycle
+                {
+                    WorkerId = WorkerId,
+                    WorkerName = WorkerName,
+                    CycleDate = Date,
+                    Records = new List<AttendanceRecord>() // Empty - worker never showed up
+                };
+
+            await rawDataStorage.SaveAsync(fileName, emptyCycle);
+
+            Logger.LogInformation("Created empty raw data file for {WorkerId} ({WorkerName}) on {Date}",
+                WorkerId, WorkerName, Date.ToString("yyyy-MM-dd"));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create raw data file for {WorkerId} on {Date}", WorkerId, Date.ToString("yyyy-MM-dd"));
+            // Don't throw - the adjustment can still work without this, it's just cleaner with it
         }
     }
 }
