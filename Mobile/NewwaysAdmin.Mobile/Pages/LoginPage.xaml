@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.LoginPage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             Title="Login"
+             Shell.NavBarIsVisible="False">
+
+    <ScrollView>
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Logo/Title Section -->
+            <StackLayout Grid.Row="1" 
+                        VerticalOptions="Center"
+                        HorizontalOptions="FillAndExpand">
+
+                <Label Text="NewwaysAdmin"
+                       FontSize="32"
+                       FontAttributes="Bold"
+                       TextColor="#512BD4"
+                       HorizontalOptions="Center"
+                       Margin="0,0,0,20" />
+
+                <Label Text="Mobile Companion"
+                       FontSize="16"
+                       TextColor="Gray"
+                       HorizontalOptions="Center"
+                       Margin="0,0,0,40" />
+
+                <!-- Login Form -->
+                <Frame BackgroundColor="White"
+                       HasShadow="True"
+                       CornerRadius="10"
+                       Padding="20">
+
+                    <StackLayout Spacing="15">
+
+                        <!-- Connection Status -->
+                        <Label Text="{Binding ConnectionStatus}"
+                               FontSize="12"
+                               TextColor="{Binding ConnectionColor}"
+                               HorizontalOptions="Center" />
+
+                        <!-- Username Entry -->
+                        <Entry x:Name="UsernameEntry"
+                               Placeholder="Username"
+                               Text="{Binding Username}"
+                               IsEnabled="{Binding IsNotBusy}" />
+
+                        <!-- Password Entry -->
+                        <Entry x:Name="PasswordEntry"
+                               Placeholder="Password"
+                               Text="{Binding Password}"
+                               IsPassword="True"
+                               IsEnabled="{Binding IsNotBusy}" />
+
+                        <!-- Login Button -->
+                        <Button x:Name="LoginButton"
+                                Text="Login"
+                                BackgroundColor="#512BD4"
+                                TextColor="White"
+                                Command="{Binding LoginCommand}"
+                                IsEnabled="{Binding IsNotBusy}" />
+
+                        <!-- Loading Indicator -->
+                        <ActivityIndicator IsVisible="{Binding IsBusy}"
+                                          IsRunning="{Binding IsBusy}"
+                                          Color="#512BD4" />
+
+                        <!-- Status Message -->
+                        <Label x:Name="StatusLabel"
+                               Text="{Binding StatusMessage}"
+                               FontSize="12"
+                               TextColor="{Binding StatusColor}"
+                               HorizontalOptions="Center"
+                               IsVisible="{Binding HasStatusMessage}" />
+
+                    </StackLayout>
+                </Frame>
+
+                <!-- Auto-login Info -->
+                <Label Text="Credentials will be saved for auto-login"
+                       FontSize="10"
+                       TextColor="Gray"
+                       HorizontalOptions="Center"
+                       Margin="0,10,0,0" />
+
+            </StackLayout>
+        </Grid>
+    </ScrollView>
+</ContentPage>

@@ -1,23 +1,22 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Services/CredentialStorageService.cs
-using NewwaysAdmin.IO.Manager;
-using NewwaysAdmin.Shared.IO;
+using NewwaysAdmin.Shared.IO.Structure;
 
 namespace NewwaysAdmin.Mobile.Services
 {
     public class CredentialStorageService
     {
-        private readonly IOManager _ioManager;
+        private readonly EnhancedStorageFactory _storageFactory;
 
-        public CredentialStorageService(IOManager ioManager)
+        public CredentialStorageService(EnhancedStorageFactory storageFactory)
         {
-            _ioManager = ioManager;
+            _storageFactory = storageFactory;
         }
 
         public async Task<SavedCredentials?> GetSavedCredentialsAsync()
         {
             try
             {
-                var storage = await _ioManager.GetStorageAsync<SavedCredentials>("MobileAuth");
+                var storage = _storageFactory.GetStorage<SavedCredentials>("MobileAuth");
                 return await storage.LoadAsync("credentials");
             }
             catch (Exception)
@@ -35,7 +34,7 @@ namespace NewwaysAdmin.Mobile.Services
                 SavedAt = DateTime.UtcNow
             };
 
-            var storage = await _ioManager.GetStorageAsync<SavedCredentials>("MobileAuth");
+            var storage = _storageFactory.GetStorage<SavedCredentials>("MobileAuth");
             await storage.SaveAsync("credentials", credentials);
         }
 
@@ -43,7 +42,7 @@ namespace NewwaysAdmin.Mobile.Services
         {
             try
             {
-                var storage = await _ioManager.GetStorageAsync<SavedCredentials>("MobileAuth");
+                var storage = _storageFactory.GetStorage<SavedCredentials>("MobileAuth");
                 await storage.DeleteAsync("credentials");
             }
             catch (Exception)

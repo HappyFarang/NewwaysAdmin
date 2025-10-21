@@ -4,7 +4,9 @@ namespace NewwaysAdmin.Shared.IO.Structure
 {
     public class StorageConfiguration
     {
-        public const string DEFAULT_BASE_DIRECTORY = "C:/NewwaysAdmin";
+        public const string DEFAULT_BASE_DIRECTORY_CONST = "C:/NewwaysAdmin";
+        public static string DEFAULT_BASE_DIRECTORY { get; set; } = DEFAULT_BASE_DIRECTORY_CONST;
+
         public List<StorageFolder> RegisteredFolders { get; set; } = new();
 
         public static StorageConfiguration CreateDefault()

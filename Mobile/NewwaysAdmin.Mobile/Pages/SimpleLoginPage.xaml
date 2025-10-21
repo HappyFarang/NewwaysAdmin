@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.SimpleLoginPage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             Title="Simple Login">
+    <StackLayout Padding="20" VerticalOptions="Center">
+        <Label Text="Simple Login Test" 
+               FontSize="24" 
+               HorizontalOptions="Center" 
+               Margin="0,0,0,20" />
+        <Entry Placeholder="Username" />
+        <Entry Placeholder="Password" IsPassword="True" />
+        <Button Text="Login" BackgroundColor="Blue" TextColor="White" />
+    </StackLayout>
+</ContentPage>

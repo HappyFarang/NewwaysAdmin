@@ -1,5 +1,4 @@
-﻿// File: NewwaysAdmin.SharedModels/Models/Mobile/MobileAuthModels.cs
-namespace NewwaysAdmin.SharedModels.Models.Mobile
+﻿namespace NewwaysAdmin.SharedModels.Models.Mobile
 {
     public class MobileAuthRequest
     {
@@ -10,15 +9,15 @@ namespace NewwaysAdmin.SharedModels.Models.Mobile
     public class MobileAuthResponse
     {
         public bool Success { get; set; }
-        public string Message { get; set; } = "";
-        public List<string> Permissions { get; set; } = new();
+        public string? Message { get; set; }
+        public List<string>? Permissions { get; set; }
     }
 
     public class AuthResult
     {
         public bool Success { get; set; }
-        public string Message { get; set; } = "";
-        public List<string> Permissions { get; set; } = new();
         public bool RequiresManualLogin { get; set; }
+        public string? Message { get; set; }
+        public List<string>? Permissions { get; set; }
     }
 }

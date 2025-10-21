@@ -68,5 +68,14 @@
 	  <ProjectReference Include="..\..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />
 	  <ProjectReference Include="..\..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
 	</ItemGroup>
+
+	<ItemGroup>
+	  <MauiXaml Update="Pages\LoginPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	  <MauiXaml Update="Pages\SimpleLoginPage.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </MauiXaml>
+	</ItemGroup>
   
 </Project>

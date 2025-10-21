@@ -1,4 +1,6 @@
-﻿namespace NewwaysAdmin.Mobile
+﻿using NewwaysAdmin.Mobile.Pages;
+
+namespace NewwaysAdmin.Mobile
 {
     public partial class AppShell : Shell
     {
