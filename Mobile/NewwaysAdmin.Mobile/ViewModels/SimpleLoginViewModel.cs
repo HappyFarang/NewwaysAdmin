@@ -1,36 +1,44 @@
-﻿// File: Mobile/NewwaysAdmin.Mobile/ViewModels/LoginViewModel.cs
+﻿// File: Mobile/NewwaysAdmin.Mobile/ViewModels/SimpleLoginViewModel.cs
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using NewwaysAdmin.Mobile.Services;
 using Microsoft.Extensions.Logging;
+using NewwaysAdmin.Mobile.Services;
 
 namespace NewwaysAdmin.Mobile.ViewModels
 {
-    public class LoginViewModel : INotifyPropertyChanged
+    public class SimpleLoginViewModel : INotifyPropertyChanged
     {
         private readonly IMauiAuthService _authService;
         private readonly IConnectionService _connectionService;
-        private readonly ILogger<LoginViewModel> _logger;
+        private readonly ILogger<SimpleLoginViewModel> _logger;
 
         private string _username = "";
         private string _password = "";
         private bool _isBusy = false;
         private string _statusMessage = "";
         private Color _statusColor = Colors.Black;
-        private string _connectionStatus = "Checking connection...";
-        private Color _connectionColor = Colors.Orange;
+        private string _connectionStatus = "Click 'Test Connection' to check server";
+        private Color _connectionColor = Colors.Gray;
+        private string _serverUrl = "";
 
-        public LoginViewModel(
+        public SimpleLoginViewModel(
             IMauiAuthService authService,
             IConnectionService connectionService,
-            ILogger<LoginViewModel> logger)
+            ILogger<SimpleLoginViewModel> logger)
         {
             _authService = authService;
             _connectionService = connectionService;
             _logger = logger;
-            LoginCommand = new Command(async () => await ExecuteLoginAsync(), () => !IsBusy);
+
+            TestConnectionCommand = new Command(async () => await TestConnectionAsync(), () => !IsBusy);
+            LoginCommand = new Command(async () => await LoginAsync(), () => !IsBusy);
+
+            // Initialize server URL
+            ServerUrl = _connectionService.GetBaseUrl();
         }
+
+        #region Properties
 
         public string Username
         {
@@ -60,6 +68,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 _isBusy = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(IsNotBusy));
+                ((Command)TestConnectionCommand).ChangeCanExecute();
                 ((Command)LoginCommand).ChangeCanExecute();
             }
         }
@@ -109,74 +118,56 @@ namespace NewwaysAdmin.Mobile.ViewModels
             }
         }
 
+        public string ServerUrl
+        {
+            get => _serverUrl;
+            set
+            {
+                _serverUrl = value;
+                OnPropertyChanged();
+            }
+        }
+
+        #endregion
+
+        #region Commands
+
+        public ICommand TestConnectionCommand { get; }
         public ICommand LoginCommand { get; }
 
-        public async Task<bool> CheckConnectionAsync()
+        #endregion
+
+        #region Private Methods
+
+        private async Task TestConnectionAsync()
         {
+            IsBusy = true;
             try
             {
-                ConnectionStatus = "Checking connection...";
+                _logger.LogInformation("Testing connection to server...");
+                ConnectionStatus = "Testing connection...";
                 ConnectionColor = Colors.Orange;
 
                 var result = await _connectionService.TestConnectionAsync();
 
                 if (result.Success)
                 {
-                    ConnectionStatus = "✓ Connected to server";
+                    ConnectionStatus = $"✓ Connected! ({result.StatusCode})";
                     ConnectionColor = Colors.Green;
-                    return true;
+                    _logger.LogInformation("Connection test successful");
                 }
                 else
                 {
-                    ConnectionStatus = "⚠ Cannot connect to server";
+                    ConnectionStatus = $"✗ Failed: {result.Message}";
                     ConnectionColor = Colors.Red;
-                    return false;
+                    _logger.LogWarning("Connection test failed: {Message}", result.Message);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking connection");
-                ConnectionStatus = "⚠ Connection error";
+                _logger.LogError(ex, "Error during connection test");
+                ConnectionStatus = $"✗ Error: {ex.Message}";
                 ConnectionColor = Colors.Red;
-                return false;
-            }
-        }
-
-        public async Task<bool> TryAutoLoginAsync()
-        {
-            try
-            {
-                IsBusy = true;
-                StatusMessage = "Checking saved credentials...";
-                StatusColor = Colors.Orange;
-
-                var result = await _authService.TryAutoLoginAsync();
-
-                if (result.RequiresManualLogin)
-                {
-                    StatusMessage = "Please enter your credentials";
-                    StatusColor = Colors.Gray;
-                    return false;
-                }
-
-                if (result.Success)
-                {
-                    StatusMessage = $"Welcome back! Logged in successfully.";
-                    StatusColor = Colors.Green;
-                    _logger.LogInformation("Auto-login successful");
-                    return true;
-                }
-
-                StatusMessage = result.Message ?? "Auto-login failed";
-                StatusColor = Colors.Red;
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during auto-login");
-                StatusMessage = "Auto-login error";
-                StatusColor = Colors.Red;
-                return false;
             }
             finally
             {
@@ -184,7 +175,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
             }
         }
 
-        private async Task ExecuteLoginAsync()
+        private async Task LoginAsync()
         {
             if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
             {
@@ -193,9 +184,10 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 return;
             }
 
+            IsBusy = true;
             try
             {
-                IsBusy = true;
+                _logger.LogInformation("Attempting login for user: {Username}", Username);
                 StatusMessage = "Logging in...";
                 StatusColor = Colors.Orange;
 
@@ -203,16 +195,18 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
                 if (result.Success)
                 {
-                    StatusMessage = "Login successful!";
+                    StatusMessage = "✓ Login successful!";
                     StatusColor = Colors.Green;
-                    _logger.LogInformation("Manual login successful for user: {Username}", Username);
+                    _logger.LogInformation("Login successful for user: {Username}", Username);
 
-                    // Navigate to main app (we'll implement this next)
-                    await NavigateToMainAppAsync();
+                    // Show success message
+                    await Application.Current.MainPage.DisplayAlert("Success",
+                        $"Login successful!\nPermissions: {string.Join(", ", result.Permissions ?? new List<string>())}",
+                        "OK");
                 }
                 else
                 {
-                    StatusMessage = result.Message ?? "Login failed";
+                    StatusMessage = $"✗ {result.Message}";
                     StatusColor = Colors.Red;
                     Password = ""; // Clear password on failed login
                 }
@@ -220,7 +214,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during login");
-                StatusMessage = "Connection error";
+                StatusMessage = $"✗ Error: {ex.Message}";
                 StatusColor = Colors.Red;
                 Password = "";
             }
@@ -230,19 +224,17 @@ namespace NewwaysAdmin.Mobile.ViewModels
             }
         }
 
-        private async Task NavigateToMainAppAsync()
-        {
-            // For now, just show a placeholder message
-            // We'll replace this with actual navigation in the next step
-            await Application.Current.MainPage.DisplayAlert("Success",
-                "Login successful! Main app coming soon...", "OK");
-        }
+        #endregion
 
-        public event PropertyChangedEventHandler PropertyChanged;
+        #region INotifyPropertyChanged
 
-        protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+
+        #endregion
     }
 }

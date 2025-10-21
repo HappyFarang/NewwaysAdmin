@@ -33,15 +33,20 @@ namespace NewwaysAdmin.Mobile.Extensions
 
             // Core mobile services that depend on storage
             services.AddSingleton<CredentialStorageService>();
-            services.AddTransient<MauiAuthService>();
+
+            // Authentication services with interfaces (only where they make sense!)
+            services.AddTransient<IMauiAuthService, MauiAuthService>();
+            services.AddTransient<IConnectionService, ConnectionService>();
 
             return services;
         }
 
         public static IServiceCollection AddViewModels(this IServiceCollection services)
         {
-            // All ViewModels
+            // All ViewModels - keeping them as classes, not interfaces
             services.AddTransient<LoginViewModel>();
+            services.AddTransient<SimpleLoginViewModel>();
+
             // Future ViewModels will go here:
             // services.AddTransient<MainViewModel>();
             // services.AddTransient<PhotoUploadViewModel>();
@@ -51,8 +56,10 @@ namespace NewwaysAdmin.Mobile.Extensions
 
         public static IServiceCollection AddPages(this IServiceCollection services)
         {
-            // All Pages
+            // All Pages - keeping them as classes, not interfaces
             services.AddTransient<LoginPage>();
+            services.AddTransient<SimpleLoginPage>();
+
             // Future Pages will go here:
             // services.AddTransient<MainPage>();
             // services.AddTransient<PhotoUploadPage>();
@@ -62,11 +69,16 @@ namespace NewwaysAdmin.Mobile.Extensions
 
         public static IServiceCollection AddHttpClients(this IServiceCollection services)
         {
-            // HTTP client for server communication
-            services.AddHttpClient<MauiAuthService>(client =>
+            // HTTP client for server communication - BOTH services use the same client
+            services.AddHttpClient<IMauiAuthService, MauiAuthService>(client =>
             {
-                client.BaseAddress = new Uri("http://localhost:5080/");  // Changed to match WebAdmin port
-                // client.BaseAddress = new Uri("https://newwaysadmin.hopto.org:5080/");
+                client.BaseAddress = new Uri("http://localhost:5080/");
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+
+            services.AddHttpClient<IConnectionService, ConnectionService>(client =>
+            {
+                client.BaseAddress = new Uri("http://localhost:5080/");
                 client.Timeout = TimeSpan.FromSeconds(30);
             });
 

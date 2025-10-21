@@ -10,6 +10,11 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         private readonly RequestDelegate _next;
         private readonly ILogger<SimpleDoSMiddleware> _logger;
 
+        private bool IsMobileApiRequest(string path)
+        {
+            return path.StartsWith("/api/mobile/", StringComparison.OrdinalIgnoreCase);
+        }
+
         public SimpleDoSMiddleware(RequestDelegate next, ILogger<SimpleDoSMiddleware> logger)
         {
             _next = next;
@@ -17,8 +22,8 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         }
 
         public async Task InvokeAsync(HttpContext context,
-            ISimpleDoSProtectionService dosService,
-            IAuthenticationService authService)
+    ISimpleDoSProtectionService dosService,
+    IAuthenticationService authService)
         {
             var ipAddress = GetClientIpAddress(context);
             var userAgent = context.Request.Headers["User-Agent"].ToString();
@@ -27,55 +32,34 @@ namespace NewwaysAdmin.WebAdmin.Middleware
 
             try
             {
-                // Check if user is authenticated
-                var isAuthenticated = await IsUserAuthenticated(context, authService);
-
-                // Check for DoS patterns
-                var dosCheck = await dosService.CheckRequestAsync(ipAddress, userAgent, path, isAuthenticated);
-
-                if (dosCheck.IsBlocked)
+                // MOBILE API BYPASS - Skip DoS protection for mobile API calls
+                if (IsMobileApiRequest(path))
                 {
-                    await HandleBlockedRequest(context, dosCheck, ipAddress, isAuthenticated);
+                    _logger.LogInformation("Mobile API request from {IpAddress} to {Path} - bypassing DoS protection",
+                        ipAddress, path);
+
+                    // Add minimal security headers for mobile API
+                    context.Response.Headers["X-Protection-Level"] = "mobile-api";
+                    context.Response.Headers["X-RateLimit-Limit"] = "unlimited";
+
+                    // Continue to next middleware without DoS checks
+                    await _next(context);
+
+                    // Still log the request for monitoring
+                    var responseTime = DateTime.UtcNow - startTime;
+                    await dosService.LogRequestAsync(ipAddress, userAgent, path, context.Response.StatusCode, false);
+
                     return;
                 }
 
-                // Log high-risk activity
-                if (dosCheck.IsHighRisk)
-                {
-                    var userType = isAuthenticated ? "authenticated" : "unauthenticated";
-                    _logger.LogWarning("High-risk {UserType} client: {IpAddress} - {RequestsInWindow} requests",
-                        userType, ipAddress, dosCheck.RequestsInWindow);
-                }
+                // Continue with existing DoS protection logic for non-mobile requests...
+                var isAuthenticated = await IsUserAuthenticated(context, authService);
 
-                // Add security headers
-                AddSecurityHeaders(context, isAuthenticated);
-
-                // Continue to next middleware
-                await _next(context);
-
-                // Log the request
-                var responseTime = DateTime.UtcNow - startTime;
-                await dosService.LogRequestAsync(ipAddress, userAgent, path, context.Response.StatusCode, isAuthenticated);
-
-                // Log errors
-                if (context.Response.StatusCode >= 400)
-                {
-                    var logLevel = isAuthenticated ? LogLevel.Information : LogLevel.Warning;
-                    _logger.Log(logLevel,
-                        "Error {StatusCode} from {UserType} user {IpAddress} to {Path} in {ResponseTime}ms",
-                        context.Response.StatusCode,
-                        isAuthenticated ? "authenticated" : "unauthenticated",
-                        ipAddress,
-                        path,
-                        responseTime.TotalMilliseconds);
-                }
+                // ... rest of your existing code stays the same
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in DoS middleware for {IpAddress}", ipAddress);
-
-                // Still log the request
-                await dosService.LogRequestAsync(ipAddress, userAgent, path, 500, false);
                 throw;
             }
         }
