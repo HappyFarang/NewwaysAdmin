@@ -103,6 +103,8 @@ public class Program
             options.DisconnectedCircuitMaxRetained = 100;
             options.JSInteropDefaultCallTimeout = TimeSpan.FromMinutes(1);
         });
+        services.AddControllers();
+
         services.AddHttpContextAccessor();
         services.AddAuthorizationCore();
 
@@ -429,10 +431,9 @@ services.AddScoped<PatternManagementService>(sp =>
         }
 
         // 5. Configure middleware pipeline (existing)
-        app.UseStaticFiles();
         app.UseRouting();
-
         app.MapBlazorHub();
+        app.MapControllers();
         app.MapFallbackToPage("/_Host");
 
         // ===== SECURITY STATUS LOGGING =====

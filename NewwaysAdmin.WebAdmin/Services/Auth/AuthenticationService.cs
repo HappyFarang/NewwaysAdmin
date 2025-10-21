@@ -16,6 +16,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
         Task<bool> CreateUserAsync(User user);
         Task UpdateUserAsync(User user);
         Task<bool> DeleteUserAsync(string username);
+        Task<bool> ValidateCredentialsAsync(string username, string password); 
     }
 
     public class AuthenticationService : IAuthenticationService
@@ -40,6 +41,55 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
             _circuitManager = circuitManager;
             _httpContextAccessor = httpContextAccessor;
             _logger = logger;
+        }
+
+        public async Task<bool> ValidateCredentialsAsync(string username, string password)
+        {
+            try
+            {
+                await EnsureStorageInitializedAsync();
+
+                _logger.LogInformation("Credential validation for user: {Username}", username);
+
+                if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+                {
+                    return false;
+                }
+
+                var users = await _userStorage!.LoadAsync("users-list") ?? new List<User>();
+                var user = users.FirstOrDefault(u => u.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
+
+                if (user == null)
+                {
+                    _logger.LogWarning("User not found during validation: {Username}", username);
+                    return false;
+                }
+
+                if (!user.IsActive)
+                {
+                    _logger.LogWarning("Inactive user attempted validation: {Username}", username);
+                    return false;
+                }
+
+                // Verify password - NO SESSION CREATION
+                var isValid = PasswordHasher.VerifyPassword(password, user.Salt, user.PasswordHash);
+
+                if (!isValid)
+                {
+                    _logger.LogWarning("Invalid password during validation for user: {Username}", username);
+                }
+                else
+                {
+                    _logger.LogInformation("Credential validation successful for user: {Username}", username);
+                }
+
+                return isValid;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during credential validation for user {Username}", username);
+                return false;
+            }
         }
 
         private async Task EnsureStorageInitializedAsync()

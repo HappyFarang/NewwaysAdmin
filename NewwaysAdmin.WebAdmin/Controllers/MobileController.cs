@@ -26,13 +26,10 @@ namespace NewwaysAdmin.WebAdmin.Controllers
             {
                 _logger.LogInformation("Mobile authentication attempt for user: {Username}", request.Username);
 
-                var result = await _authService.LoginAsync(new LoginModel
-                {
-                    Username = request.Username,
-                    Password = request.Password
-                });
+                var isValid = await _authService.ValidateCredentialsAsync(request.Username, request.Password);
 
-                if (result.success)
+
+                if (isValid)
                 {
                     var user = await _authService.GetUserByNameAsync(request.Username);
                     _logger.LogInformation("Mobile authentication successful for user: {Username}", request.Username);
