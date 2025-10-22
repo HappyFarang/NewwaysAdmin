@@ -1,0 +1,216 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/CategoryManagement/CategoryManagementPage.razor *@
+@page "/accounting/categories"
+@using NewwaysAdmin.SharedModels.Categories
+@using NewwaysAdmin.WebAdmin.Services.Categories
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = "Page_accounting_ReadWrite")]
+@inject CategoryService CategoryService
+@inject IJSRuntime JSRuntime
+@inject ILogger<CategoryManagementPage> Logger
+
+<PageTitle>Category Management - Accounting</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h3 class="mb-1">Expense Categories</h3>
+            <p class="text-muted">Manage categories for bank transfer notes and expense tracking</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="ShowAddCategoryModal">
+                <i class="fas fa-plus me-2"></i>Add Category
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading categories...</span>
+            </div>
+        </div>
+    }
+    else if (categorySystem?.Categories?.Any() == true)
+    {
+        <div class="row">
+            <div class="col-md-8">
+                <CategoryList Categories="categorySystem.Categories" 
+                             OnEditCategory="EventCallback.Factory.Create<Category>(this, EditCategory)"
+                             OnDeleteCategory="EventCallback.Factory.Create<Category>(this, DeleteCategory)"
+                             OnAddSubCategory="EventCallback.Factory.Create<Category>(this, AddSubCategory)"
+                             OnEditSubCategory="EventCallback.Factory.Create<ValueTuple<Category, SubCategory>>(this, HandleEditSubCategory)"
+                             OnDeleteSubCategory="EventCallback.Factory.Create<ValueTuple<Category, SubCategory>>(this, HandleDeleteSubCategory)" />
+            </div>
+            <div class="col-md-4">
+                <LocationManager OnLocationUpdate="EventCallback.Factory.Create(this, OnLocationUpdate)" />
+                
+                <CategoryStats Categories="categorySystem.Categories" />
+            </div>
+        </div>
+    }
+    else
+    {
+        <EmptyState OnAddFirst="ShowAddCategoryModal" />
+    }
+</div>
+
+<!-- Add/Edit Category Modal -->
+<CategoryModal @ref="categoryModal" 
+               OnCategorySaved="OnCategorySaved" />
+
+<!-- Add/Edit SubCategory Modal -->
+<SubCategoryModal @ref="subCategoryModal"
+                  OnSubCategorySaved="OnSubCategorySaved" />
+
+@code {
+    private CategorySystem? categorySystem;
+    private bool isLoading = true;
+    private CategoryModal? categoryModal;
+    private SubCategoryModal? subCategoryModal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategories();
+    }
+
+    private async Task LoadCategories()
+    {
+        try
+        {
+            isLoading = true;
+            categorySystem = await CategoryService.GetCategorySystemAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading categories");
+            await JSRuntime.InvokeVoidAsync("alert", "Error loading categories. Please refresh the page.");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ShowAddCategoryModal()
+    {
+        if (categoryModal != null)
+        {
+            await categoryModal.ShowAsync();
+        }
+    }
+
+    private async Task EditCategory(Category category)
+    {
+        if (categoryModal != null)
+        {
+            await categoryModal.ShowAsync(category);
+        }
+    }
+
+    private async Task DeleteCategory(Category category)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to delete '{category.Name}' and all its subcategories?");
+        
+        if (confirmed)
+        {
+            try
+            {
+                await CategoryService.DeleteCategoryAsync(category.Id, "CurrentUser"); // TODO: Get actual user
+                await LoadCategories();
+                await JSRuntime.InvokeVoidAsync("alert", "Category deleted successfully");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error deleting category {CategoryId}", category.Id);
+                await JSRuntime.InvokeVoidAsync("alert", "Error deleting category");
+            }
+        }
+    }
+
+    private async Task AddSubCategory(Category parentCategory)
+    {
+        if (subCategoryModal != null)
+        {
+            await subCategoryModal.ShowAsync(parentCategory);
+        }
+    }
+
+    private async Task EditSubCategory(Category parentCategory, SubCategory subCategory)
+    {
+        if (subCategoryModal != null)
+        {
+            await subCategoryModal.ShowAsync(parentCategory, subCategory);
+        }
+    }
+
+    private async Task DeleteSubCategory(Category parentCategory, SubCategory subCategory)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+            $"Are you sure you want to delete '{subCategory.Name}'?");
+        
+        if (confirmed)
+        {
+            try
+            {
+                parentCategory.SubCategories.Remove(subCategory);
+                await CategoryService.UpdateCategoryAsync(
+                    parentCategory.Id, 
+                    parentCategory.Name, 
+                    parentCategory.Description ?? "", 
+                    "CurrentUser"); // TODO: Get actual user
+                
+                await LoadCategories();
+                await JSRuntime.InvokeVoidAsync("alert", "Subcategory deleted successfully");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error deleting subcategory {SubCategoryId}", subCategory.Id);
+                await JSRuntime.InvokeVoidAsync("alert", "Error deleting subcategory");
+            }
+        }
+    }
+
+    // Wrapper methods for tuple parameters
+    private async Task HandleEditSubCategory((Category category, SubCategory subCategory) args)
+    {
+        await EditSubCategory(args.category, args.subCategory);
+    }
+
+    private async Task HandleDeleteSubCategory((Category category, SubCategory subCategory) args)
+    {
+        await DeleteSubCategory(args.category, args.subCategory);
+    }
+
+    private async Task OnLocationUpdate()
+    {
+        // Refresh the page when locations are updated
+        await LoadCategories();
+    }
+
+    private async Task OnCategorySaved()
+    {
+        await LoadCategories();
+    }
+
+    private async Task OnSubCategorySaved()
+    {
+        await LoadCategories();
+    }
+}
+
+@* Empty State Component *@
+<div class="empty-state" style="@(categorySystem?.Categories?.Any() != true ? "" : "display: none;")">
+    <div class="text-center py-5">
+        <div class="mb-4">
+            <i class="fas fa-folder-open fa-4x text-muted"></i>
+        </div>
+        <h5>No Categories Yet</h5>
+        <p class="text-muted mb-4">Create your first expense category to get started with organized bank transfer notes.</p>
+        <button class="btn btn-primary" @onclick="ShowAddCategoryModal">
+            <i class="fas fa-plus me-2"></i>Create First Category
+        </button>
+    </div>
+</div>

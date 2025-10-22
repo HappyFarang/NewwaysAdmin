@@ -1,0 +1,140 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/CategoryManagement/CategoryModal.razor *@
+@using NewwaysAdmin.SharedModels.Categories
+@using NewwaysAdmin.WebAdmin.Services.Categories
+@inject CategoryService CategoryService
+@inject IJSRuntime JSRuntime
+
+<!-- Modal -->
+<div class="modal fade" id="categoryModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">@(editingCategory == null ? "Add Category" : "Edit Category")</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <EditForm Model="categoryForm" OnValidSubmit="SaveCategory">
+                <DataAnnotationsValidator />
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="categoryName" class="form-label">Category Name</label>
+                        <InputText id="categoryName" class="form-control" @bind-Value="categoryForm.Name" placeholder="e.g., Transportation, VAT, Tax" />
+                        <ValidationMessage For="() => categoryForm.Name" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="categoryDescription" class="form-label">Description (Optional)</label>
+                        <InputTextArea id="categoryDescription" class="form-control" @bind-Value="categoryForm.Description"
+                                       placeholder="Brief description of this category" rows="2" />
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Note:</strong> Categories work with all locations. Locations are selected when using the category in the mobile app.
+                    </div>
+
+                    @if (isSaving)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                            Saving...
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" disabled="@isSaving">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                        @(editingCategory == null ? "Add Category" : "Update Category")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCategorySaved { get; set; }
+
+    private Category? editingCategory;
+    private CategoryFormModel categoryForm = new();
+    private bool isSaving = false;
+
+    public async Task ShowAsync(Category? category = null)
+    {
+        editingCategory = category;
+
+        if (category != null)
+        {
+            // Editing existing category
+            categoryForm = new CategoryFormModel
+                {
+                    Name = category.Name,
+                    Description = category.Description ?? ""
+                };
+        }
+        else
+        {
+            // Adding new category
+            categoryForm = new CategoryFormModel();
+        }
+
+        await JSRuntime.InvokeVoidAsync("eval", "new bootstrap.Modal(document.getElementById('categoryModal')).show()");
+        StateHasChanged();
+    }
+
+    private async Task SaveCategory()
+    {
+        if (string.IsNullOrWhiteSpace(categoryForm.Name))
+            return;
+
+        isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            if (editingCategory == null)
+            {
+                // Create new category
+                await CategoryService.CreateCategoryAsync(
+                    categoryForm.Name.Trim(),
+                    categoryForm.Description?.Trim() ?? "",
+                    "CurrentUser" // TODO: Get actual user
+                );
+            }
+            else
+            {
+                // Update existing category
+                await CategoryService.UpdateCategoryAsync(
+                    editingCategory.Id,
+                    categoryForm.Name.Trim(),
+                    categoryForm.Description?.Trim() ?? "",
+                    "CurrentUser" // TODO: Get actual user
+                );
+            }
+
+            await JSRuntime.InvokeVoidAsync("eval", "bootstrap.Modal.getInstance(document.getElementById('categoryModal')).hide()");
+            await OnCategorySaved.InvokeAsync();
+
+            await JSRuntime.InvokeVoidAsync("showToast",
+                $"Category {(editingCategory == null ? "created" : "updated")} successfully!", "success");
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("showToast",
+                $"Error {(editingCategory == null ? "creating" : "updating")} category: {ex.Message}", "danger");
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    public class CategoryFormModel
+    {
+        [Required(ErrorMessage = "Category name is required")]
+        [StringLength(100, ErrorMessage = "Category name must be 100 characters or less")]
+        public string Name { get; set; } = "";
+
+        public string? Description { get; set; }
+    }
+}

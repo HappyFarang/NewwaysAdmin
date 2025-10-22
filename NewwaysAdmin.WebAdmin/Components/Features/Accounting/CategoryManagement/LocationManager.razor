@@ -1,0 +1,157 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/CategoryManagement/LocationManager.razor *@
+@using NewwaysAdmin.SharedModels.Categories
+@using NewwaysAdmin.WebAdmin.Services.Categories
+@inject CategoryService CategoryService
+@inject IJSRuntime JSRuntime
+
+<div class="card mb-3">
+    <div class="card-header">
+        <h6 class="mb-0">Business Locations</h6>
+    </div>
+    <div class="card-body">
+        @if (isLoading)
+        {
+            <div class="text-center">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+            </div>
+        }
+        else
+        {
+            @if (locations?.Any() == true)
+            {
+                <div class="mb-3">
+                    @foreach (var location in locations.OrderBy(l => l.SortOrder))
+                    {
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <span class="badge bg-primary">
+                                <i class="fas fa-map-marker-alt me-1"></i>@location.Name
+                            </span>
+                            <button class="btn btn-sm btn-outline-danger"
+                                    @onclick="() => DeleteLocation(location)"
+                                    title="Delete location">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="input-group">
+                <input type="text" class="form-control" @bind="newLocationName" @onkeypress="HandleKeyPress"
+                       placeholder="Add new location..." maxlength="50" />
+                <button class="btn btn-outline-primary" @onclick="AddLocation" disabled="@(string.IsNullOrWhiteSpace(newLocationName))">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(locationError))
+            {
+                <small class="text-danger">@locationError</small>
+            }
+
+            <small class="form-text text-muted mt-2">
+                Locations apply to all categories and are selected when using categories in the mobile app.
+                <br><strong>Note:</strong> Some transactions (VAT, Tax) may not need a location.
+            </small>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnLocationUpdate { get; set; }
+
+    private List<BusinessLocation>? locations;
+    private string newLocationName = "";
+    private string locationError = "";
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLocations();
+    }
+
+    private async Task LoadLocations()
+    {
+        try
+        {
+            isLoading = true;
+            locations = await CategoryService.GetBusinessLocationsAsync();
+        }
+        catch (Exception ex)
+        {
+            locationError = $"Error loading locations: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await AddLocation();
+        }
+    }
+
+    private async Task AddLocation()
+    {
+        locationError = "";
+
+        if (string.IsNullOrWhiteSpace(newLocationName))
+        {
+            locationError = "Location name is required";
+            return;
+        }
+
+        var trimmedName = newLocationName.Trim();
+
+        if (locations?.Any(l => l.Name.Equals(trimmedName, StringComparison.OrdinalIgnoreCase)) == true)
+        {
+            locationError = "This location already exists";
+            return;
+        }
+
+        if (trimmedName.Length < 2)
+        {
+            locationError = "Location name must be at least 2 characters";
+            return;
+        }
+
+        try
+        {
+            await CategoryService.AddBusinessLocationAsync(trimmedName, "CurrentUser"); // TODO: Get actual user
+            newLocationName = "";
+            await LoadLocations();
+            await OnLocationUpdate.InvokeAsync();
+            await JSRuntime.InvokeVoidAsync("showToast", $"Location '{trimmedName}' added successfully!", "success");
+        }
+        catch (Exception ex)
+        {
+            locationError = $"Error adding location: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteLocation(BusinessLocation location)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
+            $"Are you sure you want to delete location '{location.Name}'?");
+
+        if (confirmed)
+        {
+            try
+            {
+                await CategoryService.DeleteBusinessLocationAsync(location.Id, "CurrentUser"); // TODO: Get actual user
+                await LoadLocations();
+                await OnLocationUpdate.InvokeAsync();
+                await JSRuntime.InvokeVoidAsync("showToast", $"Location '{location.Name}' deleted successfully!", "success");
+            }
+            catch (Exception ex)
+            {
+                await JSRuntime.InvokeVoidAsync("showToast", $"Error deleting location: {ex.Message}", "danger");
+            }
+        }
+    }
+}

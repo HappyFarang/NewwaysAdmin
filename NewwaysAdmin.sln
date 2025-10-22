@@ -31,7 +31,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WorkerAttendan
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.WorkerAttendance.Models", "NewwaysAdmin.WorkerAttendance.Models\NewwaysAdmin.WorkerAttendance.Models.csproj", "{1AEE55DE-CCD4-40EB-A44F-1F2594B2FDBA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NewwaysAdmin.Mobile", "Mobile\NewwaysAdmin.Mobile\NewwaysAdmin.Mobile.csproj", "{B17B8C79-D4F6-47CC-9DEA-A698C6E873A0}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewwaysAdmin.Mobile", "Mobile\NewwaysAdmin.Mobile\NewwaysAdmin.Mobile.csproj", "{B17B8C79-D4F6-47CC-9DEA-A698C6E873A0}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Mobile", "Mobile", "{6EC89DA6-B30B-4350-9CD1-D1469C96AA82}"
 EndProject

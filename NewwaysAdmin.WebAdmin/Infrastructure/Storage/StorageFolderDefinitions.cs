@@ -297,7 +297,56 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     Type = StorageType.Binary,
                     Path = "Security",
                     Description = "Permanent IP bans"
-                }
+                },
+                 // ===== CATEGORY SYSTEM STORAGE (RESTRUCTURED) =====
+                 new StorageFolder
+                 {
+                     Name = "Categories",
+                     Description = "Category system with two-level hierarchy - location independent",
+                     Type = StorageType.Json,
+                     Path = "Categories",
+                     IsShared = true,
+                     CreateBackups = true,
+                     MaxBackupCount = 20,
+                     IndexFiles = false
+                 },
+
+                 new StorageFolder
+                 {
+                     Name = "BusinessLocations",
+                     Description = "Global business locations that apply to all categories",
+                     Type = StorageType.Json,
+                     Path = "Categories/Locations",
+                     IsShared = true,
+                     CreateBackups = true,
+                     MaxBackupCount = 10,
+                     IndexFiles = false
+                 },
+
+                 new StorageFolder
+                 {
+                     Name = "CategoryUsage",
+                     Description = "Category usage tracking with location selection",
+                     Type = StorageType.Json,
+                     Path = "Categories/Usage",
+                     IsShared = true,
+                     CreateBackups = true,
+                     MaxBackupCount = 30,
+                     IndexFiles = true,
+                     IndexedExtensions = [".json"]
+                 },
+
+                 new StorageFolder
+                 {
+                     Name = "CategorySync",
+                     Description = "Mobile sync data for category system - optimized JSON for MAUI",
+                     Type = StorageType.Json,
+                     Path = "Categories/Sync",
+                     IsShared = true,
+                     CreateBackups = false, // Regenerated data
+                     IndexFiles = false
+                 }
+
 
             // Add new folders here as needed...
             );

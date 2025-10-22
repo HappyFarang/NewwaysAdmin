@@ -20,6 +20,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
             { "settings", AccessLevel.ReadWrite },
             { "sales", AccessLevel.Read },
             { "accounting", AccessLevel.ReadWrite },           // Main accounting module
+            { "accounting.categories", AccessLevel.ReadWrite }, // Category management sub-module
             { "accounting.bankslips", AccessLevel.ReadWrite }, // Bank slips sub-module
             { "worker-activity", AccessLevel.Read },
             { "accounting.reports", AccessLevel.Read },        // Future reports sub-module
@@ -61,6 +62,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Icon = "bi bi-calculator",
                     Description = "Accounting tools and reports"
                 },
+
                 new NavigationItem
                 {
                     Id = "security",
@@ -109,6 +111,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Path = "/accounting/bankslips",
                     Icon = "bi bi-receipt",
                     Description = "Process and manage bank slip OCR"
+                },
+                new NavigationItem
+                {
+                    Id = "accounting.categories",
+                    Name = "Categories",
+                    Path = "/accounting/categories",
+                    Icon = "fas fa-tags",
+                    Description = "Manage expense categories for bank transfer notes"
                 },
                 new NavigationItem
                 {

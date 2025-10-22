@@ -1,0 +1,142 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/CategoryManagement/CategoryStats.razor *@
+@using NewwaysAdmin.SharedModels.Categories
+
+<div class="card">
+    <div class="card-header">
+        <h6 class="mb-0">Usage Statistics</h6>
+    </div>
+    <div class="card-body">
+        @if (Categories?.Any() == true)
+        {
+            var totalCategories = Categories.Count;
+            var totalSubCategories = Categories.Sum(c => c.SubCategories?.Count ?? 0);
+            // TODO: Calculate usage from new CategoryUsage tracking system
+            var totalUsage = 0;
+            var mostUsedSubCategories = new List<SubCategory>(); // Empty for now
+
+            <div class="row text-center mb-3">
+                <div class="col">
+                    <div class="h4 text-primary">@totalCategories</div>
+                    <small class="text-muted">Categories</small>
+                </div>
+                <div class="col">
+                    <div class="h4 text-info">@totalSubCategories</div>
+                    <small class="text-muted">Subcategories</small>
+                </div>
+                <div class="col">
+                    <div class="h4 text-success">@totalUsage</div>
+                    <small class="text-muted">Total Uses</small>
+                </div>
+            </div>
+
+            @if (mostUsedSubCategories.Any())
+            {
+                <hr>
+                <h6 class="mb-2">Most Used</h6>
+                @foreach (var subCategory in mostUsedSubCategories)
+                {
+                    // TODO: Calculate percentage from new usage tracking system
+                    var percentage = 0.0;
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <small class="fw-medium">@subCategory.Name</small>
+                            <small class="text-muted">0 uses</small>
+                        </div>
+                        <div class="progress" style="height: 4px;">
+                            <div class="progress-bar bg-success" role="progressbar"
+                                 style="width: @(percentage.ToString("F1"))%"></div>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="text-center text-muted py-3">
+                    <i class="fas fa-chart-bar fa-2x mb-2"></i>
+                    <div>No usage data yet</div>
+                    <small>Statistics will appear as categories are used</small>
+                </div>
+            }
+
+            @if (Categories.Any(c => c.SubCategories?.Any() != true))
+            {
+                <hr>
+                <div class="alert alert-warning py-2">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>@Categories.Count(c => c.SubCategories?.Any() != true)</strong> categories have no subcategories
+                </div>
+            }
+
+            @if (GetRecentlyCreated().Any())
+            {
+                <hr>
+                <h6 class="mb-2">Recently Added</h6>
+                @foreach (var item in GetRecentlyCreated())
+                {
+                    <div class="d-flex align-items-center mb-1">
+                        <i class="fas @(item.IsCategory ? "fa-folder" : "fa-file") text-muted me-2"></i>
+                        <small>@item.Name</small>
+                        <small class="text-muted ms-auto">@item.CreatedDate.ToString("MMM d")</small>
+                    </div>
+                }
+            }
+        }
+        else
+        {
+            <div class="text-center text-muted py-3">
+                <i class="fas fa-chart-bar fa-2x mb-2"></i>
+                <div>No data available</div>
+                <small>Add categories to see statistics</small>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<Category>? Categories { get; set; }
+
+    private List<RecentItem> GetRecentlyCreated()
+    {
+        if (Categories?.Any() != true)
+            return new List<RecentItem>();
+
+        var recentItems = new List<RecentItem>();
+
+        // Add recent categories
+        foreach (var category in Categories.Where(c => c.CreatedDate > DateTime.UtcNow.AddDays(-30)))
+        {
+            recentItems.Add(new RecentItem
+                {
+                    Name = category.Name,
+                    CreatedDate = category.CreatedDate,
+                    IsCategory = true
+                });
+        }
+
+        // Add recent subcategories
+        foreach (var category in Categories)
+        {
+            if (category.SubCategories?.Any() == true)
+            {
+                foreach (var subCategory in category.SubCategories.Where(s => s.CreatedDate > DateTime.UtcNow.AddDays(-30)))
+                {
+                    recentItems.Add(new RecentItem
+                        {
+                            Name = subCategory.FullPath,
+                            CreatedDate = subCategory.CreatedDate,
+                            IsCategory = false
+                        });
+                }
+            }
+        }
+
+        return recentItems.OrderByDescending(r => r.CreatedDate).Take(5).ToList();
+    }
+
+    private class RecentItem
+    {
+        public string Name { get; set; } = "";
+        public DateTime CreatedDate { get; set; }
+        public bool IsCategory { get; set; }
+    }
+}

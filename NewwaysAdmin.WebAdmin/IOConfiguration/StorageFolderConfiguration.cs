@@ -145,5 +145,41 @@ public static class StorageFolderConfiguration
             IndexFiles = true,                // Enable indexing for fast week/year queries
             IndexedExtensions = [".json"]     // Index weekly summary files
         });
+
+        // ===== CATEGORY SYSTEM STORAGE =====
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "Categories",
+            Description = "Category system with two-level hierarchy and location tracking",
+            Type = StorageType.Json,
+            Path = "Categories",
+            IsShared = true,
+            CreateBackups = true,
+            MaxBackupCount = 20,
+            IndexFiles = false // Small JSON files, no indexing needed
+        });
+
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "CategorySync",
+            Description = "Mobile sync data for category system - optimized JSON for MAUI",
+            Type = StorageType.Json,
+            Path = "Categories/Sync",
+            IsShared = true,
+            CreateBackups = false, // Regenerated data
+            IndexFiles = false
+        });
+
+        RegisterFolderIfNotExists(new StorageFolder
+        {
+            Name = "CategoryUsageStats",
+            Description = "Category usage analytics and statistics",
+            Type = StorageType.Json,
+            Path = "Categories/Stats",
+            IsShared = true,
+            CreateBackups = true,
+            MaxBackupCount = 10,
+            IndexFiles = false
+        });
     }
 }
