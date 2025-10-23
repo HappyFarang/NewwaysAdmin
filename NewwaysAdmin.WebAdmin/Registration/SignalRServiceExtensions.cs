@@ -1,6 +1,7 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Registration/SignalRServiceExtensions.cs
 using Microsoft.AspNetCore.SignalR;
-using NewwaysAdmin.WebAdmin.Hubs;
+using NewwaysAdmin.SignalR.Universal.Extensions;
+using NewwaysAdmin.WebAdmin.Services.SignalR;
 
 namespace NewwaysAdmin.WebAdmin.Registration
 {
@@ -8,34 +9,46 @@ namespace NewwaysAdmin.WebAdmin.Registration
     {
         public static IServiceCollection AddSignalRServices(this IServiceCollection services)
         {
-            // ===== SIGNALR CORE =====
-            services.AddSignalR(options =>
+            // ===== UNIVERSAL SIGNALR SYSTEM =====
+            services.AddUniversalSignalR(options =>
             {
                 options.EnableDetailedErrors = true; // For development
                 options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
                 options.HandshakeTimeout = TimeSpan.FromSeconds(30);
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);
                 options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB max message
+                options.EnableConnectionCleanup = true;
+                options.ConnectionCleanupInterval = TimeSpan.FromMinutes(5);
+                options.MaxConnectionAge = TimeSpan.FromMinutes(30);
             });
 
-            // ===== COMMUNICATION HUBS =====
-            // Multi-app communication hub for MAUI, future face scanning app, etc.
-            services.AddScoped<MobileCommHub>();
+            // ===== APP-SPECIFIC MESSAGE HANDLERS =====
+
+            // MAUI Expense Tracker handler
+            services.AddMessageHandler<CategorySyncHandler>("MAUI_ExpenseTracker");
+
+            // Future handlers can be added here:
+            // services.AddMessageHandler<FaceScanningHandler>("FaceScanning_App");
+            // services.AddMessageHandler<WorkerAttendanceHandler>("Worker_Attendance");
+            // services.AddMessageHandler<NotificationHandler>("Notification_System");
 
             return services;
         }
 
         /// <summary>
-        /// Configure SignalR endpoints in the application pipeline
+        /// Configure Universal SignalR endpoints in the application pipeline
         /// </summary>
         public static void MapSignalRHubs(this IEndpointRouteBuilder endpoints)
         {
-            // Multi-app communication hub
-            endpoints.MapHub<MobileCommHub>("/hubs/mobile");
+            // Universal communication hub (replaces old MobileCommHub)
+            endpoints.MapUniversalSignalR("/hubs/universal");
 
-            // Future hubs can be added here:
-            // endpoints.MapHub<FaceScanningHub>("/hubs/facescanning");
-            // endpoints.MapHub<NotificationHub>("/hubs/notifications");
+            // Keep old endpoint for backward compatibility during transition
+            // TODO: Remove this after MAUI app is updated to use /hubs/universal
+            endpoints.MapUniversalSignalR("/hubs/mobile");
+
+            // Future specialized hubs can be added here if needed:
+            // endpoints.MapHub<SpecializedHub>("/hubs/specialized");
         }
     }
 }
