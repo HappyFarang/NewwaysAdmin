@@ -10,149 +10,48 @@
         {
             @foreach (var category in Categories.OrderBy(c => c.SortOrder))
             {
-                <div class="category-group border-bottom">
-                    <div class="d-flex align-items-center justify-content-between p-3">
-                        <div class="d-flex align-items-center">
-                            <i class="fas fa-folder text-primary me-3"></i>
-                            <div>
-                                <h6 class="mb-1">@category.Name</h6>
-                                @if (!string.IsNullOrEmpty(category.Description))
-                                {
-                                    <small class="text-muted">@category.Description</small>
-                                }
-                            </div>
-                        </div>
-                        <div class="btn-group">
-                            <button class="btn btn-sm btn-outline-primary" @onclick="() => OnAddSubCategory.InvokeAsync(category)">
-                                <i class="fas fa-plus"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => OnEditCategory.InvokeAsync(category)">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => OnDeleteCategory.InvokeAsync(category)">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    @if (category.SubCategories?.Any() == true)
-                    {
-                        <div class="subcategories bg-light">
-                            @foreach (var subCategory in category.SubCategories.OrderBy(s => s.SortOrder))
-                            {
-                                <div class="d-flex align-items-center justify-content-between px-4 py-2 border-bottom border-white">
-                                    <div class="d-flex align-items-center">
-                                        <i class="fas fa-file text-secondary me-3 ms-3"></i>
-                                        <div>
-                                            <span class="fw-medium">@subCategory.Name</span>
-                                            @if (!string.IsNullOrEmpty(subCategory.Description))
-                                            {
-                                                <small class="text-muted d-block">@subCategory.Description</small>
-                                            }
-                                            <small class="text-primary">@subCategory.FullPath</small>
-                                            @* Usage tracking will be implemented later with new system *@
-                                        </div>
-                                    </div>
-                                    <div class="btn-group">
-                                        <button class="btn btn-sm btn-outline-secondary"
-                                                @onclick="() => OnEditSubCategory.InvokeAsync((category, subCategory))">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger"
-                                                @onclick="() => OnDeleteSubCategory.InvokeAsync((category, subCategory))">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-info"
-                                                @onclick="() => CopyToClipboard(subCategory.FullPath)">
-                                            <i class="fas fa-copy"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="px-4 py-2 bg-light text-muted">
-                            <i class="fas fa-info-circle me-2"></i>No subcategories yet. Click + to add one.
-                        </div>
-                    }
-                </div>
+                <CategoryItem 
+                    Category="category"
+                    IsExpanded="expandedCategoryId == category.Id"
+                    OnToggleExpanded="() => ToggleCategory(category.Id)"
+                    OnEditCategory="OnEditCategory"
+                    OnDeleteCategory="OnDeleteCategory"
+                    OnAddSubCategory="OnAddSubCategory"
+                    OnEditSubCategory="OnEditSubCategory"
+                    OnDeleteSubCategory="OnDeleteSubCategory" />
             }
+        }
+        else
+        {
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-folder-open fa-3x mb-3 text-muted"></i>
+                <h6>No categories found</h6>
+                <p class="mb-0">Add your first category to get started</p>
+            </div>
         }
     </div>
 </div>
 
 @code {
     [Parameter] public List<Category>? Categories { get; set; }
-   // [Parameter] public List<string> AvailableLocations { get; set; } = new();
     [Parameter] public EventCallback<Category> OnEditCategory { get; set; }
     [Parameter] public EventCallback<Category> OnDeleteCategory { get; set; }
     [Parameter] public EventCallback<Category> OnAddSubCategory { get; set; }
-    [Parameter] public EventCallback<(Category category, SubCategory subCategory)> OnEditSubCategory { get; set; }
-    [Parameter] public EventCallback<(Category category, SubCategory subCategory)> OnDeleteSubCategory { get; set; }
+    [Parameter] public EventCallback<ValueTuple<Category, SubCategory>> OnEditSubCategory { get; set; }
+    [Parameter] public EventCallback<ValueTuple<Category, SubCategory>> OnDeleteSubCategory { get; set; }
 
-    [Inject] private IJSRuntime JSRuntime { get; set; } = default!;
+    private string? expandedCategoryId = null;
 
-    private async Task CopyToClipboard(string text)
+    private void ToggleCategory(string categoryId)
     {
-        try
+        // Accordion behavior - only one category can be open at a time
+        if (expandedCategoryId == categoryId)
         {
-            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
-            await JSRuntime.InvokeVoidAsync("showToast", "Copied to clipboard!", "success");
+            expandedCategoryId = null; // Close if already open
         }
-        catch
+        else
         {
-            // Fallback for older browsers
-            await JSRuntime.InvokeVoidAsync("copyTextFallback", text);
+            expandedCategoryId = categoryId; // Open this category, close others
         }
     }
 }
-
-<style>
-    .category-group:last-child {
-        border-bottom: none !important;
-    }
-
-    .subcategories {
-        margin-left: 0;
-    }
-
-        .subcategories .border-bottom:last-child {
-            border-bottom: none !important;
-        }
-
-    .btn-group .btn {
-        border-radius: 0.375rem !important;
-        margin-left: 2px;
-    }
-</style>
-
-<script>
-    window.copyTextFallback = function (text) {
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-
-        if (window.showToast) {
-            window.showToast('Copied to clipboard!', 'success');
-        }
-    };
-
-    window.showToast = function (message, type = 'info') {
-        // Simple toast notification
-        const toast = document.createElement('div');
-        toast.className = `alert alert-${type} position-fixed`;
-        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-        toast.textContent = message;
-
-        document.body.appendChild(toast);
-
-        setTimeout(() => {
-            toast.remove();
-        }, 3000);
-    };
-</script>
