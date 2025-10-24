@@ -221,9 +221,9 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             return await _locationService.GetBusinessLocationsAsync();
         }
 
-        public async Task<BusinessLocation> AddBusinessLocationAsync(string locationName, string createdBy = "System")
+        public async Task<BusinessLocation> AddBusinessLocationAsync(string locationName, string description = "", string createdBy = "System")
         {
-            var location = await _locationService.AddBusinessLocationAsync(locationName, "", createdBy);
+            var location = await _locationService.AddBusinessLocationAsync(locationName, description);
 
             // Invalidate mobile sync to include new location
             await _syncService.InvalidateCacheAsync();
@@ -243,7 +243,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
         public async Task DeleteBusinessLocationAsync(string locationId, string deletedBy = "System")
         {
-            await _locationService.DeleteBusinessLocationAsync(locationId, deletedBy);
+            await _locationService.DeleteBusinessLocationAsync(locationId);
 
             // Invalidate mobile sync to remove location
             await _syncService.InvalidateCacheAsync();

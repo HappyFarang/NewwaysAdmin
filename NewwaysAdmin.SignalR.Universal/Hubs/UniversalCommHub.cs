@@ -1,9 +1,11 @@
 ﻿// File: NewwaysAdmin.SignalR.Universal/Hubs/UniversalCommHub.cs
+// FIXED: Removed generic methods that SignalR doesn't support
+
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.SignalR.Universal.Models;
 using NewwaysAdmin.SignalR.Universal.Services;
-using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace NewwaysAdmin.SignalR.Universal.Hubs
 {
@@ -139,20 +141,29 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
             try
             {
                 var connection = _connectionManager.GetConnection(Context.ConnectionId);
-                if (connection != null)
-                {
-                    connection.UserId = userId;
-                    await Groups.AddToGroupAsync(Context.ConnectionId, $"User_{userId}");
-
-                    _logger.LogInformation("User authenticated: {UserId} on connection {ConnectionId}",
-                        userId, Context.ConnectionId);
-
-                    await Clients.Caller.SendAsync("AuthenticationComplete", new { userId, serverTime = DateTime.UtcNow });
-                }
-                else
+                if (connection == null)
                 {
                     await Clients.Caller.SendAsync("AuthenticationError", "Connection not registered");
+                    return;
                 }
+
+                // TODO: Implement actual authentication logic here
+                // For now, just accept any userId
+
+                connection.UserId = userId;
+                connection.LastHeartbeat = DateTime.UtcNow;
+
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"User_{userId}");
+
+                _logger.LogInformation("User authenticated: {UserId} on connection {ConnectionId}",
+                    userId, Context.ConnectionId);
+
+                await Clients.Caller.SendAsync("AuthenticationComplete", new
+                {
+                    userId,
+                    connectionId = Context.ConnectionId,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
@@ -161,54 +172,31 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
             }
         }
 
-        // ===== GENERIC MESSAGING =====
+        // ===== MESSAGING =====
 
         public async Task SendMessageAsync(UniversalMessage message)
         {
             try
             {
-                // Set source info from connection
-                var connection = _connectionManager.GetConnection(Context.ConnectionId);
-                if (connection != null)
-                {
-                    message.SourceApp = connection.AppName;
-                    message.UserId = connection.UserId;
-                }
-
-                _logger.LogDebug("Received message {MessageId} of type {MessageType} for {TargetApp}",
+                _logger.LogDebug("Received message {MessageId} of type {MessageType} for app {TargetApp}",
                     message.MessageId, message.MessageType, message.TargetApp);
 
                 // Route message to appropriate handler
                 var result = await _messageRouter.RouteMessageAsync(message, Context.ConnectionId);
 
                 // Send response back to caller
-                if (result.Success)
+                await Clients.Caller.SendAsync("MessageResponse", new
                 {
-                    if (result.ResponseData != null)
-                    {
-                        await Clients.Caller.SendAsync("MessageResponse", new
-                        {
-                            messageId = message.MessageId,
-                            success = true,
-                            data = result.ResponseData
-                        });
-                    }
+                    messageId = message.MessageId,
+                    success = result.Success,
+                    data = result.ResponseData,
+                    error = result.ErrorMessage
+                });
 
-                    // Handle broadcasting if requested
-                    if (result.ShouldBroadcast)
-                    {
-                        await BroadcastMessageAsync(result.BroadcastMessageType!, result.ResponseData!,
-                            message.TargetApp, result.TargetConnections);
-                    }
-                }
-                else
+                // Handle broadcasting if requested
+                if (result.ShouldBroadcast && !string.IsNullOrEmpty(result.BroadcastMessageType))
                 {
-                    await Clients.Caller.SendAsync("MessageResponse", new
-                    {
-                        messageId = message.MessageId,
-                        success = false,
-                        error = result.ErrorMessage
-                    });
+                    await BroadcastMessageAsync(result.BroadcastMessageType, result.ResponseData, message.TargetApp, result.TargetConnections);
                 }
 
                 // Send acknowledgment if required
@@ -235,17 +223,65 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
             }
         }
 
-        public async Task SendTypedMessageAsync<T>(string messageType, string targetApp, T data, bool requiresAck = false)
+        // ===== HELPER METHOD FOR TYPED MESSAGES =====
+        // Note: This is NOT a hub method - it's called from client-side code
+        // Client will create UniversalMessage and call SendMessageAsync
+
+        public async Task SendTypedMessage(string messageType, string targetApp, object data, bool requiresAck = false)
         {
-            var message = new UniversalMessage<T>(messageType, "", targetApp, data)
+            var message = new UniversalMessage
             {
-                RequiresAck = requiresAck
+                MessageType = messageType,
+                TargetApp = targetApp,
+                Data = JsonSerializer.SerializeToElement(data),
+                RequiresAck = requiresAck,
+                SourceApp = "Server" // Since this is called from server
             };
 
             await SendMessageAsync(message);
         }
 
         // ===== BROADCASTING =====
+
+        public async Task BroadcastToAppAsync(string targetApp, string messageType, object data)
+        {
+            try
+            {
+                await Clients.Group($"App_{targetApp}").SendAsync("BroadcastMessage", new
+                {
+                    messageType,
+                    targetApp,
+                    data,
+                    timestamp = DateTime.UtcNow
+                });
+
+                _logger.LogDebug("Broadcasted message type {MessageType} to app {TargetApp}", messageType, targetApp);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting to app {TargetApp}", targetApp);
+            }
+        }
+
+        public async Task BroadcastToUserAsync(string userId, string messageType, object data)
+        {
+            try
+            {
+                await Clients.Group($"User_{userId}").SendAsync("BroadcastMessage", new
+                {
+                    messageType,
+                    userId,
+                    data,
+                    timestamp = DateTime.UtcNow
+                });
+
+                _logger.LogDebug("Broadcasted message type {MessageType} to user {UserId}", messageType, userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error broadcasting to user {UserId}", userId);
+            }
+        }
 
         private async Task BroadcastMessageAsync(string messageType, object data, string targetApp, List<string> specificConnections)
         {
@@ -278,31 +314,20 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error broadcasting message type {MessageType} to {TargetApp}", messageType, targetApp);
+                _logger.LogError(ex, "Error broadcasting message", ex);
             }
-        }
-
-        public async Task BroadcastToAppAsync(string targetApp, string messageType, object data)
-        {
-            await BroadcastMessageAsync(messageType, data, targetApp, new List<string>());
-        }
-
-        public async Task BroadcastToUserAsync(string userId, string messageType, object data)
-        {
-            await Clients.Group($"User_{userId}").SendAsync("BroadcastMessage", new
-            {
-                messageType,
-                targetUser = userId,
-                data,
-                timestamp = DateTime.UtcNow
-            });
         }
 
         // ===== CONNECTION HEALTH =====
 
         public async Task HeartbeatAsync()
         {
-            _connectionManager.UpdateHeartbeat(Context.ConnectionId);
+            var connection = _connectionManager.GetConnection(Context.ConnectionId);
+            if (connection != null)
+            {
+                connection.LastHeartbeat = DateTime.UtcNow;
+            }
+
             await Clients.Caller.SendAsync("HeartbeatAck", DateTime.UtcNow);
         }
 
@@ -312,15 +337,14 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
             await Clients.Caller.SendAsync("ConnectionInfo", connection);
         }
 
-        // ===== ADMIN/MONITORING =====
+        // ===== MONITORING =====
 
         public async Task GetServerStatsAsync()
         {
-            // Only allow this for admin connections - you can add authorization later
             var stats = new
             {
-                totalConnections = _connectionManager.GetTotalConnectionCount(),
-                appConnections = _connectionManager.GetAppConnectionCounts(),
+                totalConnections = _connectionManager.GetActiveConnectionCount(),
+                connectedApps = _connectionManager.GetConnectedApps(),
                 registeredApps = _messageRouter.GetRegisteredApps(),
                 serverTime = DateTime.UtcNow
             };

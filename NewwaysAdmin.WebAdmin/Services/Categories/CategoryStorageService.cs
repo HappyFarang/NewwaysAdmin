@@ -114,92 +114,52 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             try
             {
                 var usageStorage = _storageFactory.GetStorage<CategoryUsage>("CategoryUsage");
-                var cutoffDate = DateTime.UtcNow.AddDays(-daysBack);
+                var allIdentifiers = await usageStorage.ListIdentifiersAsync();
+                var usageList = new List<CategoryUsage>();
 
-                // This would need indexing support in your IO Manager
-                // For now, return empty list - implement when needed
-                return new List<CategoryUsage>();
+                foreach (var identifier in allIdentifiers)
+                {
+                    try
+                    {
+                        var usage = await usageStorage.LoadAsync(identifier);
+                        if (usage != null)
+                        {
+                            usageList.Add(usage);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not load usage file: {Identifier}", identifier);
+                    }
+                }
+
+                return usageList;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading category usage from storage");
+                _logger.LogError(ex, "Error loading recent category usage");
                 throw;
             }
         }
 
-        // ===== DEFAULT DATA CREATION =====
+        // ===== DEFAULT SYSTEM CREATION =====
 
         public CategorySystem CreateDefaultCategorySystem()
         {
             return new CategorySystem
             {
-                Categories = new List<Category>
-                {
-                    new Category
-                    {
-                        Name = "Transportation",
-                        Description = "Travel and transport expenses",
-                        CreatedBy = "System",
-                        SortOrder = 0,
-                        SubCategories = new List<SubCategory>
-                        {
-                            new SubCategory
-                            {
-                                Name = "Green Buses",
-                                Description = "Local green bus transportation",
-                                ParentCategoryName = "Transportation",
-                                CreatedBy = "System",
-                                SortOrder = 0
-                            },
-                            new SubCategory
-                            {
-                                Name = "Train Chiang Mai to Phrae",
-                                Description = "Train travel to Phrae",
-                                ParentCategoryName = "Transportation",
-                                CreatedBy = "System",
-                                SortOrder = 1
-                            }
-                        }
-                    },
-                    new Category
-                    {
-                        Name = "Meals",
-                        Description = "Food and dining expenses",
-                        CreatedBy = "System",
-                        SortOrder = 1,
-                        SubCategories = new List<SubCategory>
-                        {
-                            new SubCategory
-                            {
-                                Name = "Business Lunches",
-                                Description = "Client and business meals",
-                                ParentCategoryName = "Meals",
-                                CreatedBy = "System",
-                                SortOrder = 0
-                            },
-                            new SubCategory
-                            {
-                                Name = "Daily Meals",
-                                Description = "Regular meals during work",
-                                ParentCategoryName = "Meals",
-                                CreatedBy = "System",
-                                SortOrder = 1
-                            }
-                        }
-                    }
-                },
+                Categories = new List<Category>(), // Empty - create your own categories
                 Version = 1,
                 LastModified = DateTime.UtcNow,
                 ModifiedBy = "System"
             };
         }
-    }
 
-    public LocationSystem CreateDefaultLocationSystem()
-    {
-        return new LocationSystem
+        public LocationSystem CreateDefaultLocationSystem()
         {
-            Locations = new List<BusinessLocation>
+            return new LocationSystem
+            {
+                Locations = new List<BusinessLocation>
                 {
                     new BusinessLocation
                     {
@@ -210,10 +170,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
                         CreatedBy = "System"
                     }
                 },
-            Version = 1,
-            LastModified = DateTime.UtcNow,
-            ModifiedBy = "System"
-        };
+                Version = 1,
+                LastModified = DateTime.UtcNow,
+                ModifiedBy = "System"
+            };
+        }
     }
-}
 }

@@ -1,4 +1,6 @@
 ﻿// File: NewwaysAdmin.SignalR.Universal/Hubs/IUniversalCommHub.cs
+// FIXED: Removed generic methods that SignalR doesn't support
+
 using NewwaysAdmin.SignalR.Universal.Models;
 
 namespace NewwaysAdmin.SignalR.Universal.Hubs
@@ -15,7 +17,7 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
 
         // ===== MESSAGING =====
         Task SendMessageAsync(UniversalMessage message);
-        Task SendTypedMessageAsync<T>(string messageType, string targetApp, T data, bool requiresAck = false);
+        Task SendTypedMessage(string messageType, string targetApp, object data, bool requiresAck = false);
 
         // ===== BROADCASTING =====
         Task BroadcastToAppAsync(string targetApp, string messageType, object data);

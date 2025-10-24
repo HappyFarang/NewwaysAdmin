@@ -47,7 +47,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             }
         }
 
-        public async Task<BusinessLocation> AddBusinessLocationAsync(string locationName, string description = "", string createdBy = "System")
+        public async Task<BusinessLocation> AddBusinessLocationAsync(string locationName, string description = "")
         {
             try
             {
@@ -58,8 +58,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
                     Name = locationName,
                     Description = description,
                     IsActive = true,
-                    SortOrder = locationSystem.Locations.Count,
-                    CreatedBy = createdBy
+                    SortOrder = locationSystem.Locations.Count
                 };
 
                 locationSystem.Locations.Add(newLocation);
@@ -68,7 +67,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
                 await _storageService.SaveLocationSystemAsync(locationSystem);
 
-                _logger.LogInformation("Added business location: {LocationName} by {CreatedBy}", locationName, createdBy);
+                _logger.LogInformation("Added business location: {LocationName}", locationName);
                 return newLocation;
             }
             catch (Exception ex)
@@ -107,7 +106,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             }
         }
 
-        public async Task DeleteBusinessLocationAsync(string locationId, string deletedBy = "System")
+        public async Task DeleteBusinessLocationAsync(string locationId)
         {
             try
             {
@@ -126,7 +125,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
                 await _storageService.SaveLocationSystemAsync(locationSystem);
 
-                _logger.LogInformation("Deleted business location: {LocationName} by {DeletedBy}", location.Name, deletedBy);
+                _logger.LogInformation("Deleted business location: {LocationName}", location.Name);
             }
             catch (Exception ex)
             {

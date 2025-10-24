@@ -132,9 +132,22 @@ namespace NewwaysAdmin.SignalR.Universal.Services
             return _connections.Values.ToList();
         }
 
+        public int GetActiveConnectionCount()
+        {
+            return _connections.Count;
+        }
+
         public int GetTotalConnectionCount()
         {
             return _connections.Count;
+        }
+
+        public List<string> GetConnectedApps()
+        {
+            lock (_lockObject)
+            {
+                return _appConnections.Keys.ToList();
+            }
         }
 
         public List<AppConnection> GetStaleConnections(TimeSpan maxAge)

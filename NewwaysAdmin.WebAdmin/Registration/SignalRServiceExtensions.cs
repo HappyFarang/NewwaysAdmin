@@ -1,4 +1,6 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Registration/SignalRServiceExtensions.cs
+// UPDATED: Now using the FIXED Universal SignalR system
+
 using Microsoft.AspNetCore.SignalR;
 using NewwaysAdmin.SignalR.Universal.Extensions;
 using NewwaysAdmin.WebAdmin.Services.SignalR;
@@ -9,7 +11,7 @@ namespace NewwaysAdmin.WebAdmin.Registration
     {
         public static IServiceCollection AddSignalRServices(this IServiceCollection services)
         {
-            // ===== UNIVERSAL SIGNALR SYSTEM =====
+            // ===== UNIVERSAL SIGNALR SYSTEM (FIXED) =====
             services.AddUniversalSignalR(options =>
             {
                 options.EnableDetailedErrors = true; // For development
@@ -40,7 +42,7 @@ namespace NewwaysAdmin.WebAdmin.Registration
         /// </summary>
         public static void MapSignalRHubs(this IEndpointRouteBuilder endpoints)
         {
-            // Universal communication hub (replaces old MobileCommHub)
+            // Universal communication hub (FIXED - no more generic methods)
             endpoints.MapUniversalSignalR("/hubs/universal");
 
             // Keep old endpoint for backward compatibility during transition
