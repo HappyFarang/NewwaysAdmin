@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:NewwaysAdmin.Mobile.ViewModels"
+             x:Class="NewwaysAdmin.Mobile.Pages.MainMenuPage"
+             x:DataType="viewmodels:MainMenuViewModel"
+             Title="NewwaysAdmin">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="20">
+
+            <!-- Header -->
+            <Frame BackgroundColor="{StaticResource Primary}"
+                   CornerRadius="10"
+                   Padding="20">
+                <VerticalStackLayout Spacing="5">
+                    <Label Text="Welcome back!"
+                           FontSize="18"
+                           TextColor="White"
+                           FontAttributes="Bold"/>
+                    <Label Text="{Binding UserName}"
+                           FontSize="24"
+                           TextColor="White"
+                           FontAttributes="Bold"/>
+                    <HorizontalStackLayout Spacing="10">
+                        <Label Text="●"
+                               TextColor="{Binding IsOnline, Converter={StaticResource BoolToColorConverter}}"
+                               FontSize="14"/>
+                        <Label Text="{Binding IsOnline, Converter={StaticResource BoolToOnlineStatusConverter}}"
+                               TextColor="White"
+                               FontSize="14"/>
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Module Buttons -->
+            <Label Text="Modules"
+                   FontSize="20"
+                   FontAttributes="Bold"
+                   Margin="0,20,0,10"/>
+
+            <!-- Categories Module -->
+            <Button Text="📋 Categories"
+                    Command="{Binding NavigateToCategoriesCommand}"
+                    BackgroundColor="{StaticResource Primary}"
+                    TextColor="White"
+                    FontSize="18"
+                    HeightRequest="80"
+                    CornerRadius="10"/>
+
+            <!-- Future modules will appear here -->
+            <!--
+            <Button Text="💰 Expenses"
+                    Command="{Binding NavigateToExpensesCommand}"
+                    BackgroundColor="{StaticResource Secondary}"
+                    TextColor="White"
+                    FontSize="18"
+                    HeightRequest="80"
+                    CornerRadius="10"/>
+            -->
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>

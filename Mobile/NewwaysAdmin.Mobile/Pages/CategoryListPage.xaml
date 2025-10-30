@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:viewmodels="clr-namespace:NewwaysAdmin.Mobile.ViewModels"
+             xmlns:models="clr-namespace:NewwaysAdmin.SharedModels.Categories;assembly=NewwaysAdmin.SharedModels"
+             x:Class="NewwaysAdmin.Mobile.Pages.CategoryListPage"
+             x:DataType="viewmodels:CategoryListViewModel"
+             Title="Categories">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Refresh"
+                     Command="{Binding RefreshCommand}"
+                     IconImageSource="refresh.png"/>
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- Location Selection Bar -->
+        <Frame Grid.Row="0"
+               BackgroundColor="{StaticResource Primary}"
+               Padding="10"
+               Margin="0"
+               CornerRadius="0">
+            <VerticalStackLayout Spacing="8">
+                <Label Text="Select Location:"
+                       TextColor="White"
+                       FontSize="14"
+                       FontAttributes="Bold"/>
+
+                <!-- Dynamic Location Buttons -->
+                <ScrollView Orientation="Horizontal"
+                           HorizontalScrollBarVisibility="Never">
+                    <HorizontalStackLayout Spacing="8"
+                                          BindableLayout.ItemsSource="{Binding Locations}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="viewmodels:LocationItemWrapper">
+                                <Border StrokeThickness="2"
+                                       Stroke="White"
+                                       Padding="15,8">
+                                    <Border.Triggers>
+                                        <DataTrigger TargetType="Border" Binding="{Binding IsSelected}" Value="True">
+                                            <Setter Property="BackgroundColor" Value="#40FFFFFF" />
+                                        </DataTrigger>
+                                        <DataTrigger TargetType="Border" Binding="{Binding IsSelected}" Value="False">
+                                            <Setter Property="BackgroundColor" Value="Transparent" />
+                                        </DataTrigger>
+                                    </Border.Triggers>
+                                    <Border.StrokeShape>
+                                        <RoundRectangle CornerRadius="8"/>
+                                    </Border.StrokeShape>
+                                    <Border.GestureRecognizers>
+                                        <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:CategoryListViewModel}}, Path=SelectLocationCommand}"
+                                                            CommandParameter="{Binding .}"/>
+                                    </Border.GestureRecognizers>
+                                    <Label Text="{Binding Name}"
+                                          TextColor="White"
+                                          FontSize="14"
+                                          FontAttributes="Bold"/>
+                                </Border>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </HorizontalStackLayout>
+                </ScrollView>
+
+                <!-- Selected Location Display -->
+                <Label Text="{Binding SelectedLocation.Name, StringFormat='Selected: {0}'}"
+                       TextColor="White"
+                       FontSize="12"
+                       Opacity="0.8"
+                       IsVisible="{Binding SelectedLocation, Converter={StaticResource ObjectNotNullConverter}}"/>
+            </VerticalStackLayout>
+        </Frame>
+
+        <!-- Last Sync Info -->
+        <Frame Grid.Row="1"
+               BackgroundColor="{StaticResource Secondary}"
+               Padding="10,5"
+               Margin="0"
+               CornerRadius="0">
+            <HorizontalStackLayout Spacing="10">
+                <Label Text="📅"
+                       FontSize="14"/>
+                <Label Text="{Binding LastSyncDisplay, StringFormat='Last updated: {0}'}"
+                       TextColor="White"
+                       FontSize="12"/>
+            </HorizontalStackLayout>
+        </Frame>
+
+        <!-- Content Area -->
+        <Grid Grid.Row="2">
+
+            <!-- Loading State -->
+            <VerticalStackLayout IsVisible="{Binding IsLoading}"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center"
+                                Spacing="20">
+                <ActivityIndicator IsRunning="{Binding IsLoading}"
+                                  Color="{StaticResource Primary}"
+                                  HeightRequest="50"
+                                  WidthRequest="50"/>
+                <Label Text="{Binding StatusMessage}"
+                       HorizontalTextAlignment="Center"
+                       FontSize="16"/>
+            </VerticalStackLayout>
+
+            <!-- Empty State -->
+            <VerticalStackLayout IsVisible="{Binding HasData, Converter={StaticResource InvertedBoolConverter}}"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center"
+                                Padding="20"
+                                Spacing="20">
+                <Label Text="📂"
+                       FontSize="64"
+                       HorizontalTextAlignment="Center"/>
+                <Label Text="{Binding StatusMessage}"
+                       FontSize="16"
+                       HorizontalTextAlignment="Center"/>
+                <Button Text="Retry"
+                        Command="{Binding LoadCategoriesCommand}"
+                        BackgroundColor="{StaticResource Primary}"
+                        TextColor="White"
+                        WidthRequest="200"/>
+            </VerticalStackLayout>
+
+            <!-- Category List -->
+            <CollectionView ItemsSource="{Binding Categories}"
+                           IsVisible="{Binding HasData}"
+                           Margin="10">
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="models:MobileCategoryItem">
+                        <Frame Margin="0,5"
+                               Padding="15"
+                               BackgroundColor="{StaticResource Primary}"
+                               CornerRadius="10"
+                               HasShadow="True">
+                            <Frame.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding Source={RelativeSource AncestorType={x:Type viewmodels:CategoryListViewModel}}, Path=NavigateToSubCategoriesCommand}"
+                                                     CommandParameter="{Binding .}"/>
+                            </Frame.GestureRecognizers>
+                            <HorizontalStackLayout Spacing="15">
+                                <Label Text="📁"
+                                       FontSize="32"
+                                       VerticalOptions="Center"/>
+                                <VerticalStackLayout Spacing="5"
+                                                    VerticalOptions="Center"
+                                                    HorizontalOptions="FillAndExpand">
+                                    <Label Text="{Binding Name}"
+                                           FontSize="18"
+                                           FontAttributes="Bold"
+                                           TextColor="White"/>
+                                    <Label Text="{Binding SubCategories.Count, StringFormat='{0} subcategories'}"
+                                           FontSize="14"
+                                           TextColor="White"
+                                           Opacity="0.8"/>
+                                </VerticalStackLayout>
+                                <Label Text="›"
+                                       FontSize="32"
+                                       TextColor="White"
+                                       VerticalOptions="Center"/>
+                            </HorizontalStackLayout>
+                        </Frame>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+
+        </Grid>
+
+    </Grid>
+
+</ContentPage>

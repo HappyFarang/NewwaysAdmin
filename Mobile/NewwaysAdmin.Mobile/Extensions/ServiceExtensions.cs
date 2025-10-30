@@ -38,6 +38,26 @@ namespace NewwaysAdmin.Mobile.Extensions
             services.AddTransient<IMauiAuthService, MauiAuthService>();
             services.AddTransient<IConnectionService, ConnectionService>();
 
+            // SignalR services (Singleton - maintain connection throughout app lifetime)
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.SignalR.SignalRConnection>();
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.SignalR.SignalRMessageSender>();
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.SignalR.SignalRAppRegistration>();
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.SignalR.SignalREventListener>();
+
+            // Cache services (Singleton - maintain cache throughout app lifetime)
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.Cache.CacheStorage>();
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.Cache.CacheManager>();
+
+            // Permissions cache (Singleton - maintain permissions throughout app lifetime)
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.Auth.PermissionsCache>();
+
+            // Coordinators (Singleton - orchestrate app-wide operations)
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.Sync.SyncCoordinator>();
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.Startup.StartupCoordinator>();
+
+            // Business services (Singleton - maintain data throughout app lifetime)
+            services.AddSingleton<NewwaysAdmin.Mobile.Services.Categories.CategoryMobileService>();
+
             return services;
         }
 
@@ -46,9 +66,11 @@ namespace NewwaysAdmin.Mobile.Extensions
             // All ViewModels - keeping them as classes, not interfaces
             services.AddTransient<LoginViewModel>();
             services.AddTransient<SimpleLoginViewModel>();
+            services.AddTransient<MainMenuViewModel>();
+            services.AddTransient<CategoryListViewModel>();
+            services.AddTransient<SubCategoryListViewModel>();
 
             // Future ViewModels will go here:
-            // services.AddTransient<MainViewModel>();
             // services.AddTransient<PhotoUploadViewModel>();
 
             return services;
@@ -59,9 +81,11 @@ namespace NewwaysAdmin.Mobile.Extensions
             // All Pages - keeping them as classes, not interfaces
             services.AddTransient<LoginPage>();
             services.AddTransient<SimpleLoginPage>();
+            services.AddTransient<MainMenuPage>();
+            services.AddTransient<CategoryListPage>();
+            services.AddTransient<SubCategoryListPage>();
 
             // Future Pages will go here:
-            // services.AddTransient<MainPage>();
             // services.AddTransient<PhotoUploadPage>();
 
             return services;

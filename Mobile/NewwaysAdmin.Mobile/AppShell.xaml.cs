@@ -7,6 +7,9 @@ namespace NewwaysAdmin.Mobile
         public AppShell()
         {
             InitializeComponent();
+
+            // Register routes for programmatic navigation
+            Routing.RegisterRoute("SubCategoryListPage", typeof(SubCategoryListPage));
         }
     }
 }

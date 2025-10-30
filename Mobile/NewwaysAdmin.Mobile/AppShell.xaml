@@ -6,9 +6,27 @@
     xmlns:local="clr-namespace:NewwaysAdmin.Mobile"
     xmlns:pages="clr-namespace:NewwaysAdmin.Mobile.Pages"
     Shell.FlyoutBehavior="Disabled"
-    Title="NewwaysAdmin.Mobile">
-    <ShellContent
-       Title="Simple Login"
-       ContentTemplate="{DataTemplate pages:SimpleLoginPage}"
-       Route="SimpleLoginPage" />
+    Title="NewwaysAdmin">
+
+    <!-- Main Tab Bar -->
+    <TabBar>
+        <!-- Login Page (Initial) -->
+        <ShellContent
+            Title="Login"
+            ContentTemplate="{DataTemplate pages:SimpleLoginPage}"
+            Route="SimpleLoginPage" />
+
+        <!-- Main Menu (Module Hub) -->
+        <ShellContent
+            Title="Home"
+            ContentTemplate="{DataTemplate pages:MainMenuPage}"
+            Route="MainMenuPage" />
+
+        <!-- Category List Page -->
+        <ShellContent
+            Title="Categories"
+            ContentTemplate="{DataTemplate pages:CategoryListPage}"
+            Route="CategoryListPage" />
+    </TabBar>
+
 </Shell>
