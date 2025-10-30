@@ -19,5 +19,7 @@
         public bool RequiresManualLogin { get; set; }
         public string? Message { get; set; }
         public List<string>? Permissions { get; set; }
+        public bool IsOfflineMode { get; set; }
+        public string? Username { get; set; }
     }
 }

@@ -2,6 +2,7 @@
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.SharedModels.Models.Mobile;
+using NewwaysAdmin.Mobile.Services.Auth;
 
 namespace NewwaysAdmin.Mobile.Services
 {
@@ -15,15 +16,18 @@ namespace NewwaysAdmin.Mobile.Services
     {
         private readonly HttpClient _httpClient;
         private readonly CredentialStorageService _credentialStorage;
+        private readonly PermissionsCache _permissionsCache;
         private readonly ILogger<MauiAuthService> _logger;
 
         public MauiAuthService(
             HttpClient httpClient,
             CredentialStorageService credentialStorage,
+            PermissionsCache permissionsCache,
             ILogger<MauiAuthService> logger)
         {
             _httpClient = httpClient;
             _credentialStorage = credentialStorage;
+            _permissionsCache = permissionsCache;
             _logger = logger;
         }
 
@@ -37,7 +41,44 @@ namespace NewwaysAdmin.Mobile.Services
                 if (savedCreds != null)
                 {
                     _logger.LogInformation("Found saved credentials for user: {Username}", savedCreds.Username);
-                    return await LoginAsync(savedCreds.Username, savedCreds.Password, saveCredentials: false);
+
+                    // Try online login first
+                    var onlineResult = await LoginAsync(savedCreds.Username, savedCreds.Password, saveCredentials: false);
+
+                    if (onlineResult.Success)
+                    {
+                        _logger.LogInformation("Online auto-login successful");
+                        return onlineResult;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Online auto-login failed, checking cached permissions");
+
+                        // Fall back to cached permissions for offline mode
+                        var cachedPermissions = await _permissionsCache.GetCachedPermissionsAsync(savedCreds.Username);
+
+                        if (cachedPermissions != null && cachedPermissions.Count > 0)
+                        {
+                            _logger.LogInformation("Using cached permissions for offline access");
+                            return new AuthResult
+                            {
+                                Success = true,
+                                Message = "Working offline with cached permissions",
+                                Permissions = cachedPermissions,
+                                IsOfflineMode = true,
+                                Username = savedCreds.Username
+                            };
+                        }
+                        else
+                        {
+                            _logger.LogWarning("No cached permissions available - manual login required");
+                            return new AuthResult
+                            {
+                                RequiresManualLogin = true,
+                                Message = "Server unavailable and no cached permissions found"
+                            };
+                        }
+                    }
                 }
 
                 _logger.LogInformation("No saved credentials found - manual login required");
@@ -102,11 +143,27 @@ namespace NewwaysAdmin.Mobile.Services
                             }
                         }
 
+                        // Cache permissions for offline use
+                        if (result.Permissions != null && result.Permissions.Count > 0)
+                        {
+                            try
+                            {
+                                await _permissionsCache.SavePermissionsAsync(username, result.Permissions);
+                                _logger.LogInformation("Cached {Count} permissions for offline use", result.Permissions.Count);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to cache permissions, but login was successful");
+                            }
+                        }
+
                         return new AuthResult
                         {
                             Success = true,
                             Message = result.Message,
-                            Permissions = result.Permissions
+                            Permissions = result.Permissions,
+                            IsOfflineMode = false,
+                            Username = username
                         };
                     }
                     else
@@ -137,6 +194,25 @@ namespace NewwaysAdmin.Mobile.Services
             catch (TaskCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning("Login request timed out for user: {Username}", username);
+
+                // Network timeout - try cached permissions if we have credentials already
+                if (!saveCredentials) // This means it's an auto-login attempt
+                {
+                    var cachedPermissions = await _permissionsCache.GetCachedPermissionsAsync(username);
+                    if (cachedPermissions != null && cachedPermissions.Count > 0)
+                    {
+                        _logger.LogInformation("Using cached permissions due to network timeout");
+                        return new AuthResult
+                        {
+                            Success = true,
+                            Message = "Working offline - server timeout",
+                            Permissions = cachedPermissions,
+                            IsOfflineMode = true,
+                            Username = username
+                        };
+                    }
+                }
+
                 return new AuthResult
                 {
                     Success = false,
@@ -146,6 +222,25 @@ namespace NewwaysAdmin.Mobile.Services
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "Network error during login for user: {Username}", username);
+
+                // Network error - try cached permissions if we have credentials already
+                if (!saveCredentials) // This means it's an auto-login attempt
+                {
+                    var cachedPermissions = await _permissionsCache.GetCachedPermissionsAsync(username);
+                    if (cachedPermissions != null && cachedPermissions.Count > 0)
+                    {
+                        _logger.LogInformation("Using cached permissions due to network error");
+                        return new AuthResult
+                        {
+                            Success = true,
+                            Message = "Working offline - network unavailable",
+                            Permissions = cachedPermissions,
+                            IsOfflineMode = true,
+                            Username = username
+                        };
+                    }
+                }
+
                 return new AuthResult
                 {
                     Success = false,
