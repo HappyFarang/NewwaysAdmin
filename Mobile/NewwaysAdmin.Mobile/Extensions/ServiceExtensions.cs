@@ -4,35 +4,37 @@ using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Mobile.Services;
 using NewwaysAdmin.Mobile.Pages;
 using NewwaysAdmin.Mobile.ViewModels;
-using NewwaysAdmin.Mobile.Infrastructure.Storage;
+using NewwaysAdmin.Mobile.Services.SignalR;
+using NewwaysAdmin.Mobile.Services.Cache;
+using NewwaysAdmin.Mobile.Services.Sync;
+using NewwaysAdmin.Mobile.Services.Startup;
+using NewwaysAdmin.Mobile.Services.Categories;
 
 namespace NewwaysAdmin.Mobile.Extensions
 {
     public static class ServiceExtensions
     {
-        public static IServiceCollection AddIOManagerServices(this IServiceCollection services)
-        {
-            // Set mobile base path BEFORE creating EnhancedStorageFactory
-            var mobileBasePath = Path.Combine(FileSystem.AppDataDirectory, "NewwaysAdmin");
-            StorageConfiguration.DEFAULT_BASE_DIRECTORY = mobileBasePath;
-
-            // Now create EnhancedStorageFactory - it will use the mobile path
-            services.AddSingleton<EnhancedStorageFactory>(sp =>
-            {
-                var logger = sp.GetRequiredService<ILogger<EnhancedStorageFactory>>();
-                return new EnhancedStorageFactory(logger);
-            });
-
-            return services;
-        }
-
         public static IServiceCollection AddMobileServices(this IServiceCollection services)
         {
-            // Mobile storage manager (configures the storage factory)
-            services.AddSingleton<MobileStorageManager>();
-
-            // Core mobile services that depend on storage
+            // Core mobile services that depend on storage (EnhancedStorageFactory already configured in MauiProgram)
             services.AddSingleton<CredentialStorageService>();
+
+            // ===== SIGNALR SERVICES =====
+            services.AddScoped<SignalRConnection>();
+            services.AddScoped<SignalRMessageSender>();
+            services.AddScoped<SignalRAppRegistration>();
+            services.AddScoped<SignalREventListener>();
+
+            // ===== CACHE SERVICES =====
+            services.AddScoped<CacheStorage>();
+            services.AddScoped<CacheManager>();
+
+            // ===== SYNC COORDINATORS =====
+            services.AddScoped<SyncCoordinator>();
+            services.AddScoped<StartupCoordinator>();
+
+            // ===== CATEGORY SERVICES =====
+            services.AddScoped<MobileCategoryService>();
 
             // Authentication services with interfaces (only where they make sense!)
             services.AddTransient<IMauiAuthService, MauiAuthService>();

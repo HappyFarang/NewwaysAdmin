@@ -204,38 +204,11 @@ namespace NewwaysAdmin.Mobile.Services.Cache
             }
         }
 
+        // ===== STATISTICS =====
+
         public async Task<CacheStats> GetCacheStatsAsync()
         {
-            try
-            {
-                var items = await _storage.GetAllCacheItemsAsync();
-
-                return new CacheStats
-                {
-                    TotalItems = items.Count,
-                    PendingItems = items.Count(i => i.ShouldRetry),
-                    SyncedItems = items.Count(i => i.IsSynced),
-                    FailedItems = items.Count(i => i.HasFailed),
-                    DataTypeBreakdown = items.GroupBy(i => i.DataType).ToDictionary(g => g.Key, g => g.Count())
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting cache statistics");
-                return new CacheStats();
-            }
+            return await _storage.GetCacheStatsAsync();
         }
-    }
-
-    /// <summary>
-    /// Cache statistics for monitoring
-    /// </summary>
-    public class CacheStats
-    {
-        public int TotalItems { get; set; }
-        public int PendingItems { get; set; }
-        public int SyncedItems { get; set; }
-        public int FailedItems { get; set; }
-        public Dictionary<string, int> DataTypeBreakdown { get; set; } = new();
     }
 }

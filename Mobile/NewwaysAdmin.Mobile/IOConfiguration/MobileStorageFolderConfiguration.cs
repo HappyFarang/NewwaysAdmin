@@ -17,7 +17,7 @@ namespace NewwaysAdmin.Mobile.IOConfiguration
             {
                 try
                 {
-                    factory.RegisterFolder(folder, "NewwaysAdmin.Mobile");
+                    factory.RegisterFolder(folder);  // FIXED: Use single-parameter method
                 }
                 catch (StorageException ex) when (ex.Operation == StorageOperation.Validate)
                 {

@@ -1,11 +1,13 @@
-﻿using Microsoft.Extensions.Logging;
+﻿// File: Mobile/NewwaysAdmin.Mobile/MauiProgram_Debug.cs
+using Microsoft.Extensions.Logging;
+using NewwaysAdmin.Mobile.Extensions;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Mobile.IOConfiguration;
 using NewwaysAdmin.Mobile.Services;
 
 namespace NewwaysAdmin.Mobile;
 
-public static class MauiProgram
+public static class MauiProgram_Debug
 {
     public static MauiApp CreateMauiApp()
     {
@@ -20,7 +22,9 @@ public static class MauiProgram
 
         try
         {
-            // ABSOLUTE MINIMAL - just the factory
+            // MINIMAL SERVICES ONLY - add one by one to find the culprit
+
+            // Step 1: EnhancedStorageFactory (this works - we can see it in logs)
             builder.Services.AddSingleton<EnhancedStorageFactory>(sp =>
             {
                 var mobileBasePath = Path.Combine(FileSystem.AppDataDirectory, "NewwaysAdmin");
@@ -34,8 +38,14 @@ public static class MauiProgram
                 return factory;
             });
 
-            // COMMENT OUT CredentialStorageService for now to test just the factory
-            // builder.Services.AddSingleton<CredentialStorageService>();
+            // Step 2: Add ONLY CredentialStorageService to test
+            builder.Services.AddSingleton<CredentialStorageService>();
+
+            // COMMENT OUT everything else for now
+            // builder.Services.AddMobileServices()        
+            // .AddViewModels()
+            // .AddPages()
+            // .AddHttpClients();
 
 #if DEBUG
             builder.Logging.AddDebug();
@@ -43,15 +53,14 @@ public static class MauiProgram
 
             var app = builder.Build();
 
-            // TRY TO RESOLVE JUST THE FACTORY
-            var factory = app.Services.GetRequiredService<EnhancedStorageFactory>();
-            System.Diagnostics.Debug.WriteLine("SUCCESS: EnhancedStorageFactory resolved successfully!");
+            // TRY TO RESOLVE CredentialStorageService TO SEE IF IT WORKS
+            var credentialService = app.Services.GetRequiredService<CredentialStorageService>();
 
             return app;
         }
         catch (Exception ex)
         {
-            // CAPTURE THE EXACT ERROR
+            // CAPTURE THE EXACT ERROR FOR US TO SEE
             System.Diagnostics.Debug.WriteLine("=== DEPENDENCY INJECTION ERROR ===");
             System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}");
             System.Diagnostics.Debug.WriteLine($"Type: {ex.GetType().Name}");
@@ -59,7 +68,6 @@ public static class MauiProgram
             if (ex.InnerException != null)
             {
                 System.Diagnostics.Debug.WriteLine($"Inner: {ex.InnerException.Message}");
-                System.Diagnostics.Debug.WriteLine($"Inner Type: {ex.InnerException.GetType().Name}");
             }
 
             System.Diagnostics.Debug.WriteLine($"Stack: {ex.StackTrace}");
