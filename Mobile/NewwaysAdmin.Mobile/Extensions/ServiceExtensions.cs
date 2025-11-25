@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Mobile.Services;
-using NewwaysAdmin.Mobile.Services.Auth;  // ← Add this for PermissionsCache
 using NewwaysAdmin.Mobile.Pages;
 using NewwaysAdmin.Mobile.ViewModels;
 using NewwaysAdmin.Mobile.Services.SignalR;
@@ -17,62 +16,75 @@ namespace NewwaysAdmin.Mobile.Extensions
     {
         public static IServiceCollection AddMobileServices(this IServiceCollection services)
         {
-            // ===== STORAGE SERVICES (Singletons - shared state) =====
+            // Core mobile services that depend on storage (EnhancedStorageFactory already configured in MauiProgram)
             services.AddSingleton<CredentialStorageService>();
-            services.AddSingleton<PermissionsCache>();  // ← ADD THIS - was missing!
 
-            // ===== SIGNALR SERVICES (Singletons - maintain connection state) =====
-            services.AddSingleton<SignalRConnection>();
-            services.AddSingleton<SignalRMessageSender>();
-            services.AddSingleton<SignalRAppRegistration>();
-            services.AddSingleton<SignalREventListener>();
+            // ===== SIGNALR SERVICES =====
+            services.AddScoped<SignalRConnection>();
+            services.AddScoped<SignalRMessageSender>();
+            services.AddScoped<SignalRAppRegistration>();
+            services.AddScoped<SignalREventListener>();
 
-            // ===== CACHE SERVICES (Singletons - shared cache) =====
-            services.AddSingleton<CacheStorage>();
-            services.AddSingleton<CacheManager>();
+            // ===== CACHE SERVICES =====
+            services.AddScoped<CacheStorage>();
+            services.AddScoped<CacheManager>();
 
-            // ===== SYNC COORDINATORS (Singletons - maintain sync state) =====
-            services.AddSingleton<SyncCoordinator>();
-            services.AddSingleton<StartupCoordinator>();
+            // ===== SYNC COORDINATORS =====
+            services.AddScoped<SyncCoordinator>();
+            services.AddScoped<StartupCoordinator>();
 
             // ===== CATEGORY SERVICES =====
-            services.AddSingleton<MobileCategoryService>();
+            services.AddScoped<MobileCategoryService>();
 
-            // ===== AUTH SERVICES (registered via AddHttpClients) =====
-            // IMauiAuthService and IConnectionService are registered in AddHttpClients()
+            // Authentication services with interfaces (only where they make sense!)
+            services.AddTransient<IMauiAuthService, MauiAuthService>();
+            services.AddTransient<IConnectionService, ConnectionService>();
 
             return services;
         }
 
         public static IServiceCollection AddViewModels(this IServiceCollection services)
         {
+            // All ViewModels - keeping them as classes, not interfaces
             services.AddTransient<LoginViewModel>();
             services.AddTransient<SimpleLoginViewModel>();
+
+            // Future ViewModels will go here:
+            // services.AddTransient<MainViewModel>();
+            // services.AddTransient<PhotoUploadViewModel>();
+
             return services;
         }
 
         public static IServiceCollection AddPages(this IServiceCollection services)
         {
+            // All Pages - keeping them as classes, not interfaces
             services.AddTransient<LoginPage>();
             services.AddTransient<SimpleLoginPage>();
+
+            // Future Pages will go here:
+            // services.AddTransient<MainPage>();
+            // services.AddTransient<PhotoUploadPage>();
+
             return services;
         }
 
         public static IServiceCollection AddHttpClients(this IServiceCollection services)
         {
-            // HTTP client for auth service
+            // HTTP client for server communication - BOTH services use the same client
             services.AddHttpClient<IMauiAuthService, MauiAuthService>(client =>
             {
                 client.BaseAddress = new Uri("http://localhost:5080/");
                 client.Timeout = TimeSpan.FromSeconds(30);
             });
 
-            // HTTP client for connection testing
             services.AddHttpClient<IConnectionService, ConnectionService>(client =>
             {
                 client.BaseAddress = new Uri("http://localhost:5080/");
                 client.Timeout = TimeSpan.FromSeconds(30);
             });
+
+            // Future HTTP clients can go here if needed
 
             return services;
         }

@@ -98,9 +98,6 @@ public class Program
         app.UseAuthentication();
         app.UseAuthorization();
 
-        // ===== API CONTROLLERS =====
-        app.MapControllers();  // ← ADD THIS LINE
-
         // ===== BLAZOR CONFIGURATION =====
         app.MapRazorPages();
         app.MapBlazorHub();

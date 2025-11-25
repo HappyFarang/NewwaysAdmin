@@ -11,8 +11,9 @@ namespace NewwaysAdmin.WebAdmin.Registration
             services.AddRazorPages();
             services.AddServerSideBlazor();
 
-            // ===== API CONTROLLERS (for MobileController) =====
-            services.AddControllers();
+            // Add any background hosted services here when they exist
+            // Example:
+            // services.AddHostedService<SomeBackgroundService>();
 
             return services;
         }
