@@ -1,7 +1,8 @@
-﻿using Microsoft.Extensions.Logging;
+﻿// File: Mobile/NewwaysAdmin.Mobile/MauiProgram.cs
+using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.Mobile.IOConfiguration;
-using NewwaysAdmin.Mobile.Services;
+using NewwaysAdmin.Mobile.Extensions;
 
 namespace NewwaysAdmin.Mobile;
 
@@ -18,55 +19,31 @@ public static class MauiProgram
                 fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
             });
 
-        try
+        // ===== STORAGE FACTORY (must be first) =====
+        builder.Services.AddSingleton<EnhancedStorageFactory>(sp =>
         {
-            // ABSOLUTE MINIMAL - just the factory
-            builder.Services.AddSingleton<EnhancedStorageFactory>(sp =>
-            {
-                var mobileBasePath = Path.Combine(FileSystem.AppDataDirectory, "NewwaysAdmin");
-                StorageConfiguration.DEFAULT_BASE_DIRECTORY = mobileBasePath;
+            var mobileBasePath = Path.Combine(FileSystem.AppDataDirectory, "NewwaysAdmin");
+            StorageConfiguration.DEFAULT_BASE_DIRECTORY = mobileBasePath;
 
-                var logger = sp.GetRequiredService<ILogger<EnhancedStorageFactory>>();
-                var factory = new EnhancedStorageFactory(logger);
+            var logger = sp.GetRequiredService<ILogger<EnhancedStorageFactory>>();
+            var factory = new EnhancedStorageFactory(logger);
 
-                MobileStorageFolderConfiguration.ConfigureStorageFolders(factory);
+            MobileStorageFolderConfiguration.ConfigureStorageFolders(factory);
 
-                return factory;
-            });
+            return factory;
+        });
 
-            // COMMENT OUT CredentialStorageService for now to test just the factory
-            // builder.Services.AddSingleton<CredentialStorageService>();
+        // ===== ALL OTHER SERVICES =====
+        builder.Services
+            .AddMobileServices()
+            .AddViewModels()
+            .AddPages()
+            .AddHttpClients();
 
 #if DEBUG
-            builder.Logging.AddDebug();
+        builder.Logging.AddDebug();
 #endif
 
-            var app = builder.Build();
-
-            // TRY TO RESOLVE JUST THE FACTORY
-            var factory = app.Services.GetRequiredService<EnhancedStorageFactory>();
-            System.Diagnostics.Debug.WriteLine("SUCCESS: EnhancedStorageFactory resolved successfully!");
-
-            return app;
-        }
-        catch (Exception ex)
-        {
-            // CAPTURE THE EXACT ERROR
-            System.Diagnostics.Debug.WriteLine("=== DEPENDENCY INJECTION ERROR ===");
-            System.Diagnostics.Debug.WriteLine($"Error: {ex.Message}");
-            System.Diagnostics.Debug.WriteLine($"Type: {ex.GetType().Name}");
-
-            if (ex.InnerException != null)
-            {
-                System.Diagnostics.Debug.WriteLine($"Inner: {ex.InnerException.Message}");
-                System.Diagnostics.Debug.WriteLine($"Inner Type: {ex.InnerException.GetType().Name}");
-            }
-
-            System.Diagnostics.Debug.WriteLine($"Stack: {ex.StackTrace}");
-            System.Diagnostics.Debug.WriteLine("================================");
-
-            // Re-throw so you can see it in Visual Studio output
-            throw;
-        }
+        return builder.Build();
     }
 }

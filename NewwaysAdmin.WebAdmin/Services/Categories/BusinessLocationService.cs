@@ -6,7 +6,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 {
     /// <summary>
     /// Handles business location management
-    /// Separate from categories but used in conjunction with them
+    /// Locations are now stored inside CategorySystem
     /// </summary>
     public class BusinessLocationService
     {
@@ -27,15 +27,15 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
         {
             try
             {
-                var locationSystem = await _storageService.LoadLocationSystemAsync();
+                var system = await _storageService.LoadCategorySystemAsync();
 
-                if (locationSystem == null)
+                if (system == null)
                 {
-                    locationSystem = _storageService.CreateDefaultLocationSystem();
-                    await _storageService.SaveLocationSystemAsync(locationSystem);
+                    system = _storageService.CreateDefaultCategorySystem();
+                    await _storageService.SaveCategorySystemAsync(system);
                 }
 
-                return locationSystem.Locations
+                return system.Locations
                     .Where(l => l.IsActive)
                     .OrderBy(l => l.SortOrder)
                     .ToList();
@@ -51,21 +51,21 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
         {
             try
             {
-                var locationSystem = await GetOrCreateLocationSystemAsync();
+                var system = await GetOrCreateSystemAsync();
 
                 var newLocation = new BusinessLocation
                 {
                     Name = locationName,
                     Description = description,
                     IsActive = true,
-                    SortOrder = locationSystem.Locations.Count
+                    SortOrder = system.Locations.Count
                 };
 
-                locationSystem.Locations.Add(newLocation);
-                locationSystem.Version++;
-                locationSystem.LastModified = DateTime.UtcNow;
+                system.Locations.Add(newLocation);
+                system.Version++;
+                system.LastModified = DateTime.UtcNow;
 
-                await _storageService.SaveLocationSystemAsync(locationSystem);
+                await _storageService.SaveCategorySystemAsync(system);
 
                 _logger.LogInformation("Added business location: {LocationName}", locationName);
                 return newLocation;
@@ -81,8 +81,8 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
         {
             try
             {
-                var locationSystem = await GetOrCreateLocationSystemAsync();
-                var location = locationSystem.Locations.FirstOrDefault(l => l.Id == locationId);
+                var system = await GetOrCreateSystemAsync();
+                var location = system.Locations.FirstOrDefault(l => l.Id == locationId);
 
                 if (location == null)
                 {
@@ -91,10 +91,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
                 location.Name = name;
                 location.Description = description;
-                locationSystem.Version++;
-                locationSystem.LastModified = DateTime.UtcNow;
+                system.Version++;
+                system.LastModified = DateTime.UtcNow;
 
-                await _storageService.SaveLocationSystemAsync(locationSystem);
+                await _storageService.SaveCategorySystemAsync(system);
 
                 _logger.LogInformation("Updated business location: {LocationName}", name);
                 return location;
@@ -110,8 +110,8 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
         {
             try
             {
-                var locationSystem = await GetOrCreateLocationSystemAsync();
-                var location = locationSystem.Locations.FirstOrDefault(l => l.Id == locationId);
+                var system = await GetOrCreateSystemAsync();
+                var location = system.Locations.FirstOrDefault(l => l.Id == locationId);
 
                 if (location == null)
                 {
@@ -120,10 +120,10 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
                 // Soft delete
                 location.IsActive = false;
-                locationSystem.Version++;
-                locationSystem.LastModified = DateTime.UtcNow;
+                system.Version++;
+                system.LastModified = DateTime.UtcNow;
 
-                await _storageService.SaveLocationSystemAsync(locationSystem);
+                await _storageService.SaveCategorySystemAsync(system);
 
                 _logger.LogInformation("Deleted business location: {LocationName}", location.Name);
             }
@@ -140,21 +140,21 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
         {
             try
             {
-                var locationSystem = await GetOrCreateLocationSystemAsync();
+                var system = await GetOrCreateSystemAsync();
 
                 for (int i = 0; i < locationIds.Count; i++)
                 {
-                    var location = locationSystem.Locations.FirstOrDefault(l => l.Id == locationIds[i]);
+                    var location = system.Locations.FirstOrDefault(l => l.Id == locationIds[i]);
                     if (location != null)
                     {
                         location.SortOrder = i;
                     }
                 }
 
-                locationSystem.Version++;
-                locationSystem.LastModified = DateTime.UtcNow;
+                system.Version++;
+                system.LastModified = DateTime.UtcNow;
 
-                await _storageService.SaveLocationSystemAsync(locationSystem);
+                await _storageService.SaveCategorySystemAsync(system);
 
                 _logger.LogInformation("Reordered {Count} business locations", locationIds.Count);
             }
@@ -197,17 +197,17 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
         // ===== HELPER METHODS =====
 
-        private async Task<LocationSystem> GetOrCreateLocationSystemAsync()
+        private async Task<CategorySystem> GetOrCreateSystemAsync()
         {
-            var locationSystem = await _storageService.LoadLocationSystemAsync();
+            var system = await _storageService.LoadCategorySystemAsync();
 
-            if (locationSystem == null)
+            if (system == null)
             {
-                locationSystem = _storageService.CreateDefaultLocationSystem();
-                await _storageService.SaveLocationSystemAsync(locationSystem);
+                system = _storageService.CreateDefaultCategorySystem();
+                await _storageService.SaveCategorySystemAsync(system);
             }
 
-            return locationSystem;
+            return system;
         }
     }
 }

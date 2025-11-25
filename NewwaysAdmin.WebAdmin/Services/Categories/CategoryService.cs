@@ -6,26 +6,22 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 {
     /// <summary>
     /// Main category service - orchestrates category operations
-    /// Delegates to specialized services for specific functionality
     /// </summary>
     public class CategoryService
     {
         private readonly CategoryStorageService _storageService;
         private readonly MobileSyncService _syncService;
-        private readonly CategoryUsageService _usageService;
         private readonly BusinessLocationService _locationService;
         private readonly ILogger<CategoryService> _logger;
 
         public CategoryService(
             CategoryStorageService storageService,
             MobileSyncService syncService,
-            CategoryUsageService usageService,
             BusinessLocationService locationService,
             ILogger<CategoryService> logger)
         {
             _storageService = storageService;
             _syncService = syncService;
-            _usageService = usageService;
             _locationService = locationService;
             _logger = logger;
         }
@@ -76,7 +72,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
                 system.ModifiedBy = createdBy;
 
                 await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
+                await _syncService.InvalidateCacheAsync();
 
                 _logger.LogInformation("Created category: {CategoryName} by {User}", name, createdBy);
                 return category;
@@ -109,14 +105,12 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
                 category.SubCategories.Add(subCategory);
                 category.LastModified = DateTime.UtcNow;
-                // Note: Category doesn't have ModifiedBy property
-
                 system.LastModified = DateTime.UtcNow;
                 system.Version++;
                 system.ModifiedBy = createdBy;
 
                 await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
+                await _syncService.InvalidateCacheAsync();
 
                 _logger.LogInformation("Created subcategory: {SubCategoryName} in {CategoryName} by {User}",
                     name, category.Name, createdBy);
@@ -124,7 +118,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating subcategory: {SubCategoryName} in category {CategoryId}", name, categoryId);
+                _logger.LogError(ex, "Error creating subcategory: {SubCategoryName}", name);
                 throw;
             }
         }
@@ -142,19 +136,12 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
                 category.Name = name;
                 category.Description = description;
                 category.LastModified = DateTime.UtcNow;
-
-                // Update parent category name in all subcategories
-                foreach (var sub in category.SubCategories)
-                {
-                    sub.ParentCategoryName = name;
-                }
-
                 system.LastModified = DateTime.UtcNow;
                 system.Version++;
                 system.ModifiedBy = updatedBy;
 
                 await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
+                await _syncService.InvalidateCacheAsync();
 
                 _logger.LogInformation("Updated category: {CategoryName} by {User}", name, updatedBy);
             }
@@ -181,7 +168,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
                 system.ModifiedBy = deletedBy;
 
                 await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
+                await _syncService.InvalidateCacheAsync();
 
                 _logger.LogInformation("Deleted category: {CategoryName} by {User}", category.Name, deletedBy);
             }
@@ -194,24 +181,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
 
         // ===== MOBILE SYNC OPERATIONS =====
 
-        public async Task<MobileCategorySync> GetMobileSyncDataAsync()
+        public async Task<CategorySystem> GetMobileSyncDataAsync()
         {
             return await _syncService.GetMobileSyncDataAsync();
         }
 
-        public async Task<MobileCategorySync> RegenerateMobileSyncAsync()
+        public async Task<CategorySystem> RegenerateMobileSyncAsync()
         {
             return await _syncService.RegenerateMobileSyncAsync();
-        }
-
-        // ===== USAGE TRACKING =====
-
-        public async Task RecordUsageAsync(string subCategoryId, string? locationId, string deviceId)
-        {
-            await _usageService.RecordUsageAsync(subCategoryId, locationId, deviceId);
-
-            // Invalidate mobile sync to update usage counts
-            await _syncService.InvalidateCacheAsync();
         }
 
         // ===== LOCATION OPERATIONS (DELEGATED) =====
@@ -224,32 +201,24 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
         public async Task<BusinessLocation> AddBusinessLocationAsync(string locationName, string description = "", string createdBy = "System")
         {
             var location = await _locationService.AddBusinessLocationAsync(locationName, description);
-
-            // Invalidate mobile sync to include new location
             await _syncService.InvalidateCacheAsync();
-
             return location;
         }
 
         public async Task<BusinessLocation> UpdateBusinessLocationAsync(string locationId, string name, string description)
         {
             var location = await _locationService.UpdateBusinessLocationAsync(locationId, name, description);
-
-            // Invalidate mobile sync to update location
             await _syncService.InvalidateCacheAsync();
-
             return location;
         }
 
         public async Task DeleteBusinessLocationAsync(string locationId, string deletedBy = "System")
         {
             await _locationService.DeleteBusinessLocationAsync(locationId);
-
-            // Invalidate mobile sync to remove location
             await _syncService.InvalidateCacheAsync();
         }
 
-        // ===== VALIDATION & HELPERS =====
+        // ===== VALIDATION =====
 
         public async Task<bool> CategoryExistsAsync(string categoryName)
         {
@@ -271,12 +240,11 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             {
                 var system = await GetCategorySystemAsync();
                 var category = system.Categories.FirstOrDefault(c => c.Id == categoryId);
-
                 return category?.SubCategories.Any(s => s.Name.Equals(subCategoryName, StringComparison.OrdinalIgnoreCase)) ?? false;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking if subcategory exists: {SubCategoryName} in {CategoryId}", subCategoryName, categoryId);
+                _logger.LogError(ex, "Error checking if subcategory exists: {SubCategoryName}", subCategoryName);
                 throw;
             }
         }

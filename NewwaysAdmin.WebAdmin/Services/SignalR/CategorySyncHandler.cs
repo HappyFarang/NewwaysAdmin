@@ -45,7 +45,6 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                 return message.MessageType switch
                 {
                     "RequestCategorySync" => await HandleCategorySyncRequestAsync(message, connectionId),
-                    "RecordCategoryUsage" => await HandleCategoryUsageAsync(message, connectionId),
                     "RequestMobileSyncData" => await HandleMobileSyncDataRequestAsync(message, connectionId),
                     "CategorySelected" => await HandleCategorySelectedAsync(message, connectionId),
                     "HeartbeatCheck" => await HandleHeartbeatAsync(message, connectionId),
@@ -80,43 +79,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 
             return MessageHandlerResult.CreateSuccess(syncData);
         }
-
-        private async Task<MessageHandlerResult> HandleCategoryUsageAsync(UniversalMessage message, string connectionId)
-        {
-            try
-            {
-                // Parse usage data from message
-                var usageData = JsonSerializer.Deserialize<CategoryUsageData>(message.Data.GetRawText());
-
-                if (usageData == null)
-                {
-                    return MessageHandlerResult.CreateError("Invalid usage data format");
-                }
-
-                await _categoryService.RecordUsageAsync(
-                    usageData.SubCategoryId,
-                    usageData.LocationId,
-                    usageData.DeviceId);
-
-                _logger.LogDebug("Category usage recorded: {SubCategoryId} at location {LocationId} by device {DeviceId}",
-                    usageData.SubCategoryId, usageData.LocationId ?? "No location", usageData.DeviceId);
-
-                // Broadcast usage update to other MAUI clients
-                return MessageHandlerResult.CreateBroadcast("CategoryUsageUpdated", new
-                {
-                    subCategoryId = usageData.SubCategoryId,
-                    locationId = usageData.LocationId,
-                    deviceId = usageData.DeviceId,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Invalid JSON in category usage message from {ConnectionId}", connectionId);
-                return MessageHandlerResult.CreateError("Invalid message format");
-            }
-        }
-
+        
         private async Task<MessageHandlerResult> HandleCategorySelectedAsync(UniversalMessage message, string connectionId)
         {
             try

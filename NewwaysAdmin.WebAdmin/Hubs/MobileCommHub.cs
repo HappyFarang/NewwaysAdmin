@@ -91,24 +91,7 @@ namespace NewwaysAdmin.WebAdmin.Hubs
             }
         }
 
-        public async Task RecordCategoryUsage(string subCategoryId, string? locationId, string deviceId)
-        {
-            try
-            {
-                await _categoryService.RecordUsageAsync(subCategoryId, locationId, deviceId);
-
-                _logger.LogDebug("Category usage recorded: {SubCategoryId} at location {LocationId} by device {DeviceId}",
-                    subCategoryId, locationId ?? "No location", deviceId);
-
-                // Notify other clients about usage update (optional)
-                await Clients.OthersInGroup("MobileClients").SendAsync("CategoryUsageUpdated", subCategoryId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error recording category usage: {SubCategoryId}", subCategoryId);
-            }
-        }
-
+       
         // ===== FUTURE: RECEIPT UPLOAD METHODS =====
 
         public async Task NotifyReceiptUploaded(string projectId, string fileName)

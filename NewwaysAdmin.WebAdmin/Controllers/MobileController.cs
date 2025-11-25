@@ -22,6 +22,11 @@ namespace NewwaysAdmin.WebAdmin.Controllers
         [HttpPost("auth")]
         public async Task<ActionResult<MobileAuthResponse>> Authenticate([FromBody] MobileAuthRequest request)
         {
+            // ADD THIS TEMPORARILY
+            _logger.LogInformation("=== AUTH DEBUG ===");
+            _logger.LogInformation("Username received: '{Username}'", request?.Username ?? "NULL");
+            _logger.LogInformation("Password received: '{Password}'", request?.Password ?? "NULL");
+            _logger.LogInformation("Request is null: {IsNull}", request == null);
             try
             {
                 _logger.LogInformation("Mobile authentication attempt for user: {Username}", request.Username);
