@@ -1,8 +1,8 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Services/SignalR/SignalREventListener.cs
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.SignalR.Universal.Hubs;
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Interfaces;
+using NewwaysAdmin.SignalR.Contracts.Models;
 
 namespace NewwaysAdmin.Mobile.Services.SignalR
 {

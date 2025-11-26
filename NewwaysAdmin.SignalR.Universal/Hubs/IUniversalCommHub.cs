@@ -1,7 +1,9 @@
 ﻿// File: NewwaysAdmin.SignalR.Universal/Hubs/IUniversalCommHub.cs
 // FIXED: Removed generic methods that SignalR doesn't support
 
-using NewwaysAdmin.SignalR.Universal.Models;
+
+using NewwaysAdmin.SignalR.Contracts.Models;
+using NewwaysAdmin.SignalR.Contracts.Interfaces;
 
 namespace NewwaysAdmin.SignalR.Universal.Hubs
 {
@@ -35,7 +37,7 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
     /// Client-side interface for strongly-typed SignalR connections
     /// Implement this on your client apps for better intellisense
     /// </summary>
-    public interface IUniversalCommHubClient
+    /*public interface IUniversalCommHubClient
     {
         // ===== SERVER TO CLIENT MESSAGES =====
         Task InitialData(object data);
@@ -56,4 +58,5 @@ namespace NewwaysAdmin.SignalR.Universal.Hubs
         // ===== MONITORING =====
         Task ServerStats(object stats);
     }
+    */
 }

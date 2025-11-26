@@ -1,5 +1,5 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Services/SignalR/CategorySyncHandler.cs
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Models;
 using NewwaysAdmin.SignalR.Universal.Services;
 using NewwaysAdmin.WebAdmin.Services.Categories;
 using NewwaysAdmin.SharedModels.Categories;

@@ -1,5 +1,5 @@
 ﻿// File: NewwaysAdmin.SignalR.Universal/Services/ConnectionManager.cs
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Models;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 

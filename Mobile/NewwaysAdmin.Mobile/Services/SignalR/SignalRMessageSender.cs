@@ -1,7 +1,7 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Services/SignalR/SignalRMessageSender.cs
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Models;
 using System.Text.Json;
 
 namespace NewwaysAdmin.Mobile.Services.SignalR

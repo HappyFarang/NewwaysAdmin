@@ -1,5 +1,5 @@
 ﻿// File: NewwaysAdmin.SignalR.Universal/Services/IAppMessageHandler.cs
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Models;
 
 namespace NewwaysAdmin.SignalR.Universal.Services
 {

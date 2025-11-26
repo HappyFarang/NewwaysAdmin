@@ -1,7 +1,7 @@
-﻿// File: NewwaysAdmin.SignalR.Universal/Models/UniversalMessage.cs
+﻿// File: NewwaysAdmin.SignalR.Contracts/Models/UniversalMessage.cs
 using System.Text.Json;
 
-namespace NewwaysAdmin.SignalR.Universal.Models
+namespace NewwaysAdmin.SignalR.Contracts.Models
 {
     /// <summary>
     /// Universal message format for communication between apps through SignalR

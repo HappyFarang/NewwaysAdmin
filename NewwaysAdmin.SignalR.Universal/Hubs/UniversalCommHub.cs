@@ -3,9 +3,10 @@
 
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.SignalR.Universal.Models;
 using NewwaysAdmin.SignalR.Universal.Services;
 using System.Text.Json;
+using NewwaysAdmin.SignalR.Contracts.Models;
+using NewwaysAdmin.SignalR.Contracts.Interfaces;
 
 namespace NewwaysAdmin.SignalR.Universal.Hubs
 {

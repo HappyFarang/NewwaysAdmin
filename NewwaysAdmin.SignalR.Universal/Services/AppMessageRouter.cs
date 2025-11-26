@@ -1,5 +1,5 @@
 ﻿// File: NewwaysAdmin.SignalR.Universal/Services/AppMessageRouter.cs
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;

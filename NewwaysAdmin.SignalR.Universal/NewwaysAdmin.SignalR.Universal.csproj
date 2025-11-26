@@ -21,7 +21,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NewwaysAdmin.SignalR.Contracts\NewwaysAdmin.SignalR.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

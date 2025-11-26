@@ -1,7 +1,7 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Services/SignalR/SignalRAppRegistration.cs
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.SignalR.Universal.Models;
+using NewwaysAdmin.SignalR.Contracts.Models;
 
 namespace NewwaysAdmin.Mobile.Services.SignalR
 {

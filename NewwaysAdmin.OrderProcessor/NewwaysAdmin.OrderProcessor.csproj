@@ -16,5 +16,6 @@
     <ProjectReference Include="..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
   </ItemGroup>
 </Project>
