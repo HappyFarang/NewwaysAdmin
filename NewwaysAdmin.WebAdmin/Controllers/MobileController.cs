@@ -8,6 +8,7 @@ namespace NewwaysAdmin.WebAdmin.Controllers
 {
     [ApiController]
     [Route("api/mobile")]
+    [IgnoreAntiforgeryToken]
     public class MobileController : ControllerBase
     {
         private readonly IAuthenticationService _authService;
