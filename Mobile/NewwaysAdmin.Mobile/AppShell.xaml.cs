@@ -1,4 +1,5 @@
-﻿using NewwaysAdmin.Mobile.Pages;
+﻿// File: Mobile/NewwaysAdmin.Mobile/AppShell.xaml.cs
+using NewwaysAdmin.Mobile.Pages;
 
 namespace NewwaysAdmin.Mobile
 {
@@ -7,6 +8,10 @@ namespace NewwaysAdmin.Mobile
         public AppShell()
         {
             InitializeComponent();
+
+            // Register routes for navigation
+            Routing.RegisterRoute(nameof(SimpleLoginPage), typeof(SimpleLoginPage));
+            Routing.RegisterRoute(nameof(HomePage), typeof(HomePage));
         }
     }
 }

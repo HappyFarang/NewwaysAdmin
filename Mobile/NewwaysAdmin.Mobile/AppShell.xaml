@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
+<!-- File: Mobile/NewwaysAdmin.Mobile/AppShell.xaml -->
 <Shell
     x:Class="NewwaysAdmin.Mobile.AppShell"
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
@@ -8,9 +9,16 @@
     Shell.FlyoutBehavior="Disabled"
     Title="NewwaysAdmin.Mobile">
 
+    <!-- Login Page - Starting point -->
     <ShellContent
-        Title="Simple Login"
+        Title="Login"
         ContentTemplate="{DataTemplate pages:SimpleLoginPage}"
         Route="SimpleLoginPage" />
+
+    <!-- Home Page - After successful login -->
+    <ShellContent
+        Title="Home"
+        ContentTemplate="{DataTemplate pages:HomePage}"
+        Route="HomePage" />
 
 </Shell>

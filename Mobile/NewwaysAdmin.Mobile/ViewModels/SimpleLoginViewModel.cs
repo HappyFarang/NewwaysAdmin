@@ -86,6 +86,8 @@ namespace NewwaysAdmin.Mobile.ViewModels
             }
         }
 
+        public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
+
         public Color StatusColor
         {
             get => _statusColor;
@@ -95,8 +97,6 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 OnPropertyChanged();
             }
         }
-
-        public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
 
         public string ConnectionStatus
         {
@@ -137,43 +137,66 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
         #endregion
 
-        #region Private Methods
+        #region Auto-Login on Startup
 
-        private async Task TestConnectionAsync()
+        /// <summary>
+        /// Called from OnAppearing - tries to auto-login with saved credentials
+        /// </summary>
+        public async Task TryAutoLoginOnStartupAsync()
         {
-            IsBusy = true;
             try
             {
-                _logger.LogInformation("Testing connection to server...");
-                ConnectionStatus = "Testing connection...";
-                ConnectionColor = Colors.Orange;
+                IsBusy = true;
+                StatusMessage = "Checking saved credentials...";
+                StatusColor = Colors.Orange;
 
-                var result = await _connectionService.TestConnectionAsync();
+                _logger.LogInformation("Attempting auto-login on startup");
+
+                var result = await _authService.TryAutoLoginAsync();
+
+                if (result.RequiresManualLogin)
+                {
+                    // No saved credentials - show login form
+                    StatusMessage = "Please enter your credentials";
+                    StatusColor = Colors.Gray;
+                    _logger.LogInformation("No saved credentials found - manual login required");
+                    return;
+                }
 
                 if (result.Success)
                 {
-                    ConnectionStatus = $"✓ Connected! ({result.StatusCode})";
-                    ConnectionColor = Colors.Green;
-                    _logger.LogInformation("Connection test successful");
+                    var modeText = result.IsOfflineMode ? " (offline mode)" : "";
+                    StatusMessage = $"✓ Welcome back, {result.Username}!{modeText}";
+                    StatusColor = Colors.Green;
+
+                    _logger.LogInformation("Auto-login successful for user: {Username}, Offline: {IsOffline}",
+                        result.Username, result.IsOfflineMode);
+
+                    // Navigate to main app
+                    await NavigateToMainAppAsync(result.Username, result.IsOfflineMode);
+                    return;
                 }
-                else
-                {
-                    ConnectionStatus = $"✗ Failed: {result.Message}";
-                    ConnectionColor = Colors.Red;
-                    _logger.LogWarning("Connection test failed: {Message}", result.Message);
-                }
+
+                // Auto-login failed (bad credentials, server error, etc.)
+                StatusMessage = result.Message ?? "Auto-login failed - please log in manually";
+                StatusColor = Colors.Orange;
+                _logger.LogWarning("Auto-login failed: {Message}", result.Message);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during connection test");
-                ConnectionStatus = $"✗ Error: {ex.Message}";
-                ConnectionColor = Colors.Red;
+                _logger.LogError(ex, "Error during auto-login attempt");
+                StatusMessage = "Error checking credentials - please log in manually";
+                StatusColor = Colors.Orange;
             }
             finally
             {
                 IsBusy = false;
             }
         }
+
+        #endregion
+
+        #region Manual Login
 
         private async Task LoginAsync()
         {
@@ -184,25 +207,24 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 return;
             }
 
-            IsBusy = true;
             try
             {
-                _logger.LogInformation("Attempting login for user: {Username}", Username);
+                IsBusy = true;
                 StatusMessage = "Logging in...";
                 StatusColor = Colors.Orange;
 
-                var result = await _authService.LoginAsync(Username, Password);
+                _logger.LogInformation("Attempting login for user: {Username}", Username);
+
+                var result = await _authService.LoginAsync(Username, Password, saveCredentials: true);
 
                 if (result.Success)
                 {
-                    StatusMessage = "✓ Login successful!";
+                    StatusMessage = $"✓ Login successful!";
                     StatusColor = Colors.Green;
                     _logger.LogInformation("Login successful for user: {Username}", Username);
 
-                    // Show success message
-                    await Application.Current.MainPage.DisplayAlert("Success",
-                        $"Login successful!\nPermissions: {string.Join(", ", result.Permissions ?? new List<string>())}",
-                        "OK");
+                    // Navigate to main app
+                    await NavigateToMainAppAsync(result.Username ?? Username, result.IsOfflineMode);
                 }
                 else
                 {
@@ -222,6 +244,60 @@ namespace NewwaysAdmin.Mobile.ViewModels
             {
                 IsBusy = false;
             }
+        }
+
+        #endregion
+
+        #region Connection Test
+
+        private async Task TestConnectionAsync()
+        {
+            try
+            {
+                IsBusy = true;
+                ConnectionStatus = "Testing connection...";
+                ConnectionColor = Colors.Orange;
+
+                _logger.LogInformation("Testing connection to server");
+
+                var result = await _connectionService.TestConnectionAsync();
+
+                if (result.Success)
+                {
+                    ConnectionStatus = "✓ Server is reachable";
+                    ConnectionColor = Colors.Green;
+                    _logger.LogInformation("Connection test successful");
+                }
+                else
+                {
+                    ConnectionStatus = $"✗ {result.Message}";
+                    ConnectionColor = Colors.Red;
+                    _logger.LogWarning("Connection test failed: {Message}", result.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error testing connection");
+                ConnectionStatus = $"✗ Error: {ex.Message}";
+                ConnectionColor = Colors.Red;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        #endregion
+
+        #region Navigation
+
+        private async Task NavigateToMainAppAsync(string? username, bool isOfflineMode)
+        {
+            _logger.LogInformation("Navigating to HomePage for user: {Username}, Offline: {IsOffline}",
+                username, isOfflineMode);
+
+            // Navigate to home page with parameters
+            await Shell.Current.GoToAsync($"//HomePage?username={username}&offline={isOfflineMode}");
         }
 
         #endregion

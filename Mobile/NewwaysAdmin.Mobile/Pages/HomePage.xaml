@@ -1,0 +1,89 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/HomePage.xaml -->
+<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.HomePage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             Title="Home">
+    <ScrollView>
+        <StackLayout Padding="20" Spacing="15">
+
+            <!-- Header -->
+            <Label Text="NewwaysAdmin Mobile" 
+                   FontSize="28" 
+                   FontAttributes="Bold"
+                   HorizontalOptions="Center" 
+                   TextColor="#512BD4" />
+
+            <!-- Connection Mode -->
+            <Frame BackgroundColor="{Binding ModeBackgroundColor}" Padding="10">
+                <Label Text="{Binding ModeText}" 
+                       FontSize="14" 
+                       FontAttributes="Bold"
+                       HorizontalOptions="Center"
+                       TextColor="White" />
+            </Frame>
+
+            <!-- User Info Section -->
+            <Frame BackgroundColor="LightBlue" Padding="15">
+                <StackLayout Spacing="8">
+                    <Label Text="👤 Logged In User" FontAttributes="Bold" FontSize="16" />
+                    <BoxView HeightRequest="1" Color="Gray" />
+
+                    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="5">
+                        <Label Grid.Row="0" Grid.Column="0" Text="Username:" FontAttributes="Bold" />
+                        <Label Grid.Row="0" Grid.Column="1" Text="{Binding Username}" />
+
+                        <Label Grid.Row="1" Grid.Column="0" Text="Saved At:" FontAttributes="Bold" />
+                        <Label Grid.Row="1" Grid.Column="1" Text="{Binding SavedAt}" />
+
+                        <Label Grid.Row="2" Grid.Column="0" Text="Has Password:" FontAttributes="Bold" />
+                        <Label Grid.Row="2" Grid.Column="1" Text="{Binding HasPassword}" />
+                    </Grid>
+                </StackLayout>
+            </Frame>
+
+            <!-- Permissions Section -->
+            <Frame BackgroundColor="LightGreen" Padding="15">
+                <StackLayout Spacing="8">
+                    <Label Text="🔑 Cached Permissions" FontAttributes="Bold" FontSize="16" />
+                    <Label Text="{Binding PermissionCount}" FontSize="12" TextColor="Gray" />
+                    <BoxView HeightRequest="1" Color="Gray" />
+
+                    <Label Text="{Binding PermissionsList}" 
+                           FontSize="12"
+                           LineBreakMode="WordWrap" />
+                </StackLayout>
+            </Frame>
+
+            <!-- Actions Section -->
+            <Frame BackgroundColor="LightGray" Padding="15">
+                <StackLayout Spacing="10">
+                    <Label Text="⚙️ Actions" FontAttributes="Bold" FontSize="16" />
+                    <BoxView HeightRequest="1" Color="Gray" />
+
+                    <Button Text="🔄 Refresh Data" 
+                            Command="{Binding RefreshCommand}"
+                            BackgroundColor="#512BD4"
+                            TextColor="White" />
+
+                    <Button Text="🚪 Logout (Clear Saved Data)" 
+                            Command="{Binding LogoutCommand}"
+                            BackgroundColor="Red"
+                            TextColor="White" />
+                </StackLayout>
+            </Frame>
+
+            <!-- Loading Indicator -->
+            <ActivityIndicator IsVisible="{Binding IsBusy}" 
+                             IsRunning="{Binding IsBusy}"
+                             HorizontalOptions="Center" />
+
+            <!-- Status Message -->
+            <Label Text="{Binding StatusMessage}" 
+                   TextColor="{Binding StatusColor}"
+                   HorizontalOptions="Center"
+                   IsVisible="{Binding HasStatusMessage}" />
+
+        </StackLayout>
+    </ScrollView>
+</ContentPage>

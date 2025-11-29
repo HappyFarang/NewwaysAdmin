@@ -72,6 +72,7 @@ public class Program
             .AddGoogleSheetsServices()                  // Google Sheets Integration
             .AddSignalRServices()                       // SignalR Hub Communication
             .AddCategoryServices()                      // Category Management System
+            .AddMobileApiServices()                     // Mobile API Controllers
             .AddBackgroundServices();                   // Blazor Server, Background Workers
 
         // 🔥 THAT'S IT! NO MORE 200-LINE MESS!
@@ -97,6 +98,9 @@ public class Program
         // Authentication & Authorization
         app.UseAuthentication();
         app.UseAuthorization();
+
+        // ===== API CONTROLLERS 
+        app.MapMobileApiEndpoints();    
 
         // ===== BLAZOR CONFIGURATION =====
         app.MapRazorPages();

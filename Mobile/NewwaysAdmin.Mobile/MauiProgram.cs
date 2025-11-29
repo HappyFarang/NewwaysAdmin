@@ -55,9 +55,11 @@ public static class MauiProgram
 
         // ===== VIEWMODELS =====
         builder.Services.AddTransient<SimpleLoginViewModel>();
+        builder.Services.AddTransient<HomeViewModel>();
 
         // ===== PAGES =====
         builder.Services.AddTransient<SimpleLoginPage>();
+        builder.Services.AddTransient<HomePage>();
 
 #if DEBUG
         builder.Logging.AddDebug();
