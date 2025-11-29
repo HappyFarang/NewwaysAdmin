@@ -7,6 +7,20 @@
     <ScrollView>
         <StackLayout Padding="20" Spacing="15">
 
+            <!-- Connection Indicator -->
+            <HorizontalStackLayout HorizontalOptions="End" Spacing="5">
+                <BoxView 
+        WidthRequest="12" 
+        HeightRequest="12" 
+        CornerRadius="6"
+        Color="{Binding ConnectionDotColor}" />
+                <Label 
+        Text="{Binding ConnectionText}" 
+        FontSize="10" 
+        TextColor="Gray"
+        VerticalOptions="Center" />
+            </HorizontalStackLayout>
+
             <!-- Header -->
             <Label Text="NewwaysAdmin Mobile" 
                    FontSize="28" 

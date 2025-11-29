@@ -5,6 +5,7 @@ using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services;
 using NewwaysAdmin.Mobile.Services.Auth;
+using NewwaysAdmin.Mobile.Services.Connectivity;
 
 namespace NewwaysAdmin.Mobile.ViewModels
 {
@@ -12,6 +13,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
     {
         private readonly CredentialStorageService _credentialStorage;
         private readonly PermissionsCache _permissionsCache;
+        private readonly ConnectionState _connectionState;
         private readonly ILogger<HomeViewModel> _logger;
 
         private string _username = "Not logged in";
@@ -19,24 +21,33 @@ namespace NewwaysAdmin.Mobile.ViewModels
         private string _hasPassword = "-";
         private string _permissionCount = "0 permissions";
         private string _permissionsList = "No permissions cached";
-        private string _modeText = "Unknown";
+        private string _modeText = "Checking...";
         private Color _modeBackgroundColor = Colors.Gray;
         private bool _isBusy = false;
         private string _statusMessage = "";
         private Color _statusColor = Colors.Black;
-        private bool _isOfflineMode = false;
+        private Color _connectionDotColor = Colors.Gray;
+        private string _connectionText = "Checking...";
 
         public HomeViewModel(
             CredentialStorageService credentialStorage,
             PermissionsCache permissionsCache,
+            ConnectionState connectionState,
             ILogger<HomeViewModel> logger)
         {
             _credentialStorage = credentialStorage;
             _permissionsCache = permissionsCache;
+            _connectionState = connectionState;
             _logger = logger;
 
             RefreshCommand = new Command(async () => await LoadDataAsync());
             LogoutCommand = new Command(async () => await LogoutAsync());
+
+            // Subscribe to connection changes
+            _connectionState.OnConnectionChanged += OnConnectionChanged;
+
+            // Set initial state
+            UpdateConnectionDisplay();
         }
 
         #region Properties
@@ -103,15 +114,16 @@ namespace NewwaysAdmin.Mobile.ViewModels
             set { _statusColor = value; OnPropertyChanged(); }
         }
 
-        public bool IsOfflineMode
+        public Color ConnectionDotColor
         {
-            get => _isOfflineMode;
-            set
-            {
-                _isOfflineMode = value;
-                OnPropertyChanged();
-                UpdateModeDisplay();
-            }
+            get => _connectionDotColor;
+            set { _connectionDotColor = value; OnPropertyChanged(); }
+        }
+
+        public string ConnectionText
+        {
+            get => _connectionText;
+            set { _connectionText = value; OnPropertyChanged(); }
         }
 
         #endregion
@@ -120,6 +132,34 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
         public ICommand RefreshCommand { get; }
         public ICommand LogoutCommand { get; }
+
+        #endregion
+
+        #region Connection State
+
+        private void OnConnectionChanged(object? sender, bool isOnline)
+        {
+            // Update UI on main thread
+            MainThread.BeginInvokeOnMainThread(UpdateConnectionDisplay);
+        }
+
+        private void UpdateConnectionDisplay()
+        {
+            if (_connectionState.IsOnline)
+            {
+                ConnectionDotColor = Colors.Green;
+                ConnectionText = "Online";
+                ModeText = "✓ ONLINE - Connected to server";
+                ModeBackgroundColor = Colors.Green;
+            }
+            else
+            {
+                ConnectionDotColor = Colors.Red;
+                ConnectionText = "Offline";
+                ModeText = "⚠️ OFFLINE - Using cached data";
+                ModeBackgroundColor = Colors.Orange;
+            }
+        }
 
         #endregion
 
@@ -209,9 +249,6 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 // Clear credentials
                 await _credentialStorage.ClearCredentialsAsync();
 
-                // Clear permissions (we need the username first, but it's already cleared)
-                // The permissions will be orphaned but that's fine - they'll be overwritten on next login
-
                 StatusMessage = "✓ Logged out successfully";
                 StatusColor = Colors.Green;
 
@@ -231,30 +268,6 @@ namespace NewwaysAdmin.Mobile.ViewModels
             {
                 IsBusy = false;
             }
-        }
-
-        private void UpdateModeDisplay()
-        {
-            if (IsOfflineMode)
-            {
-                ModeText = "⚠️ OFFLINE MODE - Using cached data";
-                ModeBackgroundColor = Colors.Orange;
-            }
-            else
-            {
-                ModeText = "✓ ONLINE - Connected to server";
-                ModeBackgroundColor = Colors.Green;
-            }
-        }
-
-        /// <summary>
-        /// Call this when navigating to this page with auth result
-        /// </summary>
-        public void SetAuthState(string username, bool isOffline)
-        {
-            Username = username;
-            IsOfflineMode = isOffline;
-            UpdateModeDisplay();
         }
 
         #endregion

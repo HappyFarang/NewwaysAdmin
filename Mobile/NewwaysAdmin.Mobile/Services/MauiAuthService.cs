@@ -10,6 +10,7 @@ namespace NewwaysAdmin.Mobile.Services
     {
         Task<AuthResult> TryAutoLoginAsync();
         Task<AuthResult> LoginAsync(string username, string password, bool saveCredentials = true);
+        Task<AuthResult> CheckSavedCredentialsAsync();
     }
 
     public class MauiAuthService : IMauiAuthService
@@ -29,6 +30,52 @@ namespace NewwaysAdmin.Mobile.Services
             _credentialStorage = credentialStorage;
             _permissionsCache = permissionsCache;
             _logger = logger;
+        }
+
+        public async Task<AuthResult> CheckSavedCredentialsAsync()
+        {
+            try
+            {
+                _logger.LogInformation("Checking for saved credentials (local only)");
+
+                var savedCreds = await _credentialStorage.GetSavedCredentialsAsync();
+
+                if (savedCreds == null)
+                {
+                    _logger.LogInformation("No saved credentials found");
+                    return new AuthResult
+                    {
+                        Success = false,
+                        RequiresManualLogin = true,
+                        Message = "No saved credentials"
+                    };
+                }
+
+                // We have credentials - check for cached permissions
+                var cachedPermissions = await _permissionsCache.GetCachedPermissionsAsync(savedCreds.Username);
+
+                _logger.LogInformation("Found saved credentials for user: {Username}, Permissions: {Count}",
+                    savedCreds.Username, cachedPermissions?.Count ?? 0);
+
+                return new AuthResult
+                {
+                    Success = true,
+                    Username = savedCreds.Username,
+                    Permissions = cachedPermissions ?? new List<string>(),
+                    IsOfflineMode = true, // Assume offline until ConnectionMonitor says otherwise
+                    Message = "Loaded from cache"
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error checking saved credentials");
+                return new AuthResult
+                {
+                    Success = false,
+                    RequiresManualLogin = true,
+                    Message = "Error checking credentials"
+                };
+            }
         }
 
         public async Task<AuthResult> TryAutoLoginAsync()

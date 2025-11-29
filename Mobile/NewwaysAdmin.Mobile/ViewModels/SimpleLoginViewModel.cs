@@ -140,53 +140,39 @@ namespace NewwaysAdmin.Mobile.ViewModels
         #region Auto-Login on Startup
 
         /// <summary>
-        /// Called from OnAppearing - tries to auto-login with saved credentials
+        /// Called from OnAppearing - checks for saved credentials and navigates immediately
+        /// No server contact - ConnectionMonitor handles that in background
         /// </summary>
         public async Task TryAutoLoginOnStartupAsync()
         {
             try
             {
                 IsBusy = true;
-                StatusMessage = "Checking saved credentials...";
-                StatusColor = Colors.Orange;
+                _logger.LogInformation("Checking for saved credentials...");
 
-                _logger.LogInformation("Attempting auto-login on startup");
-
-                var result = await _authService.TryAutoLoginAsync();
-
-                if (result.RequiresManualLogin)
-                {
-                    // No saved credentials - show login form
-                    StatusMessage = "Please enter your credentials";
-                    StatusColor = Colors.Gray;
-                    _logger.LogInformation("No saved credentials found - manual login required");
-                    return;
-                }
+                // Local only - no server contact!
+                var result = await _authService.CheckSavedCredentialsAsync();
 
                 if (result.Success)
                 {
-                    var modeText = result.IsOfflineMode ? " (offline mode)" : "";
-                    StatusMessage = $"✓ Welcome back, {result.Username}!{modeText}";
-                    StatusColor = Colors.Green;
+                    _logger.LogInformation("Found saved credentials for user: {Username} - navigating immediately",
+                        result.Username);
 
-                    _logger.LogInformation("Auto-login successful for user: {Username}, Offline: {IsOffline}",
-                        result.Username, result.IsOfflineMode);
-
-                    // Navigate to main app
-                    await NavigateToMainAppAsync(result.Username, result.IsOfflineMode);
+                    // Go straight to home page
+                    await NavigateToMainAppAsync(result.Username, false);
                     return;
                 }
 
-                // Auto-login failed (bad credentials, server error, etc.)
-                StatusMessage = result.Message ?? "Auto-login failed - please log in manually";
-                StatusColor = Colors.Orange;
-                _logger.LogWarning("Auto-login failed: {Message}", result.Message);
+                // No saved credentials - show login form
+                _logger.LogInformation("No saved credentials found - manual login required");
+                StatusMessage = "Please enter your credentials";
+                StatusColor = Colors.Gray;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during auto-login attempt");
-                StatusMessage = "Error checking credentials - please log in manually";
-                StatusColor = Colors.Orange;
+                _logger.LogError(ex, "Error checking saved credentials");
+                StatusMessage = "Please enter your credentials";
+                StatusColor = Colors.Gray;
             }
             finally
             {
@@ -293,11 +279,10 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
         private async Task NavigateToMainAppAsync(string? username, bool isOfflineMode)
         {
-            _logger.LogInformation("Navigating to HomePage for user: {Username}, Offline: {IsOffline}",
-                username, isOfflineMode);
+            _logger.LogInformation("Navigating to HomePage for user: {Username}", username);
 
-            // Navigate to home page with parameters
-            await Shell.Current.GoToAsync($"//HomePage?username={username}&offline={isOfflineMode}");
+            // Navigate to home page - connection state is handled by ConnectionMonitor
+            await Shell.Current.GoToAsync("//HomePage");
         }
 
         #endregion
