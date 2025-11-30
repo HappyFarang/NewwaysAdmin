@@ -34,7 +34,7 @@ namespace NewwaysAdmin.Mobile.Extensions
             services.AddScoped<StartupCoordinator>();
 
             // ===== CATEGORY SERVICES =====
-            services.AddScoped<MobileCategoryService>();
+            // services.AddScoped<MobileCategoryService>();
 
             // Authentication services with interfaces (only where they make sense!)
             services.AddTransient<IMauiAuthService, MauiAuthService>();
