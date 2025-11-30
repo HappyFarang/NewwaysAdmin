@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services.Connectivity;
+using NewwaysAdmin.Mobile.Services.Categories;
 
 namespace NewwaysAdmin.Mobile.ViewModels
 {
@@ -12,26 +13,35 @@ namespace NewwaysAdmin.Mobile.ViewModels
     {
         private readonly ILogger<CategoryBrowserViewModel> _logger;
         private readonly ConnectionState _connectionState;
+        private readonly CategoryDataService _categoryDataService;
 
         private bool _isLoading;
         private Color _connectionDotColor = Colors.Gray;
         private LocationDisplayItem? _selectedLocation;
         private PersonDisplayItem? _selectedPerson;
+        private string _syncStatusText = "";
 
         public CategoryBrowserViewModel(
             ILogger<CategoryBrowserViewModel> logger,
-            ConnectionState connectionState)
+            ConnectionState connectionState,
+            CategoryDataService categoryDataService)
         {
             _logger = logger;
             _connectionState = connectionState;
+            _categoryDataService = categoryDataService;
 
             // Commands
             ToggleCategoryCommand = new Command<CategoryDisplayItem>(ToggleCategory);
             SelectSubCategoryCommand = new Command<SubCategoryDisplayItem>(SelectSubCategory);
             ModuleTappedCommand = new Command(OnModuleTapped);
+            RefreshCommand = new Command(async () => await RefreshDataAsync());
 
             // Subscribe to connection changes
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;
+
+            // Subscribe to data updates
+            _categoryDataService.DataUpdated += OnDataUpdated;
+
             UpdateConnectionDot();
         }
 
@@ -88,6 +98,16 @@ namespace NewwaysAdmin.Mobile.ViewModels
             }
         }
 
+        public string SyncStatusText
+        {
+            get => _syncStatusText;
+            set
+            {
+                _syncStatusText = value;
+                OnPropertyChanged();
+            }
+        }
+
         #endregion
 
         #region Commands
@@ -95,6 +115,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
         public ICommand ToggleCategoryCommand { get; }
         public ICommand SelectSubCategoryCommand { get; }
         public ICommand ModuleTappedCommand { get; }
+        public ICommand RefreshCommand { get; }
 
         #endregion
 
@@ -107,85 +128,136 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 IsLoading = true;
                 _logger.LogInformation("Loading categories...");
 
-                // Clear existing data
-                Categories.Clear();
-                Locations.Clear();
-                Persons.Clear();
+                // Get data from service (cache + server sync)
+                var data = await _categoryDataService.GetDataAsync();
 
-                // TODO: Load from cache or server
-                // For now, add test data
+                PopulateFromData(data);
 
-                // === LOCATIONS ===
-                Locations.Add(new LocationDisplayItem { Id = "", Name = "None" });
-                Locations.Add(new LocationDisplayItem { Id = "1", Name = "Phrae" });
-                Locations.Add(new LocationDisplayItem { Id = "2", Name = "Chiang Mai" });
-                SelectedLocation = Locations[0]; // Default to "None"
-
-                // === PERSONS ===
-                Persons.Add(new PersonDisplayItem { Id = "", Name = "None" });
-                Persons.Add(new PersonDisplayItem { Id = "1", Name = "Thomas" });
-                Persons.Add(new PersonDisplayItem { Id = "2", Name = "Nok" });
-                SelectedPerson = Persons[0]; // Default to "None"
-
-                // === CATEGORIES ===
-                var testCategory = new CategoryDisplayItem
-                {
-                    Id = "1",
-                    Name = "Transportation",
-                    IsExpanded = false
-                };
-                testCategory.SubCategories.Add(new SubCategoryDisplayItem
-                {
-                    Id = "1a",
-                    Name = "Green Buses",
-                    ParentCategoryId = "1",
-                    ParentCategoryName = "Transportation",
-                    HasVAT = true
-                });
-                testCategory.SubCategories.Add(new SubCategoryDisplayItem
-                {
-                    Id = "1b",
-                    Name = "Fuel",
-                    ParentCategoryId = "1",
-                    ParentCategoryName = "Transportation",
-                    HasVAT = true
-                });
-                Categories.Add(testCategory);
-
-                var testCategory2 = new CategoryDisplayItem
-                {
-                    Id = "2",
-                    Name = "Production",
-                    IsExpanded = false
-                };
-                testCategory2.SubCategories.Add(new SubCategoryDisplayItem
-                {
-                    Id = "2a",
-                    Name = "B2 Boxes",
-                    ParentCategoryId = "2",
-                    ParentCategoryName = "Production",
-                    HasVAT = false
-                });
-                testCategory2.SubCategories.Add(new SubCategoryDisplayItem
-                {
-                    Id = "2b",
-                    Name = "Raw Materials",
-                    ParentCategoryId = "2",
-                    ParentCategoryName = "Production",
-                    HasVAT = true
-                });
-                Categories.Add(testCategory2);
-
-                _logger.LogInformation("Loaded {CatCount} categories, {LocCount} locations, {PerCount} persons",
-                    Categories.Count, Locations.Count, Persons.Count);
+                // Update sync status
+                UpdateSyncStatus();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error loading categories");
+                SyncStatusText = "Error loading data";
             }
             finally
             {
                 IsLoading = false;
+            }
+        }
+
+        private async Task RefreshDataAsync()
+        {
+            try
+            {
+                IsLoading = true;
+                SyncStatusText = "Syncing...";
+
+                // Force sync with server
+                var success = await _categoryDataService.SyncWithServerAsync();
+
+                if (success)
+                {
+                    var data = await _categoryDataService.GetDataAsync();
+                    PopulateFromData(data);
+                    SyncStatusText = "Synced!";
+                }
+                else
+                {
+                    SyncStatusText = "Sync failed - using cached data";
+                }
+
+                UpdateSyncStatus();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing data");
+                SyncStatusText = "Refresh failed";
+            }
+            finally
+            {
+                IsLoading = false;
+            }
+        }
+
+        private void PopulateFromData(NewwaysAdmin.SharedModels.Categories.FullCategoryData? data)
+        {
+            Categories.Clear();
+            Locations.Clear();
+            Persons.Clear();
+
+            if (data == null)
+            {
+                _logger.LogWarning("No category data available");
+                return;
+            }
+
+            // === LOCATIONS ===
+            Locations.Add(new LocationDisplayItem { Id = "", Name = "None" });
+            foreach (var loc in data.Locations.Where(l => l.IsActive).OrderBy(l => l.SortOrder))
+            {
+                Locations.Add(new LocationDisplayItem { Id = loc.Id, Name = loc.Name });
+            }
+            SelectedLocation = Locations[0];
+
+            // === PERSONS ===
+            Persons.Add(new PersonDisplayItem { Id = "", Name = "None" });
+            foreach (var person in data.Persons.Where(p => p.IsActive).OrderBy(p => p.SortOrder))
+            {
+                Persons.Add(new PersonDisplayItem { Id = person.Id, Name = person.Name });
+            }
+            SelectedPerson = Persons[0];
+
+            // === CATEGORIES ===
+            foreach (var category in data.Categories.Where(c => c.IsActive).OrderBy(c => c.SortOrder))
+            {
+                var displayCategory = new CategoryDisplayItem
+                {
+                    Id = category.Id,
+                    Name = category.Name,
+                    IsExpanded = false
+                };
+
+                foreach (var sub in category.SubCategories.Where(s => s.IsActive).OrderBy(s => s.SortOrder))
+                {
+                    displayCategory.SubCategories.Add(new SubCategoryDisplayItem
+                    {
+                        Id = sub.Id,
+                        Name = sub.Name,
+                        ParentCategoryId = category.Id,
+                        ParentCategoryName = category.Name,
+                        HasVAT = sub.HasVAT
+                    });
+                }
+
+                Categories.Add(displayCategory);
+            }
+
+            _logger.LogInformation("Populated UI: {CatCount} categories, {LocCount} locations, {PerCount} persons",
+                Categories.Count, Locations.Count - 1, Persons.Count - 1);
+        }
+
+        private void UpdateSyncStatus()
+        {
+            var lastSync = _categoryDataService.LastSyncTime;
+            var version = _categoryDataService.LocalVersion;
+
+            if (lastSync.HasValue)
+            {
+                var ago = DateTime.UtcNow - lastSync.Value;
+                if (ago.TotalMinutes < 1)
+                    SyncStatusText = $"v{version} - synced just now";
+                else if (ago.TotalHours < 1)
+                    SyncStatusText = $"v{version} - synced {(int)ago.TotalMinutes}m ago";
+                else if (ago.TotalDays < 1)
+                    SyncStatusText = $"v{version} - synced {(int)ago.TotalHours}h ago";
+                else
+                    SyncStatusText = $"v{version} - synced {(int)ago.TotalDays}d ago";
+            }
+            else
+            {
+                SyncStatusText = version > 0 ? $"v{version} - cached" : "No data";
             }
         }
 
@@ -202,12 +274,8 @@ namespace NewwaysAdmin.Mobile.ViewModels
             if (subCategory == null) return;
 
             // Build the note string
-            var locationName = SelectedLocation?.Name ?? "None";
-            if (string.IsNullOrEmpty(SelectedLocation?.Id)) locationName = "None";
-
-            var personName = SelectedPerson?.Name ?? "None";
-            if (string.IsNullOrEmpty(SelectedPerson?.Id)) personName = "None";
-
+            var locationName = string.IsNullOrEmpty(SelectedLocation?.Id) ? "None" : SelectedLocation.Name;
+            var personName = string.IsNullOrEmpty(SelectedPerson?.Id) ? "None" : SelectedPerson.Name;
             var categoryPath = $"{subCategory.ParentCategoryName} > {subCategory.Name}";
 
             var noteText = $"Location: {locationName} | Person: {personName} | Category: {categoryPath}";
@@ -227,12 +295,30 @@ namespace NewwaysAdmin.Mobile.ViewModels
         private void OnModuleTapped()
         {
             _logger.LogDebug("Module tapped - future: show module picker");
-            // TODO: Show module picker when more modules are available
         }
 
         private void OnConnectionStateChanged(object? sender, bool isOnline)
         {
-            MainThread.BeginInvokeOnMainThread(UpdateConnectionDot);
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                UpdateConnectionDot();
+
+                // If back online and no data, try to load
+                if (isOnline && Categories.Count == 0)
+                {
+                    _ = LoadCategoriesAsync();
+                }
+            });
+        }
+
+        private void OnDataUpdated(object? sender, NewwaysAdmin.SharedModels.Categories.FullCategoryData data)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                _logger.LogInformation("Data updated notification received - refreshing UI");
+                PopulateFromData(data);
+                UpdateSyncStatus();
+            });
         }
 
         private void UpdateConnectionDot()

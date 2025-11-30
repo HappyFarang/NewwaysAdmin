@@ -10,6 +10,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 {
     /// <summary>
     /// Handles MAUI app communication for category synchronization
+    /// Supports bidirectional version exchange and data sync
     /// </summary>
     public class CategorySyncHandler : IAppMessageHandler
     {
@@ -20,9 +21,9 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 
         public IEnumerable<string> SupportedMessageTypes => new[]
         {
-            "RequestCategorySync",
-            "RequestMobileSyncData",
-            "CategorySelected",
+            "VersionExchange",      // Compare versions, sync if needed
+            "RequestFullData",      // Force download full data
+            "RequestVersion",       // Just get current version number
             "HeartbeatCheck"
         };
 
@@ -43,9 +44,9 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 
                 return message.MessageType switch
                 {
-                    "RequestCategorySync" => await HandleCategorySyncRequestAsync(message, connectionId),
-                    "RequestMobileSyncData" => await HandleMobileSyncDataRequestAsync(message, connectionId),
-                    "CategorySelected" => await HandleCategorySelectedAsync(message, connectionId),
+                    "VersionExchange" => await HandleVersionExchangeAsync(message, connectionId),
+                    "RequestFullData" => await HandleRequestFullDataAsync(message, connectionId),
+                    "RequestVersion" => await HandleRequestVersionAsync(message, connectionId),
                     "HeartbeatCheck" => await HandleHeartbeatAsync(message, connectionId),
                     _ => MessageHandlerResult.CreateError($"Unsupported message type: {message.MessageType}")
                 };
@@ -58,57 +59,100 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             }
         }
 
-        // ===== SPECIFIC MESSAGE HANDLERS =====
+        // ===== VERSION EXCHANGE =====
 
-        private async Task<MessageHandlerResult> HandleCategorySyncRequestAsync(UniversalMessage message, string connectionId)
-        {
-            _logger.LogDebug("Category sync requested by connection {ConnectionId}", connectionId);
-
-            var syncData = await _categoryService.GetFullDataAsync();
-
-            return MessageHandlerResult.CreateSuccess(syncData);
-        }
-
-        private async Task<MessageHandlerResult> HandleMobileSyncDataRequestAsync(UniversalMessage message, string connectionId)
-        {
-            _logger.LogDebug("Mobile sync data requested by connection {ConnectionId}", connectionId);
-
-            var syncData = await _categoryService.GetFullDataAsync();
-
-            return MessageHandlerResult.CreateSuccess(syncData);
-        }
-
-        private async Task<MessageHandlerResult> HandleCategorySelectedAsync(UniversalMessage message, string connectionId)
+        private async Task<MessageHandlerResult> HandleVersionExchangeAsync(UniversalMessage message, string connectionId)
         {
             try
             {
-                var selectionData = JsonSerializer.Deserialize<CategorySelectionData>(message.Data.GetRawText());
+                var request = JsonSerializer.Deserialize<VersionExchangeMessage>(message.Data.GetRawText());
 
-                if (selectionData == null)
+                if (request == null)
                 {
-                    return MessageHandlerResult.CreateError("Invalid selection data format");
+                    return MessageHandlerResult.CreateError("Invalid version exchange message");
                 }
 
-                _logger.LogDebug("Category selected: {SubCategoryId} at location {LocationId} by person {PersonId}",
-                    selectionData.SubCategoryId, selectionData.LocationId ?? "No location", selectionData.PersonId ?? "No person");
+                _logger.LogInformation(
+                    "Version exchange from {DeviceType} ({DeviceId}): Client v{ClientVersion}",
+                    request.DeviceType, request.DeviceId, request.MyVersion);
 
-                // Note: Usage tracking removed - will be handled by project files after OCR processing
+                var serverData = await _categoryService.GetFullDataAsync();
+                var serverVersion = serverData.DataVersion;
 
-                return MessageHandlerResult.CreateSuccess(new { received = true });
+                var response = new VersionExchangeResponse
+                {
+                    ServerVersion = serverVersion,
+                    YouNeedToDownload = serverVersion > request.MyVersion,
+                    ServerNeedsYourData = request.MyVersion > serverVersion, // Future: mobile editing
+                    Data = null
+                };
+
+                // If client needs to download, include the data
+                if (response.YouNeedToDownload)
+                {
+                    response.Data = serverData;
+                    _logger.LogInformation(
+                        "Client needs update: v{ClientVersion} -> v{ServerVersion}. Sending full data.",
+                        request.MyVersion, serverVersion);
+                }
+                else if (response.ServerNeedsYourData)
+                {
+                    // Future: handle mobile-to-server sync
+                    _logger.LogInformation(
+                        "Server needs update from client: v{ServerVersion} -> v{ClientVersion}. (Not implemented yet)",
+                        serverVersion, request.MyVersion);
+                }
+                else
+                {
+                    _logger.LogDebug("Versions match (v{Version}), no sync needed", serverVersion);
+                }
+
+                return MessageHandlerResult.CreateSuccess(response);
             }
             catch (JsonException ex)
             {
-                _logger.LogWarning(ex, "Invalid JSON in category selection message from {ConnectionId}", connectionId);
+                _logger.LogWarning(ex, "Invalid JSON in version exchange message");
                 return MessageHandlerResult.CreateError("Invalid message format");
             }
         }
 
+        // ===== REQUEST FULL DATA =====
+
+        private async Task<MessageHandlerResult> HandleRequestFullDataAsync(UniversalMessage message, string connectionId)
+        {
+            _logger.LogDebug("Full data requested by connection {ConnectionId}", connectionId);
+
+            var data = await _categoryService.GetFullDataAsync();
+
+            _logger.LogInformation(
+                "Sending full data (v{Version}): {CatCount} categories, {LocCount} locations, {PerCount} persons",
+                data.DataVersion, data.Categories.Count, data.Locations.Count, data.Persons.Count);
+
+            return MessageHandlerResult.CreateSuccess(data);
+        }
+
+        // ===== REQUEST VERSION ONLY =====
+
+        private async Task<MessageHandlerResult> HandleRequestVersionAsync(UniversalMessage message, string connectionId)
+        {
+            var version = await _categoryService.GetCurrentVersionAsync();
+
+            _logger.LogDebug("Version requested by {ConnectionId}: v{Version}", connectionId, version);
+
+            return MessageHandlerResult.CreateSuccess(new { Version = version });
+        }
+
+        // ===== HEARTBEAT =====
+
         private async Task<MessageHandlerResult> HandleHeartbeatAsync(UniversalMessage message, string connectionId)
         {
+            var version = await _categoryService.GetCurrentVersionAsync();
+
             return MessageHandlerResult.CreateSuccess(new
             {
-                serverTime = DateTime.UtcNow,
-                connectionId = connectionId
+                ServerTime = DateTime.UtcNow,
+                ConnectionId = connectionId,
+                CurrentVersion = version
             });
         }
 
@@ -116,7 +160,8 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 
         public async Task OnAppConnectedAsync(AppConnection connection)
         {
-            _logger.LogInformation("MAUI app connected: Device {DeviceId} ({DeviceType}) - Version {AppVersion}",
+            _logger.LogInformation(
+                "MAUI app connected: Device {DeviceId} ({DeviceType}) - Version {AppVersion}",
                 connection.DeviceId, connection.DeviceType, connection.AppVersion);
         }
 
@@ -129,7 +174,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         {
             if (string.IsNullOrEmpty(message.MessageType))
             {
-                _logger.LogWarning("Message missing MessageType from connection");
+                _logger.LogWarning("Message missing MessageType");
                 return false;
             }
 
@@ -140,18 +185,14 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         {
             _logger.LogDebug("Getting initial data for device {DeviceId}", connection.DeviceId);
 
-            var syncData = await _categoryService.GetFullDataAsync();
-            return syncData;
+            var data = await _categoryService.GetFullDataAsync();
+
+            return new
+            {
+                MessageType = "InitialData",
+                Version = data.DataVersion,
+                Data = data
+            };
         }
-    }
-
-    // ===== SUPPORTING DATA CLASSES =====
-
-    public class CategorySelectionData
-    {
-        public string SubCategoryId { get; set; } = string.Empty;
-        public string? LocationId { get; set; }
-        public string? PersonId { get; set; }
-        public string? DeviceId { get; set; }
     }
 }

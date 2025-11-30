@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services;
+using NewwaysAdmin.Mobile.Services.Categories;
 
 namespace NewwaysAdmin.Mobile.ViewModels
 {
@@ -279,9 +280,23 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
         private async Task NavigateToMainAppAsync(string? username, bool isOfflineMode)
         {
-            _logger.LogInformation("Navigating to HomePage for user: {Username}", username);
+            _logger.LogInformation("Navigating to CategoryBrowserPage for user: {Username}", username);
 
-            // Navigate to home page - connection state is handled by ConnectionMonitor
+            // Connect to SignalR hub for category sync (fire and forget - don't block navigation)
+            if (!isOfflineMode)
+            {
+                var hubConnector = Application.Current?.Handler?.MauiContext?.Services.GetService<CategoryHubConnector>();
+                if (hubConnector != null)
+                {
+                    // Set server URL from connection service
+                    hubConnector.SetServerUrl(_connectionService.GetBaseUrl());
+
+                    // Connect in background - don't await
+                    _ = hubConnector.ConnectAsync();
+                }
+            }
+
+            // Navigate to category browser
             await Shell.Current.GoToAsync("//CategoryBrowserPage");
         }
 

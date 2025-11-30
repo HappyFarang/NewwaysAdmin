@@ -7,6 +7,8 @@ using NewwaysAdmin.Mobile.Services.Auth;
 using NewwaysAdmin.Mobile.ViewModels;
 using NewwaysAdmin.Mobile.Pages;
 using NewwaysAdmin.Mobile.Services.Connectivity;
+using NewwaysAdmin.Mobile.Services.Categories;
+
 
 namespace NewwaysAdmin.Mobile;
 
@@ -54,14 +56,20 @@ public static class MauiProgram
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
+       
+        // ===== CONNECTIVITY =====
+        builder.Services.AddSingleton<ConnectionState>();
+        builder.Services.AddSingleton<ConnectionMonitor>();
+
+        // ===== CATEGORY SYNC SERVICES =====
+        builder.Services.AddSingleton<SyncState>();
+        builder.Services.AddSingleton<CategoryDataService>();
+        builder.Services.AddSingleton<CategoryHubConnector>();
+
         // ===== VIEWMODELS =====
         builder.Services.AddTransient<SimpleLoginViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<CategoryBrowserViewModel>();
-
-        // ===== CONNECTIVITY =====
-        builder.Services.AddSingleton<ConnectionState>();
-        builder.Services.AddSingleton<ConnectionMonitor>();
 
         // ===== PAGES =====
         builder.Services.AddTransient<SimpleLoginPage>();
