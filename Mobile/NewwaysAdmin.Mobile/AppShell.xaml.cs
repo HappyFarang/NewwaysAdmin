@@ -11,6 +11,7 @@ namespace NewwaysAdmin.Mobile
 
             // Register routes for navigation
             Routing.RegisterRoute(nameof(SimpleLoginPage), typeof(SimpleLoginPage));
+            Routing.RegisterRoute(nameof(CategoryBrowserPage), typeof(CategoryBrowserPage));
             Routing.RegisterRoute(nameof(HomePage), typeof(HomePage));
         }
     }

@@ -15,7 +15,13 @@
         ContentTemplate="{DataTemplate pages:SimpleLoginPage}"
         Route="SimpleLoginPage" />
 
-    <!-- Home Page - After successful login -->
+    <!-- Category Browser - Main landing page after login -->
+    <ShellContent
+        Title="Categories"
+        ContentTemplate="{DataTemplate pages:CategoryBrowserPage}"
+        Route="CategoryBrowserPage" />
+
+    <!-- Home Page - Debug/Settings page -->
     <ShellContent
         Title="Home"
         ContentTemplate="{DataTemplate pages:HomePage}"

@@ -3,49 +3,38 @@ using System.ComponentModel.DataAnnotations;
 
 namespace NewwaysAdmin.SharedModels.Categories
 {
+    // ===== MAIN DATA STRUCTURE =====
+
     /// <summary>
-    /// Main category system - categories are now location-independent
+    /// Unified category data - single file, single version
+    /// Used by both server and mobile for bidirectional sync
     /// </summary>
-    public class CategorySystem
+    public class FullCategoryData
     {
+        /// <summary>
+        /// Single version number - increments on ANY change (categories, locations, or persons)
+        /// </summary>
+        public int DataVersion { get; set; } = 1;
+
+        /// <summary>
+        /// When this data was last modified
+        /// </summary>
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Who made the last change (username or device ID)
+        /// </summary>
+        public string LastModifiedBy { get; set; } = string.Empty;
+
         public List<Category> Categories { get; set; } = new();
-        public DateTime LastModified { get; set; } = DateTime.UtcNow;
-        public int Version { get; set; } = 1;
-        public string ModifiedBy { get; set; } = string.Empty;
-    }
-
-    /// <summary>
-    /// Global location system - separate from categories
-    /// </summary>
-    public class LocationSystem
-    {
         public List<BusinessLocation> Locations { get; set; } = new();
-        public DateTime LastModified { get; set; } = DateTime.UtcNow;
-        public int Version { get; set; } = 1;
-        public string ModifiedBy { get; set; } = string.Empty;
+        public List<ResponsiblePerson> Persons { get; set; } = new();
     }
 
-    /// <summary>
-    /// Business location - applies to all categories
-    /// </summary>
-    public class BusinessLocation
-    {
-        [Required]
-        public string Id { get; set; } = Guid.NewGuid().ToString();
-
-        [Required]
-        [StringLength(50)]
-        public string Name { get; set; } = string.Empty;
-
-        public string? Description { get; set; }
-        public bool IsActive { get; set; } = true;
-        public string CreatedBy { get; set; } = string.Empty;
-        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
-        public int SortOrder { get; set; } = 0;
-    }
+    // ===== ENTITIES =====
 
     /// <summary>
-    /// Top-level category (Transportation, Tax, VAT, etc.) - NO location dependencies
+    /// Top-level category (Transportation, Production, Tax, etc.)
     /// </summary>
     public class Category
     {
@@ -66,7 +55,7 @@ namespace NewwaysAdmin.SharedModels.Categories
     }
 
     /// <summary>
-    /// Sub-category (Green Buses, VAT Payment, etc.) - NO location dependencies
+    /// Sub-category (Green Buses, B2 Boxes, VAT Payment, etc.)
     /// </summary>
     public class SubCategory
     {
@@ -78,13 +67,18 @@ namespace NewwaysAdmin.SharedModels.Categories
         public string Name { get; set; } = string.Empty;
 
         public string? Description { get; set; }
+        public string ParentCategoryName { get; set; } = string.Empty;
 
         /// <summary>
-        /// Full path for clipboard copy: "Transportation/Green Buses"
+        /// Full path for clipboard/display: "Transportation/Green Buses"
         /// </summary>
         public string FullPath => $"{ParentCategoryName}/{Name}";
 
-        public string ParentCategoryName { get; set; } = string.Empty;
+        /// <summary>
+        /// Indicates if transactions in this subcategory include VAT (for VAT reporting)
+        /// </summary>
+        public bool HasVAT { get; set; } = false;
+
         public bool IsActive { get; set; } = true;
         public string CreatedBy { get; set; } = string.Empty;
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
@@ -93,97 +87,63 @@ namespace NewwaysAdmin.SharedModels.Categories
     }
 
     /// <summary>
-    /// Usage tracking - NOW includes location selection at usage time
+    /// Business location (Chiang Mai, Bangkok, etc.)
     /// </summary>
-    public class CategoryUsage
+    public class BusinessLocation
     {
+        [Required]
         public string Id { get; set; } = Guid.NewGuid().ToString();
-        public string SubCategoryId { get; set; } = string.Empty;
-        public string SubCategoryPath { get; set; } = string.Empty; // For display
 
-        /// <summary>
-        /// Location selected at usage time - can be null for VAT/Tax/etc
-        /// </summary>
-        public string? LocationId { get; set; }
-        public string? LocationName { get; set; } // For display
+        [Required]
+        [StringLength(50)]
+        public string Name { get; set; } = string.Empty;
 
-        public DateTime UsedDate { get; set; } = DateTime.UtcNow;
-        public string UsedBy { get; set; } = string.Empty; // User or device
-        public string? TransactionNote { get; set; } // Bank transfer note
-        public decimal? Amount { get; set; } // Optional transaction amount
+        public string? Description { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string CreatedBy { get; set; } = string.Empty;
+        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
+        public int SortOrder { get; set; } = 0;
     }
 
     /// <summary>
-    /// For MAUI sync - lightweight mobile-optimized structure
+    /// Person responsible for payment (Thomas, Nok, etc.)
     /// </summary>
-    public class MobileCategorySync
+    public class ResponsiblePerson
     {
-        public DateTime LastUpdated { get; set; }
-        public int CategoryVersion { get; set; }
-        public int LocationVersion { get; set; }
+        [Required]
+        public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        public List<MobileCategoryItem> Categories { get; set; } = new();
-        public List<MobileLocationItem> Locations { get; set; } = new();
-    }
-
-    public class MobileCategoryItem
-    {
-        public string Id { get; set; } = string.Empty;
+        [Required]
+        [StringLength(50)]
         public string Name { get; set; } = string.Empty;
-        public List<MobileSubCategoryItem> SubCategories { get; set; } = new();
-        public int SortOrder { get; set; }
+
+        public string? Description { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string CreatedBy { get; set; } = string.Empty;
+        public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
+        public int SortOrder { get; set; } = 0;
     }
 
-    public class MobileSubCategoryItem
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string FullPath { get; set; } = string.Empty;
-        public int SortOrder { get; set; }
-        public int TotalUsageCount { get; set; } // Across all locations
-        public List<LocationUsageCount> LocationUsage { get; set; } = new(); // Usage per location
-    }
+    // ===== SYNC MESSAGE =====
 
-    public class MobileLocationItem
+    /// <summary>
+    /// Version exchange message for SignalR sync
+    /// </summary>
+    public class VersionExchangeMessage
     {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public int SortOrder { get; set; }
-    }
-
-    public class LocationUsageCount
-    {
-        public string LocationId { get; set; } = string.Empty;
-        public string LocationName { get; set; } = string.Empty;
-        public int UsageCount { get; set; }
+        public int MyVersion { get; set; }
+        public string DeviceId { get; set; } = string.Empty;
+        public string DeviceType { get; set; } = string.Empty; // "MAUI" or "Blazor"
     }
 
     /// <summary>
-    /// SignalR message types
+    /// Response to version exchange
     /// </summary>
-    public class CategoryUpdateMessage
+    public class VersionExchangeResponse
     {
-        public string MessageType { get; set; } = string.Empty; // "CategoryAdded", "CategoryUpdated", "CategoryDeleted"
-        public string CategoryId { get; set; } = string.Empty;
-        public string CategoryName { get; set; } = string.Empty;
-        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-        public string UpdatedBy { get; set; } = string.Empty;
-    }
-
-    public class LocationUpdateMessage
-    {
-        public List<BusinessLocation> Locations { get; set; } = new();
-        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
-        public string UpdatedBy { get; set; } = string.Empty;
-    }
-
-    public class CategoryUsageMessage
-    {
-        public string SubCategoryId { get; set; } = string.Empty;
-        public string SubCategoryPath { get; set; } = string.Empty;
-        public string? LocationId { get; set; }
-        public string? LocationName { get; set; }
-        public DateTime UsedDate { get; set; } = DateTime.UtcNow;
-        public string UsedBy { get; set; } = string.Empty;
+        public int ServerVersion { get; set; }
+        public bool YouNeedToDownload { get; set; }
+        public bool ServerNeedsYourData { get; set; } // Future: for mobile editing
+        public FullCategoryData? Data { get; set; } // Included if YouNeedToDownload = true
     }
 }

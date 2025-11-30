@@ -1,6 +1,7 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/CategoryManagement/CategoryModal.razor *@
 @using NewwaysAdmin.SharedModels.Categories
 @using NewwaysAdmin.WebAdmin.Services.Categories
+@using System.ComponentModel.DataAnnotations
 @inject CategoryService CategoryService
 @inject IJSRuntime JSRuntime
 
@@ -17,7 +18,8 @@
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="categoryName" class="form-label">Category Name</label>
-                        <InputText id="categoryName" class="form-control" @bind-Value="categoryForm.Name" placeholder="e.g., Transportation, VAT, Tax" />
+                        <InputText id="categoryName" class="form-control" @bind-Value="categoryForm.Name"
+                                   placeholder="e.g., Transportation, Production, Tax" />
                         <ValidationMessage For="() => categoryForm.Name" />
                     </div>
 
@@ -29,7 +31,7 @@
 
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
-                        <strong>Note:</strong> Categories work with all locations. Locations are selected when using the category in the mobile app.
+                        <strong>Note:</strong> Location and person are selected when using the category in the mobile app.
                     </div>
 
                     @if (isSaving)
@@ -64,7 +66,6 @@
 
         if (category != null)
         {
-            // Editing existing category
             categoryForm = new CategoryFormModel
                 {
                     Name = category.Name,
@@ -73,7 +74,6 @@
         }
         else
         {
-            // Adding new category
             categoryForm = new CategoryFormModel();
         }
 
@@ -93,34 +93,30 @@
         {
             if (editingCategory == null)
             {
-                // Create new category
                 await CategoryService.CreateCategoryAsync(
                     categoryForm.Name.Trim(),
-                    categoryForm.Description?.Trim() ?? "",
-                    "CurrentUser" // TODO: Get actual user
+                    categoryForm.Description?.Trim(),
+                    "Admin"
                 );
             }
             else
             {
-                // Update existing category
                 await CategoryService.UpdateCategoryAsync(
                     editingCategory.Id,
                     categoryForm.Name.Trim(),
-                    categoryForm.Description?.Trim() ?? "",
-                    "CurrentUser" // TODO: Get actual user
+                    categoryForm.Description?.Trim()
                 );
             }
 
             await JSRuntime.InvokeVoidAsync("eval", "bootstrap.Modal.getInstance(document.getElementById('categoryModal')).hide()");
             await OnCategorySaved.InvokeAsync();
-
-            await JSRuntime.InvokeVoidAsync("showToast",
-                $"Category {(editingCategory == null ? "created" : "updated")} successfully!", "success");
+            // await JSRuntime.InvokeVoidAsync("showToast",
+            //    $"Category {(editingCategory == null ? "created" : "updated")} successfully!", "success");
         }
         catch (Exception ex)
         {
             await JSRuntime.InvokeVoidAsync("showToast",
-                $"Error {(editingCategory == null ? "creating" : "updating")} category: {ex.Message}", "danger");
+                $"Error: {ex.Message}", "danger");
         }
         finally
         {

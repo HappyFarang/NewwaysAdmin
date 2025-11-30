@@ -37,6 +37,9 @@
     <ProjectReference Include="..\..\NewwaysAdmin.SignalR.Contracts\NewwaysAdmin.SignalR.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <MauiXaml Update="Pages\CategoryBrowserPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </MauiXaml>
     <MauiXaml Update="Pages\HomePage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>

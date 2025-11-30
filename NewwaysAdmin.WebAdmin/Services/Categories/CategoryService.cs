@@ -5,280 +5,305 @@ using Microsoft.Extensions.Logging;
 namespace NewwaysAdmin.WebAdmin.Services.Categories
 {
     /// <summary>
-    /// Main category service - orchestrates category operations
-    /// Delegates to specialized services for specific functionality
+    /// Main category service - all category, location, and person operations
+    /// Single DataVersion increments on ANY change
     /// </summary>
     public class CategoryService
     {
-        private readonly CategoryStorageService _storageService;
-        private readonly MobileSyncService _syncService;
-        private readonly CategoryUsageService _usageService;
-        private readonly BusinessLocationService _locationService;
+        private readonly CategoryStorageService _storage;
         private readonly ILogger<CategoryService> _logger;
 
         public CategoryService(
-            CategoryStorageService storageService,
-            MobileSyncService syncService,
-            CategoryUsageService usageService,
-            BusinessLocationService locationService,
+            CategoryStorageService storage,
             ILogger<CategoryService> logger)
         {
-            _storageService = storageService;
-            _syncService = syncService;
-            _usageService = usageService;
-            _locationService = locationService;
+            _storage = storage;
             _logger = logger;
         }
 
-        // ===== CATEGORY SYSTEM OPERATIONS =====
+        // ===== FULL DATA ACCESS =====
 
-        public async Task<CategorySystem> GetCategorySystemAsync()
+        public async Task<FullCategoryData> GetFullDataAsync()
         {
-            try
-            {
-                var system = await _storageService.LoadCategorySystemAsync();
-
-                if (system == null)
-                {
-                    _logger.LogInformation("No category system found, creating default");
-                    system = _storageService.CreateDefaultCategorySystem();
-                    await _storageService.SaveCategorySystemAsync(system);
-                }
-
-                return system;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting category system");
-                throw;
-            }
+            return await _storage.LoadAsync();
         }
 
-        // ===== CATEGORY CRUD OPERATIONS =====
-
-        public async Task<Category> CreateCategoryAsync(string name, string description, string createdBy)
+        public async Task<int> GetCurrentVersionAsync()
         {
-            try
-            {
-                var system = await GetCategorySystemAsync();
-
-                var category = new Category
-                {
-                    Name = name,
-                    Description = description,
-                    CreatedBy = createdBy,
-                    SortOrder = system.Categories.Count
-                };
-
-                system.Categories.Add(category);
-                system.LastModified = DateTime.UtcNow;
-                system.Version++;
-                system.ModifiedBy = createdBy;
-
-                await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
-
-                _logger.LogInformation("Created category: {CategoryName} by {User}", name, createdBy);
-                return category;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating category: {CategoryName}", name);
-                throw;
-            }
+            var data = await _storage.LoadAsync();
+            return data.DataVersion;
         }
 
-        public async Task<SubCategory> CreateSubCategoryAsync(string categoryId, string name, string description, string createdBy)
+        // ===== CATEGORY OPERATIONS =====
+
+        public async Task<Category> CreateCategoryAsync(string name, string? description, string createdBy)
         {
-            try
+            var data = await _storage.LoadAsync();
+
+            var category = new Category
             {
-                var system = await GetCategorySystemAsync();
-                var category = system.Categories.FirstOrDefault(c => c.Id == categoryId);
+                Name = name,
+                Description = description,
+                CreatedBy = createdBy,
+                SortOrder = data.Categories.Count
+            };
 
-                if (category == null)
-                    throw new ArgumentException($"Category {categoryId} not found");
+            data.Categories.Add(category);
+            IncrementVersion(data, createdBy);
 
-                var subCategory = new SubCategory
-                {
-                    Name = name,
-                    Description = description,
-                    ParentCategoryName = category.Name,
-                    CreatedBy = createdBy,
-                    SortOrder = category.SubCategories.Count
-                };
+            await _storage.SaveAsync(data);
 
-                category.SubCategories.Add(subCategory);
-                category.LastModified = DateTime.UtcNow;
-                // Note: Category doesn't have ModifiedBy property
+            _logger.LogInformation("Created category: {CategoryName} (v{Version})", name, data.DataVersion);
+            return category;
+        }
 
-                system.LastModified = DateTime.UtcNow;
-                system.Version++;
-                system.ModifiedBy = createdBy;
+        public async Task UpdateCategoryAsync(string categoryId, string name, string? description, string modifiedBy = "Admin")
+        {
+            var data = await _storage.LoadAsync();
+            var category = data.Categories.FirstOrDefault(c => c.Id == categoryId);
 
-                await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
+            if (category == null)
+                throw new ArgumentException($"Category {categoryId} not found");
 
-                _logger.LogInformation("Created subcategory: {SubCategoryName} in {CategoryName} by {User}",
-                    name, category.Name, createdBy);
-                return subCategory;
-            }
-            catch (Exception ex)
+            category.Name = name;
+            category.Description = description;
+            category.LastModified = DateTime.UtcNow;
+
+            // Update parent name in all subcategories
+            foreach (var sub in category.SubCategories)
             {
-                _logger.LogError(ex, "Error creating subcategory: {SubCategoryName} in category {CategoryId}", name, categoryId);
-                throw;
+                sub.ParentCategoryName = name;
             }
+
+            IncrementVersion(data, modifiedBy);
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Updated category: {CategoryName} (v{Version})", name, data.DataVersion);
         }
 
-        public async Task UpdateCategoryAsync(string categoryId, string name, string description, string updatedBy)
+        public async Task DeleteCategoryAsync(string categoryId, string deletedBy = "Admin")
         {
-            try
+            var data = await _storage.LoadAsync();
+            var category = data.Categories.FirstOrDefault(c => c.Id == categoryId);
+
+            if (category == null)
+                throw new ArgumentException($"Category {categoryId} not found");
+
+            data.Categories.Remove(category);
+            IncrementVersion(data, deletedBy);
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Deleted category: {CategoryName} (v{Version})", category.Name, data.DataVersion);
+        }
+
+        // ===== SUBCATEGORY OPERATIONS =====
+
+        public async Task<SubCategory> CreateSubCategoryAsync(
+            string categoryId,
+            string name,
+            string? description,
+            bool hasVAT,
+            string createdBy)
+        {
+            var data = await _storage.LoadAsync();
+            var category = data.Categories.FirstOrDefault(c => c.Id == categoryId);
+
+            if (category == null)
+                throw new ArgumentException($"Category {categoryId} not found");
+
+            var subCategory = new SubCategory
             {
-                var system = await GetCategorySystemAsync();
-                var category = system.Categories.FirstOrDefault(c => c.Id == categoryId);
+                Name = name,
+                Description = description,
+                ParentCategoryName = category.Name,
+                HasVAT = hasVAT,
+                CreatedBy = createdBy,
+                SortOrder = category.SubCategories.Count
+            };
 
-                if (category == null)
-                    throw new ArgumentException($"Category {categoryId} not found");
+            category.SubCategories.Add(subCategory);
+            category.LastModified = DateTime.UtcNow;
+            IncrementVersion(data, createdBy);
 
-                category.Name = name;
-                category.Description = description;
-                category.LastModified = DateTime.UtcNow;
+            await _storage.SaveAsync(data);
 
-                // Update parent category name in all subcategories
-                foreach (var sub in category.SubCategories)
-                {
-                    sub.ParentCategoryName = name;
-                }
+            _logger.LogInformation("Created subcategory: {SubCategoryName} in {CategoryName} (v{Version})",
+                name, category.Name, data.DataVersion);
+            return subCategory;
+        }
 
-                system.LastModified = DateTime.UtcNow;
-                system.Version++;
-                system.ModifiedBy = updatedBy;
+        public async Task UpdateSubCategoryAsync(
+            string categoryId,
+            string subCategoryId,
+            string name,
+            string? description,
+            bool hasVAT,
+            string modifiedBy = "Admin")
+        {
+            var data = await _storage.LoadAsync();
+            var category = data.Categories.FirstOrDefault(c => c.Id == categoryId);
 
-                await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
+            if (category == null)
+                throw new ArgumentException($"Category {categoryId} not found");
 
-                _logger.LogInformation("Updated category: {CategoryName} by {User}", name, updatedBy);
-            }
-            catch (Exception ex)
+            var subCategory = category.SubCategories.FirstOrDefault(s => s.Id == subCategoryId);
+
+            if (subCategory == null)
+                throw new ArgumentException($"SubCategory {subCategoryId} not found");
+
+            subCategory.Name = name;
+            subCategory.Description = description;
+            subCategory.HasVAT = hasVAT;
+            subCategory.LastModified = DateTime.UtcNow;
+
+            category.LastModified = DateTime.UtcNow;
+            IncrementVersion(data, modifiedBy);
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Updated subcategory: {SubCategoryName} (v{Version})", name, data.DataVersion);
+        }
+
+        public async Task DeleteSubCategoryAsync(string categoryId, string subCategoryId, string deletedBy = "Admin")
+        {
+            var data = await _storage.LoadAsync();
+            var category = data.Categories.FirstOrDefault(c => c.Id == categoryId);
+
+            if (category == null)
+                throw new ArgumentException($"Category {categoryId} not found");
+
+            var subCategory = category.SubCategories.FirstOrDefault(s => s.Id == subCategoryId);
+
+            if (subCategory == null)
+                throw new ArgumentException($"SubCategory {subCategoryId} not found");
+
+            category.SubCategories.Remove(subCategory);
+            category.LastModified = DateTime.UtcNow;
+            IncrementVersion(data, deletedBy);
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Deleted subcategory: {SubCategoryName} (v{Version})", subCategory.Name, data.DataVersion);
+        }
+
+        // ===== LOCATION OPERATIONS =====
+
+        public async Task<BusinessLocation> AddLocationAsync(string name, string createdBy)
+        {
+            var data = await _storage.LoadAsync();
+
+            var location = new BusinessLocation
             {
-                _logger.LogError(ex, "Error updating category: {CategoryId}", categoryId);
-                throw;
-            }
-        }
+                Name = name,
+                CreatedBy = createdBy,
+                SortOrder = data.Locations.Count
+            };
 
-        public async Task DeleteCategoryAsync(string categoryId, string deletedBy)
-        {
-            try
-            {
-                var system = await GetCategorySystemAsync();
-                var category = system.Categories.FirstOrDefault(c => c.Id == categoryId);
+            data.Locations.Add(location);
+            IncrementVersion(data, createdBy);
 
-                if (category == null)
-                    throw new ArgumentException($"Category {categoryId} not found");
+            await _storage.SaveAsync(data);
 
-                system.Categories.Remove(category);
-                system.LastModified = DateTime.UtcNow;
-                system.Version++;
-                system.ModifiedBy = deletedBy;
-
-                await _storageService.SaveCategorySystemAsync(system);
-                await _syncService.InvalidateCacheAsync(); // Regenerate mobile sync
-
-                _logger.LogInformation("Deleted category: {CategoryName} by {User}", category.Name, deletedBy);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deleting category: {CategoryId}", categoryId);
-                throw;
-            }
-        }
-
-        // ===== MOBILE SYNC OPERATIONS =====
-
-        public async Task<MobileCategorySync> GetMobileSyncDataAsync()
-        {
-            return await _syncService.GetMobileSyncDataAsync();
-        }
-
-        public async Task<MobileCategorySync> RegenerateMobileSyncAsync()
-        {
-            return await _syncService.RegenerateMobileSyncAsync();
-        }
-
-        // ===== USAGE TRACKING =====
-
-        public async Task RecordUsageAsync(string subCategoryId, string? locationId, string deviceId)
-        {
-            await _usageService.RecordUsageAsync(subCategoryId, locationId, deviceId);
-
-            // Invalidate mobile sync to update usage counts
-            await _syncService.InvalidateCacheAsync();
-        }
-
-        // ===== LOCATION OPERATIONS (DELEGATED) =====
-
-        public async Task<List<BusinessLocation>> GetBusinessLocationsAsync()
-        {
-            return await _locationService.GetBusinessLocationsAsync();
-        }
-
-        public async Task<BusinessLocation> AddBusinessLocationAsync(string locationName, string description = "", string createdBy = "System")
-        {
-            var location = await _locationService.AddBusinessLocationAsync(locationName, description);
-
-            // Invalidate mobile sync to include new location
-            await _syncService.InvalidateCacheAsync();
-
+            _logger.LogInformation("Added location: {LocationName} (v{Version})", name, data.DataVersion);
             return location;
         }
 
-        public async Task<BusinessLocation> UpdateBusinessLocationAsync(string locationId, string name, string description)
+        public async Task UpdateLocationAsync(string locationId, string name, string? description, string modifiedBy = "Admin")
         {
-            var location = await _locationService.UpdateBusinessLocationAsync(locationId, name, description);
+            var data = await _storage.LoadAsync();
+            var location = data.Locations.FirstOrDefault(l => l.Id == locationId);
 
-            // Invalidate mobile sync to update location
-            await _syncService.InvalidateCacheAsync();
+            if (location == null)
+                throw new ArgumentException($"Location {locationId} not found");
 
-            return location;
+            location.Name = name;
+            location.Description = description;
+
+            IncrementVersion(data, modifiedBy);
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Updated location: {LocationName} (v{Version})", name, data.DataVersion);
         }
 
-        public async Task DeleteBusinessLocationAsync(string locationId, string deletedBy = "System")
+        public async Task DeleteLocationAsync(string locationId, string deletedBy = "Admin")
         {
-            await _locationService.DeleteBusinessLocationAsync(locationId);
+            var data = await _storage.LoadAsync();
+            var location = data.Locations.FirstOrDefault(l => l.Id == locationId);
 
-            // Invalidate mobile sync to remove location
-            await _syncService.InvalidateCacheAsync();
+            if (location == null)
+                throw new ArgumentException($"Location {locationId} not found");
+
+            data.Locations.Remove(location);
+            IncrementVersion(data, deletedBy);
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Deleted location: {LocationName} (v{Version})", location.Name, data.DataVersion);
         }
 
-        // ===== VALIDATION & HELPERS =====
+        // ===== PERSON OPERATIONS =====
 
-        public async Task<bool> CategoryExistsAsync(string categoryName)
+        public async Task<ResponsiblePerson> AddPersonAsync(string name, string createdBy)
         {
-            try
+            var data = await _storage.LoadAsync();
+
+            var person = new ResponsiblePerson
             {
-                var system = await GetCategorySystemAsync();
-                return system.Categories.Any(c => c.Name.Equals(categoryName, StringComparison.OrdinalIgnoreCase));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking if category exists: {CategoryName}", categoryName);
-                throw;
-            }
+                Name = name,
+                CreatedBy = createdBy,
+                SortOrder = data.Persons.Count
+            };
+
+            data.Persons.Add(person);
+            IncrementVersion(data, createdBy);
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Added person: {PersonName} (v{Version})", name, data.DataVersion);
+            return person;
         }
 
-        public async Task<bool> SubCategoryExistsAsync(string categoryId, string subCategoryName)
+        public async Task UpdatePersonAsync(string personId, string name, string? description, string modifiedBy = "Admin")
         {
-            try
-            {
-                var system = await GetCategorySystemAsync();
-                var category = system.Categories.FirstOrDefault(c => c.Id == categoryId);
+            var data = await _storage.LoadAsync();
+            var person = data.Persons.FirstOrDefault(p => p.Id == personId);
 
-                return category?.SubCategories.Any(s => s.Name.Equals(subCategoryName, StringComparison.OrdinalIgnoreCase)) ?? false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking if subcategory exists: {SubCategoryName} in {CategoryId}", subCategoryName, categoryId);
-                throw;
-            }
+            if (person == null)
+                throw new ArgumentException($"Person {personId} not found");
+
+            person.Name = name;
+            person.Description = description;
+
+            IncrementVersion(data, modifiedBy);
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Updated person: {PersonName} (v{Version})", name, data.DataVersion);
+        }
+
+        public async Task DeletePersonAsync(string personId, string deletedBy = "Admin")
+        {
+            var data = await _storage.LoadAsync();
+            var person = data.Persons.FirstOrDefault(p => p.Id == personId);
+
+            if (person == null)
+                throw new ArgumentException($"Person {personId} not found");
+
+            data.Persons.Remove(person);
+            IncrementVersion(data, deletedBy);
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Deleted person: {PersonName} (v{Version})", person.Name, data.DataVersion);
+        }
+
+        // ===== PRIVATE HELPERS =====
+
+        private void IncrementVersion(FullCategoryData data, string modifiedBy)
+        {
+            data.DataVersion++;
+            data.LastUpdated = DateTime.UtcNow;
+            data.LastModifiedBy = modifiedBy;
         }
     }
 }

@@ -29,9 +29,7 @@ namespace NewwaysAdmin.WebAdmin.Hubs
             _logger.LogInformation("Mobile client connected: {ConnectionId} from {IpAddress} - {UserAgent}",
                 Context.ConnectionId, ipAddress, userAgent);
 
-            // Join a general mobile group
             await Groups.AddToGroupAsync(Context.ConnectionId, "MobileClients");
-
             await base.OnConnectedAsync();
         }
 
@@ -59,15 +57,12 @@ namespace NewwaysAdmin.WebAdmin.Hubs
             _logger.LogInformation("Device registered: {DeviceType} - {DeviceId} - Version: {AppVersion} - UA: {UserAgent}",
                 deviceType, deviceId, appVersion, userAgent);
 
-            // Join device-type specific groups
             await Groups.AddToGroupAsync(Context.ConnectionId, $"Device_{deviceType}");
 
-            // Store device info in connection (for future use)
             Context.Items["DeviceType"] = deviceType;
             Context.Items["DeviceId"] = deviceId;
             Context.Items["AppVersion"] = appVersion;
 
-            // Send initial data to newly registered device
             await SendInitialDataToClient();
         }
 
@@ -79,7 +74,7 @@ namespace NewwaysAdmin.WebAdmin.Hubs
             {
                 _logger.LogDebug("Category sync requested by {ConnectionId}", Context.ConnectionId);
 
-                var syncData = await _categoryService.GetMobileSyncDataAsync();
+                var syncData = await _categoryService.GetFullDataAsync();
                 await Clients.Caller.SendAsync("CategorySyncData", syncData);
 
                 _logger.LogDebug("Category sync data sent to {ConnectionId}", Context.ConnectionId);
@@ -91,32 +86,13 @@ namespace NewwaysAdmin.WebAdmin.Hubs
             }
         }
 
-        public async Task RecordCategoryUsage(string subCategoryId, string? locationId, string deviceId)
-        {
-            try
-            {
-                await _categoryService.RecordUsageAsync(subCategoryId, locationId, deviceId);
-
-                _logger.LogDebug("Category usage recorded: {SubCategoryId} at location {LocationId} by device {DeviceId}",
-                    subCategoryId, locationId ?? "No location", deviceId);
-
-                // Notify other clients about usage update (optional)
-                await Clients.OthersInGroup("MobileClients").SendAsync("CategoryUsageUpdated", subCategoryId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error recording category usage: {SubCategoryId}", subCategoryId);
-            }
-        }
+        // Note: RecordCategoryUsage removed - usage tracking now happens in project files
 
         // ===== FUTURE: RECEIPT UPLOAD METHODS =====
 
         public async Task NotifyReceiptUploaded(string projectId, string fileName)
         {
-            // Future implementation for receipt upload notifications
             _logger.LogInformation("Receipt uploaded: {FileName} for project {ProjectId}", fileName, projectId);
-
-            // Notify other clients about new receipt
             await Clients.OthersInGroup("MobileClients").SendAsync("ReceiptUploaded", new { projectId, fileName });
         }
 
@@ -139,11 +115,9 @@ namespace NewwaysAdmin.WebAdmin.Hubs
         {
             try
             {
-                // Send category data
-                var syncData = await _categoryService.GetMobileSyncDataAsync();
+                var syncData = await _categoryService.GetFullDataAsync();
                 await Clients.Caller.SendAsync("InitialCategoryData", syncData);
 
-                // Send any other initial data here
                 await Clients.Caller.SendAsync("ConnectionEstablished", new
                 {
                     timestamp = DateTime.UtcNow,
@@ -160,9 +134,6 @@ namespace NewwaysAdmin.WebAdmin.Hubs
         }
     }
 
-    /// <summary>
-    /// Extensions for easier hub endpoint mapping
-    /// </summary>
     public static class MobileCommHubExtensions
     {
         public static void MapMobileCommHub(this IEndpointRouteBuilder endpoints)

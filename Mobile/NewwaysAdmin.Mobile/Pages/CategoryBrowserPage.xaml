@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/CategoryBrowserPage.xaml -->
+<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.CategoryBrowserPage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             Title="Expense Category"
+             Shell.NavBarIsVisible="False">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- Top bar -->
+        <Grid Grid.Row="0" Padding="15,12" BackgroundColor="#512BD4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Module name -->
+            <Label Grid.Column="0" 
+                   Text="Expense Category" 
+                   FontSize="18" 
+                   FontAttributes="Bold"
+                   TextColor="White"
+                   VerticalOptions="Center">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Command="{Binding ModuleTappedCommand}" />
+                </Label.GestureRecognizers>
+            </Label>
+
+            <!-- Connection dot -->
+            <BoxView Grid.Column="1"
+                     WidthRequest="12" 
+                     HeightRequest="12" 
+                     CornerRadius="6"
+                     Color="{Binding ConnectionDotColor}"
+                     VerticalOptions="Center" />
+        </Grid>
+
+        <!-- Selection bar (Location + Person) -->
+        <Grid Grid.Row="1" Padding="10,8" BackgroundColor="#F5F5F5" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Location Picker -->
+            <Frame Grid.Column="0" Padding="8,4" CornerRadius="5" BorderColor="#CCCCCC" HasShadow="False">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Label Grid.Column="0" Text="Loc:" FontSize="12" TextColor="Gray" VerticalOptions="Center" />
+                    <Picker Grid.Column="1"
+                            ItemsSource="{Binding Locations}"
+                            ItemDisplayBinding="{Binding Name}"
+                            SelectedItem="{Binding SelectedLocation}"
+                            Title="Location"
+                            FontSize="14"
+                            HorizontalOptions="FillAndExpand" />
+                </Grid>
+            </Frame>
+
+            <!-- Person Picker -->
+            <Frame Grid.Column="1" Padding="8,4" CornerRadius="5" BorderColor="#CCCCCC" HasShadow="False">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Label Grid.Column="0" Text="Who:" FontSize="12" TextColor="Gray" VerticalOptions="Center" />
+                    <Picker Grid.Column="1"
+                            ItemsSource="{Binding Persons}"
+                            ItemDisplayBinding="{Binding Name}"
+                            SelectedItem="{Binding SelectedPerson}"
+                            Title="Person"
+                            FontSize="14"
+                            HorizontalOptions="FillAndExpand" />
+                </Grid>
+            </Frame>
+        </Grid>
+
+        <!-- Category list -->
+        <ScrollView Grid.Row="2">
+            <StackLayout Padding="10" Spacing="8">
+
+                <!-- Loading indicator -->
+                <ActivityIndicator IsVisible="{Binding IsLoading}" 
+                                   IsRunning="{Binding IsLoading}"
+                                   HorizontalOptions="Center"
+                                   Color="#512BD4"
+                                   Margin="20" />
+
+                <!-- Categories -->
+                <StackLayout IsVisible="{Binding HasCategories}" 
+                             BindableLayout.ItemsSource="{Binding Categories}"
+                             Spacing="8">
+                    <BindableLayout.ItemTemplate>
+                        <DataTemplate>
+                            <Frame Padding="0" CornerRadius="6" HasShadow="True" BackgroundColor="White">
+                                <StackLayout Spacing="0">
+
+                                    <!-- Category header -->
+                                    <Grid Padding="12,10" BackgroundColor="#E3F2FD">
+                                        <Grid.GestureRecognizers>
+                                            <TapGestureRecognizer 
+                                                Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ToggleCategoryCommand}"
+                                                CommandParameter="{Binding .}" />
+                                        </Grid.GestureRecognizers>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <Label Grid.Column="0" 
+                                               Text="{Binding ExpanderIcon}"
+                                               FontSize="12"
+                                               VerticalOptions="Center"
+                                               Margin="0,0,8,0" />
+                                        <Label Grid.Column="1" 
+                                               Text="{Binding Name}" 
+                                               FontSize="16" 
+                                               FontAttributes="Bold"
+                                               TextColor="#1976D2"
+                                               VerticalOptions="Center" />
+                                    </Grid>
+
+                                    <!-- Subcategories -->
+                                    <StackLayout IsVisible="{Binding IsExpanded}"
+                                                 BindableLayout.ItemsSource="{Binding SubCategories}"
+                                                 Spacing="0">
+                                        <BindableLayout.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Padding="12,10" BackgroundColor="White">
+                                                    <Grid.GestureRecognizers>
+                                                        <TapGestureRecognizer 
+                                                            Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.SelectSubCategoryCommand}"
+                                                            CommandParameter="{Binding .}" />
+                                                    </Grid.GestureRecognizers>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="24" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <Label Grid.Column="0" Text="-" TextColor="Gray" FontSize="14" />
+                                                    <Label Grid.Column="1" 
+                                                           Text="{Binding Name}"
+                                                           FontSize="15"
+                                                           VerticalOptions="Center" />
+                                                    <Frame Grid.Column="2"
+                                                           IsVisible="{Binding HasVAT}"
+                                                           BackgroundColor="#4CAF50"
+                                                           Padding="5,2"
+                                                           CornerRadius="3"
+                                                           HasShadow="False">
+                                                        <Label Text="VAT" FontSize="9" TextColor="White" />
+                                                    </Frame>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </BindableLayout.ItemTemplate>
+                                    </StackLayout>
+
+                                </StackLayout>
+                            </Frame>
+                        </DataTemplate>
+                    </BindableLayout.ItemTemplate>
+                </StackLayout>
+
+                <!-- Empty state -->
+                <Label IsVisible="{Binding ShowEmptyState}"
+                       Text="No categories available"
+                       TextColor="Gray"
+                       HorizontalOptions="Center"
+                       Margin="20" />
+
+            </StackLayout>
+        </ScrollView>
+
+    </Grid>
+
+</ContentPage>

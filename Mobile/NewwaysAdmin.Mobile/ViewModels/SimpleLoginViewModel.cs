@@ -282,7 +282,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
             _logger.LogInformation("Navigating to HomePage for user: {Username}", username);
 
             // Navigate to home page - connection state is handled by ConnectionMonitor
-            await Shell.Current.GoToAsync("//HomePage");
+            await Shell.Current.GoToAsync("//CategoryBrowserPage");
         }
 
         #endregion

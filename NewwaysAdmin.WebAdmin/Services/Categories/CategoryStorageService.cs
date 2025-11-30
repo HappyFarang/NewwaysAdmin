@@ -6,16 +6,16 @@ using Microsoft.Extensions.Logging;
 namespace NewwaysAdmin.WebAdmin.Services.Categories
 {
     /// <summary>
-    /// Handles all storage operations for categories and locations
-    /// Focused on data persistence without business logic
+    /// Simple storage service for category data
+    /// One file, one data structure, one version
     /// </summary>
     public class CategoryStorageService
     {
         private readonly EnhancedStorageFactory _storageFactory;
         private readonly ILogger<CategoryStorageService> _logger;
 
-        private const string CATEGORY_SYSTEM_FILE = "category_system.json";
-        private const string LOCATION_SYSTEM_FILE = "location_system.json";
+        private const string FOLDER_NAME = "Categories";
+        private const string DATA_FILE = "category_data.json";
 
         public CategoryStorageService(
             EnhancedStorageFactory storageFactory,
@@ -25,154 +25,63 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             _logger = logger;
         }
 
-        // ===== CATEGORY SYSTEM STORAGE =====
+        // ===== LOAD =====
 
-        public async Task<CategorySystem?> LoadCategorySystemAsync()
+        public async Task<FullCategoryData> LoadAsync()
         {
             try
             {
-                var storage = _storageFactory.GetStorage<CategorySystem>("Categories");
-                return await storage.LoadAsync(CATEGORY_SYSTEM_FILE);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading category system from storage");
-                throw;
-            }
-        }
+                var storage = _storageFactory.GetStorage<FullCategoryData>(FOLDER_NAME);
+                var data = await storage.LoadAsync(DATA_FILE);
 
-        public async Task SaveCategorySystemAsync(CategorySystem system)
-        {
-            try
-            {
-                var storage = _storageFactory.GetStorage<CategorySystem>("Categories");
-                await storage.SaveAsync(CATEGORY_SYSTEM_FILE, system);
-
-                _logger.LogDebug("Category system saved with version {Version}", system.Version);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving category system to storage");
-                throw;
-            }
-        }
-
-        // ===== LOCATION SYSTEM STORAGE =====
-
-        public async Task<LocationSystem?> LoadLocationSystemAsync()
-        {
-            try
-            {
-                var storage = _storageFactory.GetStorage<LocationSystem>("BusinessLocations");
-                return await storage.LoadAsync(LOCATION_SYSTEM_FILE);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading location system from storage");
-                throw;
-            }
-        }
-
-        public async Task SaveLocationSystemAsync(LocationSystem system)
-        {
-            try
-            {
-                var storage = _storageFactory.GetStorage<LocationSystem>("BusinessLocations");
-                await storage.SaveAsync(LOCATION_SYSTEM_FILE, system);
-
-                _logger.LogDebug("Location system saved");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving location system to storage");
-                throw;
-            }
-        }
-
-        // ===== USAGE TRACKING STORAGE =====
-
-        public async Task SaveCategoryUsageAsync(CategoryUsage usage)
-        {
-            try
-            {
-                var usageStorage = _storageFactory.GetStorage<CategoryUsage>("CategoryUsage");
-                var fileName = $"usage_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid():N[..8]}.json";
-
-                await usageStorage.SaveAsync(fileName, usage);
-
-                _logger.LogDebug("Category usage saved: {FileName}", fileName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving category usage to storage");
-                throw;
-            }
-        }
-
-        public async Task<List<CategoryUsage>> LoadRecentUsageAsync(int daysBack = 30)
-        {
-            try
-            {
-                var usageStorage = _storageFactory.GetStorage<CategoryUsage>("CategoryUsage");
-                var allIdentifiers = await usageStorage.ListIdentifiersAsync();
-                var usageList = new List<CategoryUsage>();
-
-                foreach (var identifier in allIdentifiers)
+                if (data == null)
                 {
-                    try
-                    {
-                        var usage = await usageStorage.LoadAsync(identifier);
-                        if (usage != null)
-                        {
-                            usageList.Add(usage);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Could not load usage file: {Identifier}", identifier);
-                    }
+                    _logger.LogInformation("No category data found, creating default");
+                    data = CreateDefault();
+                    await SaveAsync(data);
                 }
 
-                return usageList;
+                return data;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading recent category usage");
+                _logger.LogError(ex, "Error loading category data");
                 throw;
             }
         }
 
-        // ===== DEFAULT SYSTEM CREATION =====
+        // ===== SAVE =====
 
-        public CategorySystem CreateDefaultCategorySystem()
+        public async Task SaveAsync(FullCategoryData data)
         {
-            return new CategorySystem
+            try
             {
-                Categories = new List<Category>(), // Empty - create your own categories
-                Version = 1,
-                LastModified = DateTime.UtcNow,
-                ModifiedBy = "System"
-            };
+                data.LastUpdated = DateTime.UtcNow;
+
+                var storage = _storageFactory.GetStorage<FullCategoryData>(FOLDER_NAME);
+                await storage.SaveAsync(DATA_FILE, data);
+
+                _logger.LogDebug("Category data saved - Version: {Version}", data.DataVersion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving category data");
+                throw;
+            }
         }
 
-        public LocationSystem CreateDefaultLocationSystem()
+        // ===== DEFAULT =====
+
+        public FullCategoryData CreateDefault()
         {
-            return new LocationSystem
+            return new FullCategoryData
             {
-                Locations = new List<BusinessLocation>
-                {
-                    new BusinessLocation
-                    {
-                        Name = "No Location",
-                        Description = "For transactions that don't require a specific location",
-                        IsActive = true,
-                        SortOrder = 0,
-                        CreatedBy = "System"
-                    }
-                },
-                Version = 1,
-                LastModified = DateTime.UtcNow,
-                ModifiedBy = "System"
+                DataVersion = 1,
+                LastUpdated = DateTime.UtcNow,
+                LastModifiedBy = "System",
+                Categories = new List<Category>(),
+                Locations = new List<BusinessLocation>(),
+                Persons = new List<ResponsiblePerson>()
             };
         }
     }

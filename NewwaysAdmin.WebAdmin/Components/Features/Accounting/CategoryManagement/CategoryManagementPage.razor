@@ -31,59 +31,75 @@
             </div>
         </div>
     }
-    else if (categorySystem?.Categories?.Any() == true)
+    else if (categoryData?.Categories?.Any() == true)
     {
         <div class="row">
             <div class="col-md-8">
-                <CategoryList Categories="categorySystem.Categories" 
-                             OnEditCategory="EventCallback.Factory.Create<Category>(this, EditCategory)"
-                             OnDeleteCategory="EventCallback.Factory.Create<Category>(this, DeleteCategory)"
-                             OnAddSubCategory="EventCallback.Factory.Create<Category>(this, AddSubCategory)"
-                             OnEditSubCategory="EventCallback.Factory.Create<ValueTuple<Category, SubCategory>>(this, HandleEditSubCategory)"
-                             OnDeleteSubCategory="EventCallback.Factory.Create<ValueTuple<Category, SubCategory>>(this, HandleDeleteSubCategory)" />
+                <CategoryList Categories="categoryData.Categories"
+                              OnEditCategory="EventCallback.Factory.Create<Category>(this, EditCategory)"
+                              OnDeleteCategory="EventCallback.Factory.Create<Category>(this, DeleteCategory)"
+                              OnAddSubCategory="EventCallback.Factory.Create<Category>(this, AddSubCategory)"
+                              OnEditSubCategory="EventCallback.Factory.Create<ValueTuple<Category, SubCategory>>(this, HandleEditSubCategory)"
+                              OnDeleteSubCategory="EventCallback.Factory.Create<ValueTuple<Category, SubCategory>>(this, HandleDeleteSubCategory)" />
             </div>
             <div class="col-md-4">
-                <LocationManager OnLocationUpdate="EventCallback.Factory.Create(this, OnLocationUpdate)" />
-                
-                <CategoryStats Categories="categorySystem.Categories" />
+                <LocationManager OnLocationUpdate="OnDataChanged" />
+                <PersonManager OnPersonUpdate="OnDataChanged" />
+                <CategoryStats Categories="categoryData.Categories" />
             </div>
         </div>
     }
     else
     {
-        <EmptyState OnAddFirst="ShowAddCategoryModal" />
+        <!-- Empty state with sidebar still visible for adding locations/persons first -->
+        <div class="row">
+            <div class="col-md-8">
+                <div class="text-center py-5">
+                    <div class="mb-4">
+                        <i class="fas fa-folder-open fa-4x text-muted"></i>
+                    </div>
+                    <h5>No Categories Yet</h5>
+                    <p class="text-muted mb-4">Create your first expense category to get started with organized bank transfer notes.</p>
+                    <button class="btn btn-primary" @onclick="ShowAddCategoryModal">
+                        <i class="fas fa-plus me-2"></i>Create First Category
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <LocationManager OnLocationUpdate="OnDataChanged" />
+                <PersonManager OnPersonUpdate="OnDataChanged" />
+            </div>
+        </div>
     }
 </div>
 
 <!-- Add/Edit Category Modal -->
-<CategoryModal @ref="categoryModal" 
-               OnCategorySaved="OnCategorySaved" />
+<CategoryModal @ref="categoryModal" OnCategorySaved="OnDataChanged" />
 
 <!-- Add/Edit SubCategory Modal -->
-<SubCategoryModal @ref="subCategoryModal"
-                  OnSubCategorySaved="OnSubCategorySaved" />
+<SubCategoryModal @ref="subCategoryModal" OnSubCategorySaved="OnDataChanged" />
 
 @code {
-    private CategorySystem? categorySystem;
+    private FullCategoryData? categoryData;
     private bool isLoading = true;
     private CategoryModal? categoryModal;
     private SubCategoryModal? subCategoryModal;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadCategories();
+        await LoadData();
     }
 
-    private async Task LoadCategories()
+    private async Task LoadData()
     {
         try
         {
             isLoading = true;
-            categorySystem = await CategoryService.GetCategorySystemAsync();
+            categoryData = await CategoryService.GetFullDataAsync();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading categories");
+            Logger.LogError(ex, "Error loading category data");
             await JSRuntime.InvokeVoidAsync("alert", "Error loading categories. Please refresh the page.");
         }
         finally
@@ -91,6 +107,11 @@
             isLoading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task OnDataChanged()
+    {
+        await LoadData();
     }
 
     private async Task ShowAddCategoryModal()
@@ -111,21 +132,21 @@
 
     private async Task DeleteCategory(Category category)
     {
-        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
             $"Are you sure you want to delete '{category.Name}' and all its subcategories?");
-        
+
         if (confirmed)
         {
             try
             {
-                await CategoryService.DeleteCategoryAsync(category.Id, "CurrentUser"); // TODO: Get actual user
-                await LoadCategories();
-                await JSRuntime.InvokeVoidAsync("alert", "Category deleted successfully");
+                await CategoryService.DeleteCategoryAsync(category.Id);
+                await LoadData();
+                await JSRuntime.InvokeVoidAsync("showToast", "Category deleted successfully", "success");
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error deleting category {CategoryId}", category.Id);
-                await JSRuntime.InvokeVoidAsync("alert", "Error deleting category");
+                await JSRuntime.InvokeVoidAsync("showToast", "Error deleting category", "danger");
             }
         }
     }
@@ -148,32 +169,25 @@
 
     private async Task DeleteSubCategory(Category parentCategory, SubCategory subCategory)
     {
-        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", 
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm",
             $"Are you sure you want to delete '{subCategory.Name}'?");
-        
+
         if (confirmed)
         {
             try
             {
-                parentCategory.SubCategories.Remove(subCategory);
-                await CategoryService.UpdateCategoryAsync(
-                    parentCategory.Id, 
-                    parentCategory.Name, 
-                    parentCategory.Description ?? "", 
-                    "CurrentUser"); // TODO: Get actual user
-                
-                await LoadCategories();
-                await JSRuntime.InvokeVoidAsync("alert", "Subcategory deleted successfully");
+                await CategoryService.DeleteSubCategoryAsync(parentCategory.Id, subCategory.Id);
+                await LoadData();
+                await JSRuntime.InvokeVoidAsync("showToast", "Subcategory deleted successfully", "success");
             }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Error deleting subcategory {SubCategoryId}", subCategory.Id);
-                await JSRuntime.InvokeVoidAsync("alert", "Error deleting subcategory");
+                await JSRuntime.InvokeVoidAsync("showToast", "Error deleting subcategory", "danger");
             }
         }
     }
 
-    // Wrapper methods for tuple parameters
     private async Task HandleEditSubCategory((Category category, SubCategory subCategory) args)
     {
         await EditSubCategory(args.category, args.subCategory);
@@ -183,34 +197,4 @@
     {
         await DeleteSubCategory(args.category, args.subCategory);
     }
-
-    private async Task OnLocationUpdate()
-    {
-        // Refresh the page when locations are updated
-        await LoadCategories();
-    }
-
-    private async Task OnCategorySaved()
-    {
-        await LoadCategories();
-    }
-
-    private async Task OnSubCategorySaved()
-    {
-        await LoadCategories();
-    }
 }
-
-@* Empty State Component *@
-<div class="empty-state" style="@(categorySystem?.Categories?.Any() != true ? "" : "display: none;")">
-    <div class="text-center py-5">
-        <div class="mb-4">
-            <i class="fas fa-folder-open fa-4x text-muted"></i>
-        </div>
-        <h5>No Categories Yet</h5>
-        <p class="text-muted mb-4">Create your first expense category to get started with organized bank transfer notes.</p>
-        <button class="btn btn-primary" @onclick="ShowAddCategoryModal">
-            <i class="fas fa-plus me-2"></i>Create First Category
-        </button>
-    </div>
-</div>

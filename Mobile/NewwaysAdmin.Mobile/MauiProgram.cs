@@ -57,6 +57,7 @@ public static class MauiProgram
         // ===== VIEWMODELS =====
         builder.Services.AddTransient<SimpleLoginViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
+        builder.Services.AddTransient<CategoryBrowserViewModel>();
 
         // ===== CONNECTIVITY =====
         builder.Services.AddSingleton<ConnectionState>();
@@ -65,6 +66,7 @@ public static class MauiProgram
         // ===== PAGES =====
         builder.Services.AddTransient<SimpleLoginPage>();
         builder.Services.AddTransient<HomePage>();
+        builder.Services.AddTransient<CategoryBrowserPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

@@ -6,7 +6,9 @@
 
 <div class="card mb-3">
     <div class="card-header">
-        <h6 class="mb-0">Business Locations</h6>
+        <h6 class="mb-0">
+            <i class="fas fa-map-marker-alt me-2"></i>Business Locations
+        </h6>
     </div>
     <div class="card-body">
         @if (isLoading)
@@ -44,14 +46,13 @@
                 </button>
             </div>
 
-            @if (!string.IsNullOrWhiteSpace(locationError))
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
             {
-                <small class="text-danger">@locationError</small>
+                <small class="text-danger">@errorMessage</small>
             }
 
             <small class="form-text text-muted mt-2">
-                Locations apply to all categories and are selected when using categories in the mobile app.
-                <br><strong>Note:</strong> Some transactions (VAT, Tax) may not need a location.
+                Locations are selected when using categories in the mobile app.
             </small>
         }
     </div>
@@ -62,7 +63,7 @@
 
     private List<BusinessLocation>? locations;
     private string newLocationName = "";
-    private string locationError = "";
+    private string errorMessage = "";
     private bool isLoading = true;
 
     protected override async Task OnInitializedAsync()
@@ -75,11 +76,12 @@
         try
         {
             isLoading = true;
-            locations = await CategoryService.GetBusinessLocationsAsync();
+            var data = await CategoryService.GetFullDataAsync();
+            locations = data.Locations;
         }
         catch (Exception ex)
         {
-            locationError = $"Error loading locations: {ex.Message}";
+            errorMessage = $"Error loading locations: {ex.Message}";
         }
         finally
         {
@@ -98,11 +100,11 @@
 
     private async Task AddLocation()
     {
-        locationError = "";
+        errorMessage = "";
 
         if (string.IsNullOrWhiteSpace(newLocationName))
         {
-            locationError = "Location name is required";
+            errorMessage = "Location name is required";
             return;
         }
 
@@ -110,27 +112,27 @@
 
         if (locations?.Any(l => l.Name.Equals(trimmedName, StringComparison.OrdinalIgnoreCase)) == true)
         {
-            locationError = "This location already exists";
+            errorMessage = "This location already exists";
             return;
         }
 
         if (trimmedName.Length < 2)
         {
-            locationError = "Location name must be at least 2 characters";
+            errorMessage = "Location name must be at least 2 characters";
             return;
         }
 
         try
         {
-            await CategoryService.AddBusinessLocationAsync(trimmedName, "CurrentUser"); // TODO: Get actual user
+            await CategoryService.AddLocationAsync(trimmedName, "Admin");
             newLocationName = "";
             await LoadLocations();
             await OnLocationUpdate.InvokeAsync();
-            await JSRuntime.InvokeVoidAsync("showToast", $"Location '{trimmedName}' added successfully!", "success");
+            await JSRuntime.InvokeVoidAsync("showToast", $"Location '{trimmedName}' added!", "success");
         }
         catch (Exception ex)
         {
-            locationError = $"Error adding location: {ex.Message}";
+            errorMessage = $"Error adding location: {ex.Message}";
         }
     }
 
@@ -143,14 +145,14 @@
         {
             try
             {
-                await CategoryService.DeleteBusinessLocationAsync(location.Id, "CurrentUser"); // TODO: Get actual user
+                await CategoryService.DeleteLocationAsync(location.Id);
                 await LoadLocations();
                 await OnLocationUpdate.InvokeAsync();
-                await JSRuntime.InvokeVoidAsync("showToast", $"Location '{location.Name}' deleted successfully!", "success");
+                await JSRuntime.InvokeVoidAsync("showToast", $"Location '{location.Name}' deleted!", "success");
             }
             catch (Exception ex)
             {
-                await JSRuntime.InvokeVoidAsync("showToast", $"Error deleting location: {ex.Message}", "danger");
+                await JSRuntime.InvokeVoidAsync("showToast", $"Error: {ex.Message}", "danger");
             }
         }
     }

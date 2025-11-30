@@ -1,6 +1,7 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/CategoryManagement/SubCategoryModal.razor *@
 @using NewwaysAdmin.SharedModels.Categories
 @using NewwaysAdmin.WebAdmin.Services.Categories
+@using System.ComponentModel.DataAnnotations
 @inject CategoryService CategoryService
 @inject IJSRuntime JSRuntime
 
@@ -24,7 +25,7 @@
                     <div class="mb-3">
                         <label for="subCategoryName" class="form-label">Subcategory Name</label>
                         <InputText id="subCategoryName" class="form-control" @bind-Value="subCategoryForm.Name"
-                                   placeholder="e.g., Green Buses" />
+                                   placeholder="e.g., Green Buses, B2 Boxes" />
                         <ValidationMessage For="() => subCategoryForm.Name" />
                     </div>
 
@@ -34,20 +35,36 @@
                                        placeholder="Brief description of this subcategory" rows="2" />
                     </div>
 
+                    <!-- HasVAT Checkbox -->
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <InputCheckbox id="hasVat" class="form-check-input" @bind-Value="subCategoryForm.HasVAT" />
+                            <label class="form-check-label" for="hasVat">
+                                <i class="fas fa-receipt me-1 text-success"></i>
+                                Has VAT
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">
+                            Check if transactions in this subcategory include VAT (for VAT reporting)
+                        </small>
+                    </div>
+
+                    <!-- Full Path Preview -->
                     @if (parentCategory != null && !string.IsNullOrWhiteSpace(subCategoryForm.Name))
                     {
                         <div class="mb-3">
                             <label class="form-label">Full Path Preview</label>
-                            <div class="alert alert-info d-flex align-items-center">
-                                <i class="fas fa-info-circle me-2"></i>
+                            <div class="alert alert-info d-flex align-items-center py-2">
                                 <span class="font-monospace">@GetFullPath()</span>
+                                @if (subCategoryForm.HasVAT)
+                                {
+                                    <span class="badge bg-success ms-2">VAT</span>
+                                }
                                 <button type="button" class="btn btn-sm btn-outline-info ms-auto"
                                         @onclick="() => CopyToClipboard(GetFullPath())">
-                                    >
-                                    <i class="fas fa-copy"></i> Copy
+                                    <i class="fas fa-copy"></i>
                                 </button>
                             </div>
-                            <small class="text-muted">This is what you'll copy to bank transfer notes</small>
                         </div>
                     }
 
@@ -85,16 +102,15 @@
 
         if (subCategory != null)
         {
-            // Editing existing subcategory
             subCategoryForm = new SubCategoryFormModel
                 {
                     Name = subCategory.Name,
-                    Description = subCategory.Description ?? ""
+                    Description = subCategory.Description ?? "",
+                    HasVAT = subCategory.HasVAT
                 };
         }
         else
         {
-            // Adding new subcategory
             subCategoryForm = new SubCategoryFormModel();
         }
 
@@ -114,39 +130,34 @@
         {
             if (editingSubCategory == null)
             {
-                // Create new subcategory
                 await CategoryService.CreateSubCategoryAsync(
                     parentCategory.Id,
                     subCategoryForm.Name.Trim(),
-                    subCategoryForm.Description?.Trim() ?? "",
-                    "CurrentUser" // TODO: Get actual user
+                    subCategoryForm.Description?.Trim(),
+                    subCategoryForm.HasVAT,
+                    "Admin"
                 );
             }
             else
             {
-                // Update existing subcategory
-                editingSubCategory.Name = subCategoryForm.Name.Trim();
-                editingSubCategory.Description = subCategoryForm.Description?.Trim();
-                editingSubCategory.LastModified = DateTime.UtcNow;
-
-                await CategoryService.UpdateCategoryAsync(
+                await CategoryService.UpdateSubCategoryAsync(
                     parentCategory.Id,
-                    parentCategory.Name,
-                    parentCategory.Description ?? "",
-                    "CurrentUser" // TODO: Get actual user
+                    editingSubCategory.Id,
+                    subCategoryForm.Name.Trim(),
+                    subCategoryForm.Description?.Trim(),
+                    subCategoryForm.HasVAT
                 );
             }
 
             await JSRuntime.InvokeVoidAsync("eval", "bootstrap.Modal.getInstance(document.getElementById('subCategoryModal')).hide()");
             await OnSubCategorySaved.InvokeAsync();
-
-            await JSRuntime.InvokeVoidAsync("showToast",
-                $"Subcategory {(editingSubCategory == null ? "created" : "updated")} successfully!", "success");
+           // await JSRuntime.InvokeVoidAsync("showToast",
+           //     $"Subcategory {(editingSubCategory == null ? "created" : "updated")} successfully!", "success");
         }
         catch (Exception ex)
         {
             await JSRuntime.InvokeVoidAsync("showToast",
-                $"Error {(editingSubCategory == null ? "creating" : "updating")} subcategory: {ex.Message}", "danger");
+                $"Error: {ex.Message}", "danger");
         }
         finally
         {
@@ -184,5 +195,7 @@
         public string Name { get; set; } = "";
 
         public string? Description { get; set; }
+
+        public bool HasVAT { get; set; } = false;
     }
 }

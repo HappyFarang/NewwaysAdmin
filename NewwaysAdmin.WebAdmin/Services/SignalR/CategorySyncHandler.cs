@@ -21,7 +21,6 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         public IEnumerable<string> SupportedMessageTypes => new[]
         {
             "RequestCategorySync",
-            "RecordCategoryUsage",
             "RequestMobileSyncData",
             "CategorySelected",
             "HeartbeatCheck"
@@ -45,7 +44,6 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                 return message.MessageType switch
                 {
                     "RequestCategorySync" => await HandleCategorySyncRequestAsync(message, connectionId),
-                    "RecordCategoryUsage" => await HandleCategoryUsageAsync(message, connectionId),
                     "RequestMobileSyncData" => await HandleMobileSyncDataRequestAsync(message, connectionId),
                     "CategorySelected" => await HandleCategorySelectedAsync(message, connectionId),
                     "HeartbeatCheck" => await HandleHeartbeatAsync(message, connectionId),
@@ -66,62 +64,24 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         {
             _logger.LogDebug("Category sync requested by connection {ConnectionId}", connectionId);
 
-            var syncData = await _categoryService.GetMobileSyncDataAsync();
+            var syncData = await _categoryService.GetFullDataAsync();
 
             return MessageHandlerResult.CreateSuccess(syncData);
         }
 
         private async Task<MessageHandlerResult> HandleMobileSyncDataRequestAsync(UniversalMessage message, string connectionId)
         {
-            // Same as category sync but with different logging for tracking
             _logger.LogDebug("Mobile sync data requested by connection {ConnectionId}", connectionId);
 
-            var syncData = await _categoryService.GetMobileSyncDataAsync();
+            var syncData = await _categoryService.GetFullDataAsync();
 
             return MessageHandlerResult.CreateSuccess(syncData);
-        }
-
-        private async Task<MessageHandlerResult> HandleCategoryUsageAsync(UniversalMessage message, string connectionId)
-        {
-            try
-            {
-                // Parse usage data from message
-                var usageData = JsonSerializer.Deserialize<CategoryUsageData>(message.Data.GetRawText());
-
-                if (usageData == null)
-                {
-                    return MessageHandlerResult.CreateError("Invalid usage data format");
-                }
-
-                await _categoryService.RecordUsageAsync(
-                    usageData.SubCategoryId,
-                    usageData.LocationId,
-                    usageData.DeviceId);
-
-                _logger.LogDebug("Category usage recorded: {SubCategoryId} at location {LocationId} by device {DeviceId}",
-                    usageData.SubCategoryId, usageData.LocationId ?? "No location", usageData.DeviceId);
-
-                // Broadcast usage update to other MAUI clients
-                return MessageHandlerResult.CreateBroadcast("CategoryUsageUpdated", new
-                {
-                    subCategoryId = usageData.SubCategoryId,
-                    locationId = usageData.LocationId,
-                    deviceId = usageData.DeviceId,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Invalid JSON in category usage message from {ConnectionId}", connectionId);
-                return MessageHandlerResult.CreateError("Invalid message format");
-            }
         }
 
         private async Task<MessageHandlerResult> HandleCategorySelectedAsync(UniversalMessage message, string connectionId)
         {
             try
             {
-                // Parse selection data
                 var selectionData = JsonSerializer.Deserialize<CategorySelectionData>(message.Data.GetRawText());
 
                 if (selectionData == null)
@@ -129,13 +89,12 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                     return MessageHandlerResult.CreateError("Invalid selection data format");
                 }
 
-                _logger.LogInformation("Category selected on MAUI: {CategoryPath} by device {DeviceId}",
-                    selectionData.CategoryPath, selectionData.DeviceId);
+                _logger.LogDebug("Category selected: {SubCategoryId} at location {LocationId} by person {PersonId}",
+                    selectionData.SubCategoryId, selectionData.LocationId ?? "No location", selectionData.PersonId ?? "No person");
 
-                // Could record analytics here if needed
-                // await _categoryService.RecordSelectionAnalyticsAsync(selectionData);
+                // Note: Usage tracking removed - will be handled by project files after OCR processing
 
-                return MessageHandlerResult.CreateSuccess(new { acknowledged = true });
+                return MessageHandlerResult.CreateSuccess(new { received = true });
             }
             catch (JsonException ex)
             {
@@ -159,36 +118,18 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         {
             _logger.LogInformation("MAUI app connected: Device {DeviceId} ({DeviceType}) - Version {AppVersion}",
                 connection.DeviceId, connection.DeviceType, connection.AppVersion);
-
-            // Could send welcome message or initial sync here
-            // For now, initial data is handled by GetInitialDataAsync
         }
 
         public async Task OnAppDisconnectedAsync(AppConnection connection)
         {
             _logger.LogInformation("MAUI app disconnected: Device {DeviceId}", connection.DeviceId);
-
-            // Could clean up any connection-specific resources here
         }
 
         public async Task<bool> ValidateMessageAsync(UniversalMessage message)
         {
-            // Basic validation - ensure message has required fields
             if (string.IsNullOrEmpty(message.MessageType))
             {
                 _logger.LogWarning("Message missing MessageType from connection");
-                return false;
-            }
-
-            if (message.Data.ValueKind == JsonValueKind.Undefined)
-            {
-                // Some message types might not need data
-                if (message.MessageType is "RequestCategorySync" or "RequestMobileSyncData" or "HeartbeatCheck")
-                {
-                    return true;
-                }
-
-                _logger.LogWarning("Message missing Data for type {MessageType}", message.MessageType);
                 return false;
             }
 
@@ -197,50 +138,20 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 
         public async Task<object?> GetInitialDataAsync(AppConnection connection)
         {
-            try
-            {
-                // Send initial category data to newly connected MAUI app
-                var syncData = await _categoryService.GetMobileSyncDataAsync();
+            _logger.LogDebug("Getting initial data for device {DeviceId}", connection.DeviceId);
 
-                _logger.LogDebug("Sending initial category data to MAUI app: Device {DeviceId}", connection.DeviceId);
-
-                return new
-                {
-                    messageType = "InitialCategoryData",
-                    data = syncData,
-                    serverInfo = new
-                    {
-                        serverTime = DateTime.UtcNow,
-                        version = "1.0.0",
-                        supportedFeatures = new[] { "categories", "usage_tracking", "realtime_sync" }
-                    }
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting initial data for MAUI app: Device {DeviceId}", connection.DeviceId);
-                return null;
-            }
+            var syncData = await _categoryService.GetFullDataAsync();
+            return syncData;
         }
     }
 
-    // ===== MESSAGE DATA MODELS =====
-
-    public class CategoryUsageData
-    {
-        public string SubCategoryId { get; set; } = string.Empty;
-        public string? LocationId { get; set; }
-        public string DeviceId { get; set; } = string.Empty;
-        public string? TransactionNote { get; set; }
-        public decimal? Amount { get; set; }
-    }
+    // ===== SUPPORTING DATA CLASSES =====
 
     public class CategorySelectionData
     {
         public string SubCategoryId { get; set; } = string.Empty;
-        public string CategoryPath { get; set; } = string.Empty;
-        public string DeviceId { get; set; } = string.Empty;
-        public DateTime SelectedAt { get; set; } = DateTime.UtcNow;
         public string? LocationId { get; set; }
+        public string? PersonId { get; set; }
+        public string? DeviceId { get; set; }
     }
 }
