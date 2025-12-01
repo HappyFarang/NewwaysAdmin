@@ -2,7 +2,6 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services.Connectivity;
-using NewwaysAdmin.Mobile.Services.SignalR;
 using NewwaysAdmin.SharedModels.Categories;
 using System.Text.Json;
 using NewwaysAdmin.SignalR.Contracts.Models;
@@ -11,6 +10,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 {
     /// <summary>
     /// Connects CategoryDataService to SignalR hub
+    /// Handles ALL SignalR communication for category sync
     /// Call ConnectAsync() after successful login
     /// </summary>
     public class CategoryHubConnector
@@ -23,6 +23,9 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         private HubConnection? _hubConnection;
         private bool _isConnected = false;
         private string _serverUrl = "http://localhost:5080";
+
+        // For awaiting MessageResponse
+        private TaskCompletionSource<JsonElement?>? _versionExchangeResponse;
 
         public CategoryHubConnector(
             ILogger<CategoryHubConnector> logger,
@@ -38,16 +41,11 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;
         }
 
-        // ===== PUBLIC METHODS =====
+        // ===== PUBLIC PROPERTIES =====
 
-        private async void OnConnectionStateChanged(object? sender, bool isOnline)
-        {
-            if (isOnline && !_isConnected)
-            {
-                _logger.LogInformation("HTTP connection online - attempting SignalR connect");
-                await ConnectAsync();
-            }
-        }
+        public bool IsConnected => _isConnected && _hubConnection?.State == HubConnectionState.Connected;
+
+        // ===== PUBLIC METHODS =====
 
         /// <summary>
         /// Set the server URL (call before ConnectAsync)
@@ -66,7 +64,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         {
             if (_isConnected && _hubConnection?.State == HubConnectionState.Connected)
             {
-                _logger.LogDebug("Already connected");
+                _logger.LogDebug("Already connected to SignalR hub");
                 return true;
             }
 
@@ -86,14 +84,11 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                     })
                     .Build();
 
-                // Register event handlers
+                // Register event handlers BEFORE starting connection
                 RegisterHubEvents();
 
                 // Start connection
                 await _hubConnection.StartAsync();
-
-                // Wire up CategoryDataService to use this hub connection
-                // _categoryDataService.SetHubConnection(_hubConnection);
 
                 _isConnected = true;
                 _connectionState.SetOnline();
@@ -158,6 +153,15 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
         // ===== PRIVATE METHODS =====
 
+        private async void OnConnectionStateChanged(object? sender, bool isOnline)
+        {
+            if (isOnline && !_isConnected)
+            {
+                _logger.LogInformation("HTTP connection online - attempting SignalR connect");
+                await ConnectAsync();
+            }
+        }
+
         private void RegisterHubEvents()
         {
             if (_hubConnection == null) return;
@@ -175,9 +179,12 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 _logger.LogInformation("SignalR reconnected: {ConnectionId}", connectionId);
                 _connectionState.SetOnline();
 
-                // Re-register and sync after reconnect
-                _ = RegisterAppAsync();
-                _ = DoVersionExchangeAsync();
+                // Fire and forget - don't block the SignalR thread
+                _ = Task.Run(async () =>
+                {
+                    await RegisterAppAsync();
+                    await DoVersionExchangeAsync();
+                });
 
                 return Task.CompletedTask;
             };
@@ -190,16 +197,18 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 return Task.CompletedTask;
             };
 
-            // MESSAGE RESPONSE HANDLER - This is where responses come!
-            _hubConnection.On<object>("MessageResponse", response =>
+            // MessageResponse handler - use JsonElement for proper deserialization
+            _hubConnection.On<JsonElement>("MessageResponse", response =>
             {
-                _logger.LogInformation("*** MessageResponse RECEIVED! Type: {Type}", response?.GetType().Name ?? "null");
+                _logger.LogInformation("*** MessageResponse RECEIVED!");
 
                 try
                 {
-                    var json = JsonSerializer.SerializeToElement(response);
-                    _logger.LogInformation("*** Response content: {Json}", json.ToString().Substring(0, Math.Min(300, json.ToString().Length)));
-                    _versionExchangeResponse?.TrySetResult(json);
+                    var responseStr = response.ToString();
+                    _logger.LogDebug("Response content: {Json}",
+                        responseStr.Length > 300 ? responseStr.Substring(0, 300) + "..." : responseStr);
+
+                    _versionExchangeResponse?.TrySetResult(response);
                 }
                 catch (Exception ex)
                 {
@@ -208,23 +217,50 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 }
             });
 
-            // Server push: new version available
-            _hubConnection.On<int>("NewVersionAvailable", async version =>
+            // ============================================================
+            // FIX: Don't await inside On<T> handler - causes deadlock!
+            // Use Task.Run to move off the SignalR message thread
+            // ============================================================
+            _hubConnection.On<int>("NewVersionAvailable", version =>
             {
                 _logger.LogInformation("Server notified new version: v{Version}", version);
                 _syncState.SetRemoteVersion(version);
 
                 if (_syncState.NeedsDownload)
                 {
-                    await DoVersionExchangeAsync();
+                    // CRITICAL: Use Task.Run to avoid blocking SignalR thread!
+                    // If we await here, MessageResponse can't be delivered (deadlock)
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await DoVersionExchangeAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error during version exchange from push notification");
+                        }
+                    });
                 }
             });
 
-            // Server push: full data (initial or update)
-            _hubConnection.On<FullCategoryData>("CategoryData", async data =>
+            // Server push: full data (alternative direct push)
+            _hubConnection.On<FullCategoryData>("CategoryData", data =>
             {
                 _logger.LogInformation("Received category data push: v{Version}", data.DataVersion);
-                await HandleReceivedDataAsync(data);
+
+                // Also use Task.Run here for consistency
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await HandleReceivedDataAsync(data);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error handling received category data");
+                    }
+                });
             });
 
             _logger.LogDebug("Hub events registered");
@@ -253,8 +289,6 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             }
         }
 
-        private TaskCompletionSource<JsonElement?>? _versionExchangeResponse;
-
         private async Task<bool> DoVersionExchangeAsync()
         {
             if (_hubConnection?.State != HubConnectionState.Connected)
@@ -267,7 +301,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             {
                 _logger.LogInformation("Starting version exchange (local: v{Version})", _syncState.LocalVersion);
 
-                // Set up response listener
+                // Set up response listener BEFORE sending
                 _versionExchangeResponse = new TaskCompletionSource<JsonElement?>();
 
                 var request = new VersionExchangeMessage
@@ -279,16 +313,18 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 var messageId = Guid.NewGuid().ToString();
 
-                // Send message (response comes via MessageResponse event)
+                // Send message using SendAsync (fire-and-forget, response comes via MessageResponse event)
                 await _hubConnection.SendAsync("SendMessageAsync", new UniversalMessage
                 {
                     MessageId = messageId,
                     MessageType = "VersionExchange",
                     SourceApp = "MAUI_ExpenseTracker",
-                    TargetApp = "MAUI_ExpenseTracker",
+                    TargetApp = "MAUI_ExpenseTracker",  // Routes to CategorySyncHandler
                     Data = JsonSerializer.SerializeToElement(request),
                     Timestamp = DateTime.UtcNow
                 });
+
+                _logger.LogDebug("Version exchange message sent, waiting for response...");
 
                 // Wait for response with timeout
                 var responseTask = _versionExchangeResponse.Task;
@@ -296,26 +332,28 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 if (await Task.WhenAny(responseTask, timeoutTask) == timeoutTask)
                 {
-                    _logger.LogWarning("Version exchange timed out");
+                    _logger.LogWarning("Version exchange timed out after 10 seconds");
                     return false;
                 }
 
                 var resultJson = await responseTask;
 
-                if (resultJson == null)
+                if (resultJson == null || resultJson.Value.ValueKind == JsonValueKind.Undefined)
                 {
-                    _logger.LogWarning("No response received");
+                    _logger.LogWarning("No response received from version exchange");
                     return false;
                 }
 
-                _logger.LogDebug("Received response: {Json}", resultJson.Value.ToString().Substring(0, Math.Min(500, resultJson.Value.ToString().Length)));
+                _logger.LogDebug("Processing version exchange response...");
 
-                // Parse the response
+                // Parse the response - server sends { messageId, success, data, error }
+                // Note: property names are camelCase from server
                 if (resultJson.Value.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
                 {
                     if (resultJson.Value.TryGetProperty("data", out var dataProp))
                     {
-                        var response = JsonSerializer.Deserialize<VersionExchangeResponse>(dataProp.GetRawText(),
+                        var response = JsonSerializer.Deserialize<VersionExchangeResponse>(
+                            dataProp.GetRawText(),
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                         if (response != null)
@@ -324,13 +362,13 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                             if (response.YouNeedToDownload && response.Data != null)
                             {
-                                _logger.LogInformation("Server has v{Version}, downloading...", response.ServerVersion);
+                                _logger.LogInformation("Server has v{Version}, downloading data...", response.ServerVersion);
                                 await HandleReceivedDataAsync(response.Data);
                                 return true;
                             }
                             else
                             {
-                                _logger.LogDebug("Already up to date (v{Version})", _syncState.LocalVersion);
+                                _logger.LogInformation("Already up to date (v{Version})", _syncState.LocalVersion);
                                 return true;
                             }
                         }
@@ -341,7 +379,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                     _logger.LogWarning("Server error: {Error}", errorProp.GetString());
                 }
 
-                _logger.LogWarning("Invalid response from version exchange");
+                _logger.LogWarning("Invalid response format from version exchange");
                 return false;
             }
             catch (Exception ex)
@@ -356,10 +394,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         {
             try
             {
-                // Save to cache via CategoryDataService
-                // We need to access the private save method, so we'll trigger it via the public API
-                // For now, save directly here
-
+                // Save to cache
                 var cacheDir = Path.Combine(FileSystem.AppDataDirectory, "CategoryCache");
                 Directory.CreateDirectory(cacheDir);
                 var cacheFilePath = Path.Combine(cacheDir, "category_data.json");
@@ -376,7 +411,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                     data.Locations.Count,
                     data.Persons.Count);
 
-                // Notify CategoryDataService that data changed
+                // Notify CategoryDataService that data changed - this triggers UI update
                 _categoryDataService.NotifyDataChanged(data);
             }
             catch (Exception ex)
@@ -396,13 +431,6 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             {
                 return "Unknown_Device";
             }
-        }
-
-        // ===== HELPER CLASSES =====
-
-        private class VersionExchangeResponseWrapper
-        {
-            public VersionExchangeResponse? Data { get; set; }
         }
     }
 }
