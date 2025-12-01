@@ -14,6 +14,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
         private readonly ILogger<CategoryBrowserViewModel> _logger;
         private readonly ConnectionState _connectionState;
         private readonly CategoryDataService _categoryDataService;
+        private readonly CategoryHubConnector _hubConnector;
 
         private bool _isLoading;
         private Color _connectionDotColor = Colors.Gray;
@@ -24,11 +25,13 @@ namespace NewwaysAdmin.Mobile.ViewModels
         public CategoryBrowserViewModel(
             ILogger<CategoryBrowserViewModel> logger,
             ConnectionState connectionState,
-            CategoryDataService categoryDataService)
+            CategoryDataService categoryDataService,
+            CategoryHubConnector hubConnector)
         {
             _logger = logger;
             _connectionState = connectionState;
             _categoryDataService = categoryDataService;
+            _hubConnector = hubConnector;
 
             // Commands
             ToggleCategoryCommand = new Command<CategoryDisplayItem>(ToggleCategory);
@@ -149,31 +152,17 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
         private async Task RefreshDataAsync()
         {
+            if (IsLoading) return;
+
             try
             {
                 IsLoading = true;
-                SyncStatusText = "Syncing...";
-
-                // Force sync with server
-                var success = await _categoryDataService.SyncWithServerAsync();
-
-                if (success)
-                {
-                    var data = await _categoryDataService.GetDataAsync();
-                    PopulateFromData(data);
-                    SyncStatusText = "Synced!";
-                }
-                else
-                {
-                    SyncStatusText = "Sync failed - using cached data";
-                }
-
-                UpdateSyncStatus();
+                _logger.LogInformation("Manual refresh triggered");
+                await _hubConnector.SyncNowAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error refreshing data");
-                SyncStatusText = "Refresh failed";
             }
             finally
             {

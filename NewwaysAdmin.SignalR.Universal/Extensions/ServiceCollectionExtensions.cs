@@ -49,9 +49,9 @@ namespace NewwaysAdmin.SignalR.Universal.Extensions
         /// Register an app-specific message handler
         /// </summary>
         public static IServiceCollection AddMessageHandler<T>(this IServiceCollection services, string appName)
-            where T : class, IAppMessageHandler
+                                                              where T : class, IAppMessageHandler
         {
-            services.AddScoped<T>();
+            services.AddSingleton<T>();  // <-- Change from AddScoped to AddSingleton
 
             // Register handler in router during startup
             services.AddSingleton<IHostedService>(provider =>

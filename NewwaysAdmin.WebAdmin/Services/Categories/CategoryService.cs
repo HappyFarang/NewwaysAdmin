@@ -1,24 +1,30 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Services/Categories/CategoryService.cs
 using NewwaysAdmin.SharedModels.Categories;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.SignalR;
+using NewwaysAdmin.SignalR.Universal.Hubs;
 
 namespace NewwaysAdmin.WebAdmin.Services.Categories
 {
     /// <summary>
     /// Main category service - all category, location, and person operations
     /// Single DataVersion increments on ANY change
+    /// Notifies connected MAUI clients via SignalR on changes
     /// </summary>
     public class CategoryService
     {
         private readonly CategoryStorageService _storage;
         private readonly ILogger<CategoryService> _logger;
+        private readonly IHubContext<UniversalCommHub> _hubContext;
 
         public CategoryService(
             CategoryStorageService storage,
-            ILogger<CategoryService> logger)
+            ILogger<CategoryService> logger,
+            IHubContext<UniversalCommHub> hubContext)
         {
             _storage = storage;
             _logger = logger;
+            _hubContext = hubContext;
         }
 
         // ===== FULL DATA ACCESS =====
@@ -51,7 +57,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.Categories.Add(category);
             IncrementVersion(data, createdBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Created category: {CategoryName} (v{Version})", name, data.DataVersion);
             return category;
@@ -76,7 +82,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             }
 
             IncrementVersion(data, modifiedBy);
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Updated category: {CategoryName} (v{Version})", name, data.DataVersion);
         }
@@ -92,7 +98,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.Categories.Remove(category);
             IncrementVersion(data, deletedBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Deleted category: {CategoryName} (v{Version})", category.Name, data.DataVersion);
         }
@@ -126,7 +132,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             category.LastModified = DateTime.UtcNow;
             IncrementVersion(data, createdBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Created subcategory: {SubCategoryName} in {CategoryName} (v{Version})",
                 name, category.Name, data.DataVersion);
@@ -160,7 +166,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             category.LastModified = DateTime.UtcNow;
             IncrementVersion(data, modifiedBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Updated subcategory: {SubCategoryName} (v{Version})", name, data.DataVersion);
         }
@@ -182,7 +188,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             category.LastModified = DateTime.UtcNow;
             IncrementVersion(data, deletedBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Deleted subcategory: {SubCategoryName} (v{Version})", subCategory.Name, data.DataVersion);
         }
@@ -203,7 +209,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.Locations.Add(location);
             IncrementVersion(data, createdBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Added location: {LocationName} (v{Version})", name, data.DataVersion);
             return location;
@@ -221,7 +227,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             location.Description = description;
 
             IncrementVersion(data, modifiedBy);
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Updated location: {LocationName} (v{Version})", name, data.DataVersion);
         }
@@ -237,7 +243,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.Locations.Remove(location);
             IncrementVersion(data, deletedBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Deleted location: {LocationName} (v{Version})", location.Name, data.DataVersion);
         }
@@ -258,7 +264,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.Persons.Add(person);
             IncrementVersion(data, createdBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Added person: {PersonName} (v{Version})", name, data.DataVersion);
             return person;
@@ -276,7 +282,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             person.Description = description;
 
             IncrementVersion(data, modifiedBy);
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Updated person: {PersonName} (v{Version})", name, data.DataVersion);
         }
@@ -292,7 +298,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.Persons.Remove(person);
             IncrementVersion(data, deletedBy);
 
-            await _storage.SaveAsync(data);
+            await SaveAndNotifyAsync(data);
 
             _logger.LogInformation("Deleted person: {PersonName} (v{Version})", person.Name, data.DataVersion);
         }
@@ -304,6 +310,28 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.DataVersion++;
             data.LastUpdated = DateTime.UtcNow;
             data.LastModifiedBy = modifiedBy;
+        }
+
+        private async Task SaveAndNotifyAsync(FullCategoryData data)
+        {
+            await _storage.SaveAsync(data);
+            await NotifyClientsAsync(data.DataVersion);
+        }
+
+        private async Task NotifyClientsAsync(int newVersion)
+        {
+            try
+            {
+                // Notify all connected MAUI apps
+                await _hubContext.Clients.Group("App_MAUI_ExpenseTracker")
+                    .SendAsync("NewVersionAvailable", newVersion);
+
+                _logger.LogInformation("Pushed version update v{Version} to MAUI clients", newVersion);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify MAUI clients of version update");
+            }
         }
     }
 }

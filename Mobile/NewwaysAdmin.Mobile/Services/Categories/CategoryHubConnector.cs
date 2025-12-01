@@ -5,6 +5,7 @@ using NewwaysAdmin.Mobile.Services.Connectivity;
 using NewwaysAdmin.Mobile.Services.SignalR;
 using NewwaysAdmin.SharedModels.Categories;
 using System.Text.Json;
+using NewwaysAdmin.SignalR.Contracts.Models;
 
 namespace NewwaysAdmin.Mobile.Services.Categories
 {
@@ -33,9 +34,20 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             _categoryDataService = categoryDataService;
             _connectionState = connectionState;
             _syncState = syncState;
+
+            _connectionState.OnConnectionChanged += OnConnectionStateChanged;
         }
 
         // ===== PUBLIC METHODS =====
+
+        private async void OnConnectionStateChanged(object? sender, bool isOnline)
+        {
+            if (isOnline && !_isConnected)
+            {
+                _logger.LogInformation("HTTP connection online - attempting SignalR connect");
+                await ConnectAsync();
+            }
+        }
 
         /// <summary>
         /// Set the server URL (call before ConnectAsync)
@@ -79,6 +91,9 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 // Start connection
                 await _hubConnection.StartAsync();
+
+                // Wire up CategoryDataService to use this hub connection
+                // _categoryDataService.SetHubConnection(_hubConnection);
 
                 _isConnected = true;
                 _connectionState.SetOnline();
@@ -175,6 +190,24 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 return Task.CompletedTask;
             };
 
+            // MESSAGE RESPONSE HANDLER - This is where responses come!
+            _hubConnection.On<object>("MessageResponse", response =>
+            {
+                _logger.LogInformation("*** MessageResponse RECEIVED! Type: {Type}", response?.GetType().Name ?? "null");
+
+                try
+                {
+                    var json = JsonSerializer.SerializeToElement(response);
+                    _logger.LogInformation("*** Response content: {Json}", json.ToString().Substring(0, Math.Min(300, json.ToString().Length)));
+                    _versionExchangeResponse?.TrySetResult(json);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to process MessageResponse");
+                    _versionExchangeResponse?.TrySetResult(null);
+                }
+            });
+
             // Server push: new version available
             _hubConnection.On<int>("NewVersionAvailable", async version =>
             {
@@ -220,6 +253,8 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             }
         }
 
+        private TaskCompletionSource<JsonElement?>? _versionExchangeResponse;
+
         private async Task<bool> DoVersionExchangeAsync()
         {
             if (_hubConnection?.State != HubConnectionState.Connected)
@@ -232,6 +267,9 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             {
                 _logger.LogInformation("Starting version exchange (local: v{Version})", _syncState.LocalVersion);
 
+                // Set up response listener
+                _versionExchangeResponse = new TaskCompletionSource<JsonElement?>();
+
                 var request = new VersionExchangeMessage
                 {
                     MyVersion = _syncState.LocalVersion,
@@ -239,41 +277,68 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                     DeviceType = "MAUI"
                 };
 
-                // Send message and get response
-                var response = await _hubConnection.InvokeAsync<object>(
-                    "SendMessageAsync",
-                    new
-                    {
-                        MessageType = "VersionExchange",
-                        SourceApp = "MAUI_ExpenseTracker",
-                        TargetApp = "Server",
-                        Data = request,
-                        Timestamp = DateTime.UtcNow
-                    });
+                var messageId = Guid.NewGuid().ToString();
 
-                // Parse response
-                if (response != null)
+                // Send message (response comes via MessageResponse event)
+                await _hubConnection.SendAsync("SendMessageAsync", new UniversalMessage
                 {
-                    var json = JsonSerializer.Serialize(response);
-                    var exchangeResponse = JsonSerializer.Deserialize<VersionExchangeResponseWrapper>(json);
+                    MessageId = messageId,
+                    MessageType = "VersionExchange",
+                    SourceApp = "MAUI_ExpenseTracker",
+                    TargetApp = "MAUI_ExpenseTracker",
+                    Data = JsonSerializer.SerializeToElement(request),
+                    Timestamp = DateTime.UtcNow
+                });
 
-                    if (exchangeResponse?.Data != null)
+                // Wait for response with timeout
+                var responseTask = _versionExchangeResponse.Task;
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(10));
+
+                if (await Task.WhenAny(responseTask, timeoutTask) == timeoutTask)
+                {
+                    _logger.LogWarning("Version exchange timed out");
+                    return false;
+                }
+
+                var resultJson = await responseTask;
+
+                if (resultJson == null)
+                {
+                    _logger.LogWarning("No response received");
+                    return false;
+                }
+
+                _logger.LogDebug("Received response: {Json}", resultJson.Value.ToString().Substring(0, Math.Min(500, resultJson.Value.ToString().Length)));
+
+                // Parse the response
+                if (resultJson.Value.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
+                {
+                    if (resultJson.Value.TryGetProperty("data", out var dataProp))
                     {
-                        _syncState.SetRemoteVersion(exchangeResponse.Data.ServerVersion);
+                        var response = JsonSerializer.Deserialize<VersionExchangeResponse>(dataProp.GetRawText(),
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                        if (exchangeResponse.Data.YouNeedToDownload && exchangeResponse.Data.Data != null)
+                        if (response != null)
                         {
-                            _logger.LogInformation("Server has v{Version}, downloading...",
-                                exchangeResponse.Data.ServerVersion);
-                            await HandleReceivedDataAsync(exchangeResponse.Data.Data);
-                            return true;
-                        }
-                        else
-                        {
-                            _logger.LogDebug("Already up to date (v{Version})", _syncState.LocalVersion);
-                            return true;
+                            _syncState.SetRemoteVersion(response.ServerVersion);
+
+                            if (response.YouNeedToDownload && response.Data != null)
+                            {
+                                _logger.LogInformation("Server has v{Version}, downloading...", response.ServerVersion);
+                                await HandleReceivedDataAsync(response.Data);
+                                return true;
+                            }
+                            else
+                            {
+                                _logger.LogDebug("Already up to date (v{Version})", _syncState.LocalVersion);
+                                return true;
+                            }
                         }
                     }
+                }
+                else if (resultJson.Value.TryGetProperty("error", out var errorProp))
+                {
+                    _logger.LogWarning("Server error: {Error}", errorProp.GetString());
                 }
 
                 _logger.LogWarning("Invalid response from version exchange");

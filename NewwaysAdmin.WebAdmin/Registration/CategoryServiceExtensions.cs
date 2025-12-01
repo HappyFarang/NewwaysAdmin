@@ -8,8 +8,8 @@ namespace NewwaysAdmin.WebAdmin.Registration
     {
         public static IServiceCollection AddCategoryServices(this IServiceCollection services)
         {
-            services.AddScoped<CategoryStorageService>();
-            services.AddScoped<CategoryService>();
+            services.AddSingleton<CategoryStorageService>();
+            services.AddSingleton<CategoryService>();
 
             return services;
         }
