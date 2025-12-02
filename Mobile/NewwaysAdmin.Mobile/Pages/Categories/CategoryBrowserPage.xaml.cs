@@ -1,7 +1,7 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Pages/CategoryBrowserPage.xaml.cs
-using NewwaysAdmin.Mobile.ViewModels;
+using NewwaysAdmin.Mobile.ViewModels.Categories;
 
-namespace NewwaysAdmin.Mobile.Pages
+namespace NewwaysAdmin.Mobile.Pages.Categories
 {
     public partial class CategoryBrowserPage : ContentPage
     {

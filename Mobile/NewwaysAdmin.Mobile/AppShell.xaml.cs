@@ -1,5 +1,6 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/AppShell.xaml.cs
 using NewwaysAdmin.Mobile.Pages;
+using NewwaysAdmin.Mobile.Pages.Categories;
 
 namespace NewwaysAdmin.Mobile
 {
@@ -13,6 +14,7 @@ namespace NewwaysAdmin.Mobile
             Routing.RegisterRoute(nameof(SimpleLoginPage), typeof(SimpleLoginPage));
             Routing.RegisterRoute(nameof(CategoryBrowserPage), typeof(CategoryBrowserPage));
             Routing.RegisterRoute(nameof(HomePage), typeof(HomePage));
+            Routing.RegisterRoute("CategoryManagementPage", typeof(CategoryManagementPage));
         }
     }
 }

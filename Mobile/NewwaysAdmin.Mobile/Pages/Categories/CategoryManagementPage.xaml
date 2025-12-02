@@ -1,0 +1,230 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/Categories/CategoryManagementPage.xaml -->
+<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.Categories.CategoryManagementPage"
+             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             Title="Manage Categories"
+             Shell.NavBarIsVisible="False">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Header bar -->
+        <Grid Grid.Row="0" Padding="10,12" BackgroundColor="#512BD4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Back button -->
+            <Button Grid.Column="0"
+                    Text="← Back"
+                    Command="{Binding GoBackCommand}"
+                    BackgroundColor="Transparent"
+                    TextColor="White"
+                    FontSize="14"
+                    Padding="5,0" />
+
+            <!-- Title -->
+            <Label Grid.Column="1" 
+                   Text="Edit Categories" 
+                   FontSize="18" 
+                   FontAttributes="Bold"
+                   TextColor="White"
+                   HorizontalOptions="Center"
+                   VerticalOptions="Center" />
+
+            <!-- Sync status -->
+            <Label Grid.Column="2"
+                   Text="{Binding SyncStatusText}"
+                   FontSize="11"
+                   TextColor="#E0E0E0"
+                   VerticalOptions="Center"
+                   Margin="0,0,5,0" />
+        </Grid>
+
+        <!-- Content -->
+        <ScrollView Grid.Row="1" BackgroundColor="#F5F5F5">
+            <StackLayout Padding="15" Spacing="15">
+
+                <!-- PERSONS SECTION -->
+                <Frame Padding="0" CornerRadius="10" HasShadow="True" BackgroundColor="White">
+                    <StackLayout Spacing="0">
+                        <Grid Padding="15,12" BackgroundColor="#E8F5E9">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Label Grid.Column="0" 
+                                   Text="👤 Persons" 
+                                   FontSize="16" 
+                                   FontAttributes="Bold"
+                                   TextColor="#2E7D32" />
+                            <Button Grid.Column="1"
+                                    Text="+ Add"
+                                    Command="{Binding AddPersonCommand}"
+                                    BackgroundColor="#4CAF50"
+                                    TextColor="White"
+                                    FontSize="12"
+                                    CornerRadius="15"
+                                    Padding="12,6"
+                                    HeightRequest="32" />
+                        </Grid>
+
+                        <StackLayout BindableLayout.ItemsSource="{Binding Persons}" Padding="10,5">
+                            <BindableLayout.EmptyView>
+                                <Label Text="No persons yet. Add one!" TextColor="#999" HorizontalOptions="Center" Margin="20" />
+                            </BindableLayout.EmptyView>
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <SwipeView>
+                                        <SwipeView.RightItems>
+                                            <SwipeItems>
+                                                <SwipeItem Text="Delete"
+                                                           BackgroundColor="#F44336"
+                                                           Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.DeletePersonCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                            </SwipeItems>
+                                        </SwipeView.RightItems>
+                                        <Frame Padding="12,10" Margin="0,3" CornerRadius="6" BackgroundColor="#FAFAFA" HasShadow="False">
+                                            <Label Text="{Binding Name}" FontSize="14" TextColor="#333" />
+                                        </Frame>
+                                    </SwipeView>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </StackLayout>
+                    </StackLayout>
+                </Frame>
+
+                <!-- LOCATIONS SECTION -->
+                <Frame Padding="0" CornerRadius="10" HasShadow="True" BackgroundColor="White">
+                    <StackLayout Spacing="0">
+                        <Grid Padding="15,12" BackgroundColor="#E3F2FD">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Label Grid.Column="0" 
+                                   Text="📍 Locations" 
+                                   FontSize="16" 
+                                   FontAttributes="Bold"
+                                   TextColor="#1565C0" />
+                            <Button Grid.Column="1"
+                                    Text="+ Add"
+                                    Command="{Binding AddLocationCommand}"
+                                    BackgroundColor="#2196F3"
+                                    TextColor="White"
+                                    FontSize="12"
+                                    CornerRadius="15"
+                                    Padding="12,6"
+                                    HeightRequest="32" />
+                        </Grid>
+
+                        <StackLayout BindableLayout.ItemsSource="{Binding Locations}" Padding="10,5">
+                            <BindableLayout.EmptyView>
+                                <Label Text="No locations yet. Add one!" TextColor="#999" HorizontalOptions="Center" Margin="20" />
+                            </BindableLayout.EmptyView>
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <SwipeView>
+                                        <SwipeView.RightItems>
+                                            <SwipeItems>
+                                                <SwipeItem Text="Delete"
+                                                           BackgroundColor="#F44336"
+                                                           Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.DeleteLocationCommand}"
+                                                           CommandParameter="{Binding .}" />
+                                            </SwipeItems>
+                                        </SwipeView.RightItems>
+                                        <Frame Padding="12,10" Margin="0,3" CornerRadius="6" BackgroundColor="#FAFAFA" HasShadow="False">
+                                            <Label Text="{Binding Name}" FontSize="14" TextColor="#333" />
+                                        </Frame>
+                                    </SwipeView>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </StackLayout>
+                    </StackLayout>
+                </Frame>
+
+                <!-- CATEGORIES SECTION -->
+                <Frame Padding="0" CornerRadius="10" HasShadow="True" BackgroundColor="White">
+                    <StackLayout Spacing="0">
+                        <Grid Padding="15,12" BackgroundColor="#FFF3E0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Label Grid.Column="0" 
+                                   Text="📁 Categories" 
+                                   FontSize="16" 
+                                   FontAttributes="Bold"
+                                   TextColor="#E65100" />
+                            <Button Grid.Column="1"
+                                    Text="+ Add"
+                                    Command="{Binding AddCategoryCommand}"
+                                    BackgroundColor="#FF9800"
+                                    TextColor="White"
+                                    FontSize="12"
+                                    CornerRadius="15"
+                                    Padding="12,6"
+                                    HeightRequest="32" />
+                        </Grid>
+
+                        <StackLayout BindableLayout.ItemsSource="{Binding Categories}" Padding="10,5">
+                            <BindableLayout.EmptyView>
+                                <Label Text="No categories yet. Add one!" TextColor="#999" HorizontalOptions="Center" Margin="20" />
+                            </BindableLayout.EmptyView>
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate>
+                                    <StackLayout Spacing="0" Margin="0,3">
+                                        <SwipeView>
+                                            <SwipeView.RightItems>
+                                                <SwipeItems>
+                                                    <SwipeItem Text="+ Sub"
+                                                               BackgroundColor="#FF9800"
+                                                               Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.AddSubCategoryCommand}"
+                                                               CommandParameter="{Binding .}" />
+                                                    <SwipeItem Text="Delete"
+                                                               BackgroundColor="#F44336"
+                                                               Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.DeleteCategoryCommand}"
+                                                               CommandParameter="{Binding .}" />
+                                                </SwipeItems>
+                                            </SwipeView.RightItems>
+                                            <Frame Padding="12,10" CornerRadius="6" BackgroundColor="#FFF8E1" HasShadow="False">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <Label Grid.Column="0" Text="{Binding Name}" FontSize="15" FontAttributes="Bold" TextColor="#E65100" />
+                                                    <Label Grid.Column="1" Text="{Binding SubCategoryCount, StringFormat='({0})'}" FontSize="12" TextColor="#999" VerticalOptions="Center" />
+                                                </Grid>
+                                            </Frame>
+                                        </SwipeView>
+
+                                        <StackLayout BindableLayout.ItemsSource="{Binding SubCategories}" Margin="20,0,0,0">
+                                            <BindableLayout.ItemTemplate>
+                                                <DataTemplate>
+                                                    <SwipeView>
+                                                        <SwipeView.RightItems>
+                                                            <SwipeItems>
+                                                                <SwipeItem Text="Delete"
+                                                                           BackgroundColor="#F44336"
+                                                                           Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.DeleteSubCategoryCommand}"
+                                                                           CommandParameter="{Binding .}" />
+                                                            </SwipeItems>
+                                                        </SwipeView.RightItems>
+                                                        <Frame Padding="10,8" Margin="0,2" CornerRadius="4" BackgroundColor="#FAFAFA" HasShadow="False">
+                                                            <Label Text="{Binding Name}" FontSize="13" TextColor="#666" />
+                                                        </Frame>
+                                                    </SwipeView>
+                                                </DataTemplate>
+                                            </BindableLayout.ItemTemplate>
+                                        </StackLayout>
+                                    </StackLayout>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                        </StackLayout>
+                    </StackLayout>
+                </Frame>
+
+                <BoxView HeightRequest="20" Color="Transparent" />
+            </StackLayout>
+        </ScrollView>
+    </Grid>
+</ContentPage>

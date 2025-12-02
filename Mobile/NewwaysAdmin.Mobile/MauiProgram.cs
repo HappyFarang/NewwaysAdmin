@@ -6,8 +6,10 @@ using NewwaysAdmin.Mobile.Services;
 using NewwaysAdmin.Mobile.Services.Auth;
 using NewwaysAdmin.Mobile.ViewModels;
 using NewwaysAdmin.Mobile.Pages;
+using NewwaysAdmin.Mobile.Pages.Categories;
 using NewwaysAdmin.Mobile.Services.Connectivity;
 using NewwaysAdmin.Mobile.Services.Categories;
+using NewwaysAdmin.Mobile.ViewModels.Categories;
 
 
 namespace NewwaysAdmin.Mobile;
@@ -70,11 +72,13 @@ public static class MauiProgram
         builder.Services.AddTransient<SimpleLoginViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<CategoryBrowserViewModel>();
+        builder.Services.AddTransient<CategoryManagementViewModel>();
 
         // ===== PAGES =====
         builder.Services.AddTransient<SimpleLoginPage>();
         builder.Services.AddTransient<HomePage>();
         builder.Services.AddTransient<CategoryBrowserPage>();
+        builder.Services.AddTransient<CategoryManagementPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();

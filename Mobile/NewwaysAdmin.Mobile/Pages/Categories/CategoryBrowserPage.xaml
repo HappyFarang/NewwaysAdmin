@@ -1,15 +1,18 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/CategoryBrowserPage.xaml -->
-<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.CategoryBrowserPage"
+<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/Categories/CategoryBrowserPage.xaml -->
+<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.Categories.CategoryBrowserPage"
              xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              Title="Expense Category"
              Shell.NavBarIsVisible="False">
 
-    <Grid RowDefinitions="Auto,Auto,*">
+    <Grid RowDefinitions="Auto,Auto,Auto,*">
 
-        <!-- Top bar -->
+        <!-- Row 0: Top bar (tappable to expand) -->
         <Grid Grid.Row="0" Padding="15,12" BackgroundColor="#512BD4">
+            <Grid.GestureRecognizers>
+                <TapGestureRecognizer Command="{Binding ToggleHeaderCommand}" />
+            </Grid.GestureRecognizers>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -21,11 +24,7 @@
                    FontSize="18" 
                    FontAttributes="Bold"
                    TextColor="White"
-                   VerticalOptions="Center">
-                <Label.GestureRecognizers>
-                    <TapGestureRecognizer Command="{Binding ModuleTappedCommand}" />
-                </Label.GestureRecognizers>
-            </Label>
+                   VerticalOptions="Center" />
 
             <!-- Connection dot -->
             <BoxView Grid.Column="1"
@@ -36,8 +35,32 @@
                      VerticalOptions="Center" />
         </Grid>
 
-        <!-- Selection bar (Location + Person) -->
-        <Grid Grid.Row="1" Padding="10,8" BackgroundColor="#F5F5F5" ColumnSpacing="10">
+        <!-- Row 1: Expandable menu -->
+        <Frame Grid.Row="1" 
+               Padding="0" 
+               Margin="0"
+               CornerRadius="0"
+               HasShadow="True"
+               BackgroundColor="#6B46C1"
+               BorderColor="Transparent"
+               IsVisible="{Binding IsHeaderExpanded}">
+            <StackLayout Padding="15,12" Spacing="10">
+
+                <!-- Edit Categories Button -->
+                <Button Text="✏️  Edit Categories"
+                        Command="{Binding NavigateToEditCommand}"
+                        BackgroundColor="#7C3AED"
+                        TextColor="White"
+                        FontSize="14"
+                        CornerRadius="8"
+                        Padding="15,12"
+                        HorizontalOptions="FillAndExpand" />
+
+            </StackLayout>
+        </Frame>
+
+        <!-- Row 2: Selection bar (Location + Person) -->
+        <Grid Grid.Row="2" Padding="10,8" BackgroundColor="#F5F5F5" ColumnSpacing="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
@@ -72,8 +95,8 @@
             </Frame>
         </Grid>
 
-        <!-- Category list -->
-        <ScrollView Grid.Row="2">
+        <!-- Row 3: Category list -->
+        <ScrollView Grid.Row="3">
             <StackLayout Padding="10" Spacing="8">
 
                 <!-- Loading indicator -->

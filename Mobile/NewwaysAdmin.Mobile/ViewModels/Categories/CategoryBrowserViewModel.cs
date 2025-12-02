@@ -7,7 +7,15 @@ using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services.Connectivity;
 using NewwaysAdmin.Mobile.Services.Categories;
 
-namespace NewwaysAdmin.Mobile.ViewModels
+/* Unmerged change from project 'NewwaysAdmin.Mobile (net8.0-windows10.0.19041.0)'
+Added:
+using NewwaysAdmin;
+using NewwaysAdmin.Mobile;
+using NewwaysAdmin.Mobile.ViewModels;
+using NewwaysAdmin.Mobile.ViewModels.Categories;
+*/
+
+namespace NewwaysAdmin.Mobile.ViewModels.Categories
 {
     public class CategoryBrowserViewModel : INotifyPropertyChanged
     {
@@ -21,6 +29,8 @@ namespace NewwaysAdmin.Mobile.ViewModels
         private LocationDisplayItem? _selectedLocation;
         private PersonDisplayItem? _selectedPerson;
         private string _syncStatusText = "";
+
+        private bool _isHeaderExpanded = false;
 
         public CategoryBrowserViewModel(
             ILogger<CategoryBrowserViewModel> logger,
@@ -38,6 +48,8 @@ namespace NewwaysAdmin.Mobile.ViewModels
             SelectSubCategoryCommand = new Command<SubCategoryDisplayItem>(SelectSubCategory);
             ModuleTappedCommand = new Command(OnModuleTapped);
             RefreshCommand = new Command(async () => await RefreshDataAsync());
+            ToggleHeaderCommand = new Command(ToggleHeader);
+            NavigateToEditCommand = new Command(async () => await NavigateToEditAsync());
 
             // Subscribe to connection changes
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;
@@ -62,6 +74,15 @@ namespace NewwaysAdmin.Mobile.ViewModels
                 _selectedLocation = value;
                 OnPropertyChanged();
                 _logger.LogDebug("Location selected: {Location}", value?.Name ?? "None");
+            }
+        }
+        public bool IsHeaderExpanded
+        {
+            get => _isHeaderExpanded;
+            set
+            {
+                _isHeaderExpanded = value;
+                OnPropertyChanged();
             }
         }
 
@@ -119,10 +140,23 @@ namespace NewwaysAdmin.Mobile.ViewModels
         public ICommand SelectSubCategoryCommand { get; }
         public ICommand ModuleTappedCommand { get; }
         public ICommand RefreshCommand { get; }
-
+        public ICommand ToggleHeaderCommand { get; }
+        public ICommand NavigateToEditCommand { get; }
         #endregion
 
         #region Methods
+
+        private void ToggleHeader()
+        {
+            IsHeaderExpanded = !IsHeaderExpanded;
+            _logger.LogDebug("Header expanded: {IsExpanded}", IsHeaderExpanded);
+        }
+
+        private async Task NavigateToEditAsync()
+        {
+            IsHeaderExpanded = false; // Collapse menu
+            await Shell.Current.GoToAsync("CategoryManagementPage");
+        }
 
         public async Task LoadCategoriesAsync()
         {
@@ -170,7 +204,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
             }
         }
 
-        private void PopulateFromData(NewwaysAdmin.SharedModels.Categories.FullCategoryData? data)
+        private void PopulateFromData(SharedModels.Categories.FullCategoryData? data)
         {
             Categories.Clear();
             Locations.Clear();
@@ -301,7 +335,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
             });
         }
 
-        private void OnDataUpdated(object? sender, NewwaysAdmin.SharedModels.Categories.FullCategoryData data)
+        private void OnDataUpdated(object? sender, SharedModels.Categories.FullCategoryData data)
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {

@@ -6,25 +6,22 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:NewwaysAdmin.Mobile"
     xmlns:pages="clr-namespace:NewwaysAdmin.Mobile.Pages"
+    xmlns:catPages="clr-namespace:NewwaysAdmin.Mobile.Pages.Categories"
     Shell.FlyoutBehavior="Disabled"
     Title="NewwaysAdmin.Mobile">
-
     <!-- Login Page - Starting point -->
     <ShellContent
         Title="Login"
         ContentTemplate="{DataTemplate pages:SimpleLoginPage}"
         Route="SimpleLoginPage" />
-
     <!-- Category Browser - Main landing page after login -->
     <ShellContent
         Title="Categories"
-        ContentTemplate="{DataTemplate pages:CategoryBrowserPage}"
+        ContentTemplate="{DataTemplate catPages:CategoryBrowserPage}"
         Route="CategoryBrowserPage" />
-
     <!-- Home Page - Debug/Settings page -->
     <ShellContent
         Title="Home"
         ContentTemplate="{DataTemplate pages:HomePage}"
         Route="HomePage" />
-
 </Shell>
