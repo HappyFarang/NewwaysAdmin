@@ -312,6 +312,22 @@ namespace NewwaysAdmin.WebAdmin.Services.Categories
             data.LastModifiedBy = modifiedBy;
         }
 
+        /// <summary>
+        /// Save full data (from MAUI upload)
+        /// </summary>
+        public async Task SaveFullDataAsync(FullCategoryData data)
+        {
+            data.LastUpdated = DateTime.UtcNow;
+            data.LastModifiedBy = "MAUI";
+
+            await _storage.SaveAsync(data);
+
+            _logger.LogInformation("Saved full data from MAUI - v{Version}", data.DataVersion);
+
+            // Notify any connected Blazor clients
+            await NotifyClientsAsync(data.DataVersion);
+        }
+
         private async Task SaveAndNotifyAsync(FullCategoryData data)
         {
             await _storage.SaveAsync(data);

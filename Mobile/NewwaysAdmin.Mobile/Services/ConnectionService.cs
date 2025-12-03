@@ -1,6 +1,6 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Services/ConnectionService.cs
 using Microsoft.Extensions.Logging;
-using System.Net.Http;
+using NewwaysAdmin.Mobile.Config;
 
 namespace NewwaysAdmin.Mobile.Services
 {
@@ -24,7 +24,7 @@ namespace NewwaysAdmin.Mobile.Services
 
         public string GetBaseUrl()
         {
-            return _httpClient.BaseAddress?.ToString() ?? "Not configured";
+            return AppConfig.ServerUrl;
         }
 
         public async Task<ConnectionResult> TestConnectionAsync()

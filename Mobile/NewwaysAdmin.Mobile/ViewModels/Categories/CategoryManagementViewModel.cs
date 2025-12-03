@@ -37,6 +37,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             DeleteLocationCommand = new Command<LocationEditItem>(async (l) => await DeleteLocationAsync(l));
             DeleteCategoryCommand = new Command<CategoryEditItem>(async (c) => await DeleteCategoryAsync(c));
             DeleteSubCategoryCommand = new Command<SubCategoryEditItem>(async (s) => await DeleteSubCategoryAsync(s));
+            ToggleCategoryCommand = new Command<CategoryEditItem>(ToggleCategory);
 
             // Listen for data changes
             _categoryDataService.DataUpdated += OnDataUpdated;
@@ -67,6 +68,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
         public ICommand DeleteLocationCommand { get; }
         public ICommand DeleteCategoryCommand { get; }
         public ICommand DeleteSubCategoryCommand { get; }
+        public ICommand ToggleCategoryCommand { get; }
 
         #endregion
 
@@ -140,6 +142,12 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
         #endregion
 
         #region Private Methods - Navigation
+
+        private void ToggleCategory(CategoryEditItem? category)
+        {
+            if (category == null) return;
+            category.IsExpanded = !category.IsExpanded;
+        }
 
         private async Task GoBackAsync()
         {
@@ -221,7 +229,10 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating category");
-                await Application.Current!.MainPage!.DisplayAlert("Error", "Failed to create category", "OK");
+                await Application.Current!.MainPage!.DisplayAlert(
+                    "Error",
+                    $"Failed to create category: {ex.Message}\n\nInner: {ex.InnerException?.Message}",
+                    "OK");
             }
         }
 
@@ -229,20 +240,29 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
         {
             if (parentCategory == null) return;
 
-            string result = await Application.Current!.MainPage!.DisplayPromptAsync(
+            // Step 1: Get name
+            string name = await Application.Current!.MainPage!.DisplayPromptAsync(
                 $"New SubCategory",
                 $"Add subcategory to '{parentCategory.Name}':",
-                "Create",
+                "Next",
                 "Cancel",
                 placeholder: "e.g. Green Buses");
 
-            if (string.IsNullOrWhiteSpace(result)) return;
+            if (string.IsNullOrWhiteSpace(name)) return;
 
-            _logger.LogInformation("Creating subcategory: {Name} under {Parent}", result, parentCategory.Name);
+            // Step 2: Ask about VAT
+            bool hasVat = await Application.Current!.MainPage!.DisplayAlert(
+                "VAT",
+                $"Does '{name.Trim()}' include VAT?",
+                "Yes - Has VAT",
+                "No VAT");
+
+            _logger.LogInformation("Creating subcategory: {Name} (VAT: {HasVat}) under {Parent}",
+                name, hasVat, parentCategory.Name);
 
             try
             {
-                await _categoryDataService.CreateSubCategoryAsync(parentCategory.Id, result.Trim());
+                await _categoryDataService.CreateSubCategoryAsync(parentCategory.Id, name.Trim(), hasVat);
                 await LoadDataAsync();
             }
             catch (Exception ex)
@@ -410,12 +430,37 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
         public string Name { get; set; } = "";
     }
 
-    public class CategoryEditItem
+    public class CategoryEditItem : INotifyPropertyChanged
     {
+        private bool _isExpanded = false;
+
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public int SubCategoryCount { get; set; }
         public ObservableCollection<SubCategoryEditItem> SubCategories { get; } = new();
+
+        // Add this line:
+        public string SubCategoryCountText => $"{SubCategoryCount} subcategories";
+
+        public bool IsExpanded
+        {
+            get => _isExpanded;
+            set
+            {
+                _isExpanded = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ExpanderIcon));
+            }
+        }
+
+        public string ExpanderIcon => IsExpanded ? "▼" : "▶";
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 
     public class SubCategoryEditItem

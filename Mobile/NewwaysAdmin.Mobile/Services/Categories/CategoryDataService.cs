@@ -24,6 +24,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         // Events
         public event EventHandler<FullCategoryData>? DataUpdated;
         public event EventHandler<string>? SyncError;
+        public event EventHandler? LocalDataChanged;
 
         public CategoryDataService(
             ILogger<CategoryDataService> logger,
@@ -119,7 +120,9 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         {
             var data = await GetDataAsync() ?? CreateEmptyData();
 
-            var newPerson = new ResponsiblePerson  // NOT BusinessPerson
+            data.Persons ??= new List<ResponsiblePerson>();
+
+            var newPerson = new ResponsiblePerson
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = name,
@@ -129,7 +132,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
             data.Persons.Add(newPerson);
             data.DataVersion++;
-            data.LastUpdated = DateTime.UtcNow;  // NOT LastModified
+            data.LastUpdated = DateTime.UtcNow;
 
             await SaveAndNotifyAsync(data);
             _logger.LogInformation("Created person: {Name} (v{Version})", name, data.DataVersion);
@@ -142,11 +145,14 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         {
             var data = await GetDataAsync() ?? CreateEmptyData();
 
+            data.Locations ??= new List<BusinessLocation>();
+
             var newLocation = new BusinessLocation
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = name,
-                CreatedDate = DateTime.UtcNow
+                CreatedDate = DateTime.UtcNow,
+                CreatedBy = "MAUI"
             };
 
             data.Locations.Add(newLocation);
@@ -163,6 +169,8 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         public async Task CreateCategoryAsync(string name)
         {
             var data = await GetDataAsync() ?? CreateEmptyData();
+
+            data.Categories ??= new List<Category>();
 
             var newCategory = new Category
             {
@@ -185,13 +193,20 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         /// <summary>
         /// Create a new subcategory under a parent category
         /// </summary>
-        public async Task CreateSubCategoryAsync(string parentCategoryId, string name)
+        public async Task CreateSubCategoryAsync(string parentCategoryId, string name, bool hasVat = false)
         {
-            var data = await GetDataAsync();
-            if (data == null) throw new InvalidOperationException("No data loaded");
+            var data = await GetDataAsync() ?? CreateEmptyData();
+
+            if (data.Categories == null || data.Categories.Count == 0)
+            {
+                throw new InvalidOperationException("No categories exist. Create a category first.");
+            }
 
             var parentCategory = data.Categories.FirstOrDefault(c => c.Id == parentCategoryId);
-            if (parentCategory == null) throw new ArgumentException($"Category not found: {parentCategoryId}");
+            if (parentCategory == null)
+            {
+                throw new ArgumentException($"Category not found: {parentCategoryId}");
+            }
 
             parentCategory.SubCategories ??= new List<SubCategory>();
 
@@ -199,7 +214,8 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = name,
-                ParentCategoryName = parentCategory.Name,  // NOT ParentCategoryId
+                ParentCategoryName = parentCategory.Name,
+                HasVAT = hasVat,
                 SortOrder = parentCategory.SubCategories.Count,
                 CreatedDate = DateTime.UtcNow,
                 CreatedBy = "MAUI"
@@ -207,10 +223,11 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
             parentCategory.SubCategories.Add(newSubCategory);
             data.DataVersion++;
-            data.LastUpdated = DateTime.UtcNow;  // NOT LastModified
+            data.LastUpdated = DateTime.UtcNow;
 
             await SaveAndNotifyAsync(data);
-            _logger.LogInformation("Created subcategory: {Name} under {Parent} (v{Version})", name, parentCategory.Name, data.DataVersion);
+            _logger.LogInformation("Created subcategory: {Name} (VAT: {HasVat}) under {Parent} (v{Version})",
+                name, hasVat, parentCategory.Name, data.DataVersion);
         }
 
         // ===== PUBLIC METHODS - DELETE =====
@@ -320,8 +337,11 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             // Update sync state
             _syncState.MarkDownloadComplete(data.DataVersion);
 
-            // Notify listeners
+            // Notify UI listeners
             DataUpdated?.Invoke(this, data);
+
+            // Notify that we have local changes to upload
+            LocalDataChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private async Task<FullCategoryData?> LoadFromCacheAsync()

@@ -14,25 +14,41 @@
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
     <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
+    <!-- Fix for NullabilityInfoContext error on Android -->
+    <NullabilityInfoContextSupport>true</NullabilityInfoContextSupport>
   </PropertyGroup>
+
+  <!-- Android-specific settings -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-android'">
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AndroidLinkMode>None</AndroidLinkMode>
+  </PropertyGroup>
+
+  <!-- Android Release signing -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' And '$(TargetFramework)' == 'net8.0-android'">
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>newways-release.keystore</AndroidSigningKeyStore>
+    <AndroidSigningKeyAlias>newways</AndroidSigningKeyAlias>
+    <AndroidSigningKeyPass>102030</AndroidSigningKeyPass>
+    <AndroidSigningStorePass>102030</AndroidSigningStorePass>
+  </PropertyGroup>
+
   <ItemGroup>
     <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
-    <MauiSplashScreen Include="Resources\Splash\splashscreen.svg" Color="#512BD4" BaseSize="128,128" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
     <MauiImage Include="Resources\Images\*" />
     <MauiImage Update="Resources\Images\dotnet_bot.png" Resize="True" BaseSize="300,185" />
     <MauiFont Include="Resources\Fonts\*" />
     <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
-  <ItemGroup>
-    <None Remove="Categories\MobileCategoryService.cs.bak" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Categories\MobileCategoryService.cs.bak" />
-  </ItemGroup>
+
   <ItemGroup>
     <Compile Remove="**\*.bak" />
     <None Remove="**\*.bak" />
   </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.0" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
@@ -40,12 +56,14 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.0" />
   </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\NewwaysAdmin.IO.Manager\NewwaysAdmin.IO.Manager.csproj" />
     <ProjectReference Include="..\..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />
     <ProjectReference Include="..\..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
     <ProjectReference Include="..\..\NewwaysAdmin.SignalR.Contracts\NewwaysAdmin.SignalR.Contracts.csproj" />
   </ItemGroup>
+
   <ItemGroup>
     <MauiXaml Update="Pages\Categories\CategoryManagementPage.xaml">
       <Generator>MSBuild:Compile</Generator>

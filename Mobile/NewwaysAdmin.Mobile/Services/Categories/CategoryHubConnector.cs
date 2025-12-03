@@ -5,6 +5,7 @@ using NewwaysAdmin.Mobile.Services.Connectivity;
 using NewwaysAdmin.SharedModels.Categories;
 using System.Text.Json;
 using NewwaysAdmin.SignalR.Contracts.Models;
+using NewwaysAdmin.Mobile.Config;
 
 namespace NewwaysAdmin.Mobile.Services.Categories
 {
@@ -22,16 +23,16 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
         private HubConnection? _hubConnection;
         private bool _isConnected = false;
-        private string _serverUrl = "http://localhost:5080";
+        private string _serverUrl = AppConfig.ServerUrl;
 
         // For awaiting MessageResponse
         private TaskCompletionSource<JsonElement?>? _versionExchangeResponse;
 
         public CategoryHubConnector(
-            ILogger<CategoryHubConnector> logger,
-            CategoryDataService categoryDataService,
-            ConnectionState connectionState,
-            SyncState syncState)
+    ILogger<CategoryHubConnector> logger,
+    CategoryDataService categoryDataService,
+    ConnectionState connectionState,
+    SyncState syncState)
         {
             _logger = logger;
             _categoryDataService = categoryDataService;
@@ -39,6 +40,9 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             _syncState = syncState;
 
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;
+
+            // Subscribe to local changes - auto upload when data changes
+            _categoryDataService.LocalDataChanged += OnLocalDataChanged;
         }
 
         // ===== PUBLIC PROPERTIES =====
@@ -153,6 +157,23 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
         // ===== PRIVATE METHODS =====
 
+        private async void OnLocalDataChanged(object? sender, EventArgs e)
+        {
+            if (_hubConnection?.State == HubConnectionState.Connected)
+            {
+                _logger.LogInformation("Local data changed - triggering upload...");
+
+                // Small delay to let any rapid changes settle
+                await Task.Delay(500);
+
+                await UploadDataToServerAsync();
+            }
+            else
+            {
+                _logger.LogDebug("Local data changed but not connected - will sync on reconnect");
+            }
+        }
+
         private async void OnConnectionStateChanged(object? sender, bool isOnline)
         {
             if (isOnline && !_isConnected)
@@ -217,10 +238,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 }
             });
 
-            // ============================================================
-            // FIX: Don't await inside On<T> handler - causes deadlock!
-            // Use Task.Run to move off the SignalR message thread
-            // ============================================================
+            // Server push: new version available
             _hubConnection.On<int>("NewVersionAvailable", version =>
             {
                 _logger.LogInformation("Server notified new version: v{Version}", version);
@@ -228,8 +246,6 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 if (_syncState.NeedsDownload)
                 {
-                    // CRITICAL: Use Task.Run to avoid blocking SignalR thread!
-                    // If we await here, MessageResponse can't be delivered (deadlock)
                     _ = Task.Run(async () =>
                     {
                         try
@@ -244,12 +260,11 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 }
             });
 
-            // Server push: full data (alternative direct push)
+            // Server push: full data
             _hubConnection.On<FullCategoryData>("CategoryData", data =>
             {
                 _logger.LogInformation("Received category data push: v{Version}", data.DataVersion);
 
-                // Also use Task.Run here for consistency
                 _ = Task.Run(async () =>
                 {
                     try
@@ -313,13 +328,13 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 var messageId = Guid.NewGuid().ToString();
 
-                // Send message using SendAsync (fire-and-forget, response comes via MessageResponse event)
+                // Send message
                 await _hubConnection.SendAsync("SendMessageAsync", new UniversalMessage
                 {
                     MessageId = messageId,
                     MessageType = "VersionExchange",
                     SourceApp = "MAUI_ExpenseTracker",
-                    TargetApp = "MAUI_ExpenseTracker",  // Routes to CategorySyncHandler
+                    TargetApp = "MAUI_ExpenseTracker",
                     Data = JsonSerializer.SerializeToElement(request),
                     Timestamp = DateTime.UtcNow
                 });
@@ -346,8 +361,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 _logger.LogDebug("Processing version exchange response...");
 
-                // Parse the response - server sends { messageId, success, data, error }
-                // Note: property names are camelCase from server
+                // Parse the response
                 if (resultJson.Value.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
                 {
                     if (resultJson.Value.TryGetProperty("data", out var dataProp))
@@ -362,9 +376,17 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                             if (response.YouNeedToDownload && response.Data != null)
                             {
+                                // Server has newer data - download it
                                 _logger.LogInformation("Server has v{Version}, downloading data...", response.ServerVersion);
                                 await HandleReceivedDataAsync(response.Data);
                                 return true;
+                            }
+                            else if (response.ServerNeedsYourData)
+                            {
+                                // Server needs our data - upload it
+                                _logger.LogInformation("Server needs our data (v{LocalVersion} > v{ServerVersion}), uploading...",
+                                    _syncState.LocalVersion, response.ServerVersion);
+                                return await UploadDataToServerAsync();
                             }
                             else
                             {
@@ -386,6 +408,96 @@ namespace NewwaysAdmin.Mobile.Services.Categories
             {
                 _logger.LogError(ex, "Version exchange failed");
                 _syncState.MarkDownloadFailed();
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Upload local data to server when we have newer version
+        /// </summary>
+        private async Task<bool> UploadDataToServerAsync()
+        {
+            if (_hubConnection?.State != HubConnectionState.Connected)
+            {
+                _logger.LogWarning("Cannot upload - not connected");
+                return false;
+            }
+
+            try
+            {
+                var localData = await _categoryDataService.GetDataAsync();
+                if (localData == null)
+                {
+                    _logger.LogWarning("No local data to upload");
+                    return false;
+                }
+
+                _logger.LogInformation(
+                    "Uploading data to server: v{Version} - {CatCount} categories, {LocCount} locations, {PerCount} persons",
+                    localData.DataVersion,
+                    localData.Categories.Count,
+                    localData.Locations.Count,
+                    localData.Persons.Count);
+
+                // Set up response listener
+                _versionExchangeResponse = new TaskCompletionSource<JsonElement?>();
+
+                var messageId = Guid.NewGuid().ToString();
+
+                await _hubConnection.SendAsync("SendMessageAsync", new UniversalMessage
+                {
+                    MessageId = messageId,
+                    MessageType = "UploadData",
+                    SourceApp = "MAUI_ExpenseTracker",
+                    TargetApp = "MAUI_ExpenseTracker",
+                    Data = JsonSerializer.SerializeToElement(localData),
+                    Timestamp = DateTime.UtcNow
+                });
+
+                _logger.LogDebug("Upload message sent, waiting for confirmation...");
+
+                // Wait for confirmation with timeout
+                var responseTask = _versionExchangeResponse.Task;
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(15));
+
+                if (await Task.WhenAny(responseTask, timeoutTask) == timeoutTask)
+                {
+                    _logger.LogWarning("Upload timed out after 15 seconds");
+                    return false;
+                }
+
+                var resultJson = await responseTask;
+
+                if (resultJson == null)
+                {
+                    _logger.LogWarning("No response from upload");
+                    return false;
+                }
+
+                // Check response
+                if (resultJson.Value.TryGetProperty("success", out var successProp) && successProp.GetBoolean())
+                {
+                    if (resultJson.Value.TryGetProperty("data", out var dataProp))
+                    {
+                        if (dataProp.TryGetProperty("success", out var uploadSuccess) && uploadSuccess.GetBoolean())
+                        {
+                            _logger.LogInformation("✅ Upload successful! Server now has v{Version}", localData.DataVersion);
+                            return true;
+                        }
+                    }
+                }
+
+                if (resultJson.Value.TryGetProperty("error", out var errorProp))
+                {
+                    _logger.LogWarning("Upload error: {Error}", errorProp.GetString());
+                }
+
+                _logger.LogWarning("Upload failed or invalid response");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading data to server");
                 return false;
             }
         }

@@ -24,6 +24,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             "VersionExchange",      // Compare versions, sync if needed
             "RequestFullData",      // Force download full data
             "RequestVersion",       // Just get current version number
+            "UploadData",
             "HeartbeatCheck"
         };
 
@@ -48,6 +49,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                     "RequestFullData" => await HandleRequestFullDataAsync(message, connectionId),
                     "RequestVersion" => await HandleRequestVersionAsync(message, connectionId),
                     "HeartbeatCheck" => await HandleHeartbeatAsync(message, connectionId),
+                    "UploadData" => await HandleUploadDataAsync(message, connectionId),
                     _ => MessageHandlerResult.CreateError($"Unsupported message type: {message.MessageType}")
                 };
             }
@@ -179,6 +181,44 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             }
 
             return true;
+        }
+
+        private async Task<MessageHandlerResult> HandleUploadDataAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var uploadedData = JsonSerializer.Deserialize<FullCategoryData>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (uploadedData == null)
+                {
+                    return MessageHandlerResult.CreateError("Invalid data format");
+                }
+
+                _logger.LogInformation(
+                    "Receiving data upload from MAUI: v{Version} - {CatCount} categories, {LocCount} locations, {PerCount} persons",
+                    uploadedData.DataVersion,
+                    uploadedData.Categories.Count,
+                    uploadedData.Locations.Count,
+                    uploadedData.Persons.Count);
+
+                // Save to server
+                await _categoryService.SaveFullDataAsync(uploadedData);
+
+                _logger.LogInformation("Data saved from MAUI upload. Server now at v{Version}", uploadedData.DataVersion);
+
+                return MessageHandlerResult.CreateSuccess(new
+                {
+                    success = true,
+                    newVersion = uploadedData.DataVersion
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling data upload");
+                return MessageHandlerResult.CreateError($"Upload failed: {ex.Message}");
+            }
         }
 
         public async Task<object?> GetInitialDataAsync(AppConnection connection)

@@ -10,6 +10,7 @@ using NewwaysAdmin.Mobile.Pages.Categories;
 using NewwaysAdmin.Mobile.Services.Connectivity;
 using NewwaysAdmin.Mobile.Services.Categories;
 using NewwaysAdmin.Mobile.ViewModels.Categories;
+using NewwaysAdmin.Mobile.Config;
 
 
 namespace NewwaysAdmin.Mobile;
@@ -48,17 +49,17 @@ public static class MauiProgram
         // ===== HTTP CLIENTS + AUTH/CONNECTION SERVICES =====
         builder.Services.AddHttpClient<IMauiAuthService, MauiAuthService>(client =>
         {
-            client.BaseAddress = new Uri("http://localhost:5080/");
+            client.BaseAddress = new Uri(AppConfig.ServerUrl + "/");
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
         builder.Services.AddHttpClient<IConnectionService, ConnectionService>(client =>
         {
-            client.BaseAddress = new Uri("http://localhost:5080/");
+            client.BaseAddress = new Uri(AppConfig.ServerUrl + "/");
             client.Timeout = TimeSpan.FromSeconds(30);
         });
 
-       
+
         // ===== CONNECTIVITY =====
         builder.Services.AddSingleton<ConnectionState>();
         builder.Services.AddSingleton<ConnectionMonitor>();
