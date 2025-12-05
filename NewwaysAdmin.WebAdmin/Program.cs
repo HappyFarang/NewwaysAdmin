@@ -4,6 +4,7 @@ using NewwaysAdmin.WebAdmin.Registration;
 using NewwaysAdmin.WebAdmin.Middleware;
 using NewwaysAdmin.WebAdmin.Services.Background;
 
+
 namespace NewwaysAdmin.WebAdmin;
 
 public class Program
@@ -88,6 +89,7 @@ public class Program
         }
 
         // ===== MIDDLEWARE PIPELINE =====
+        app.UseMiddleware<MobileApiKeyMiddleware>();
         app.UseHttpsRedirection();
         app.UseStaticFiles();
         app.UseRouting();

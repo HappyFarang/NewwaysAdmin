@@ -299,10 +299,10 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             // Build the note string
             var locationName = string.IsNullOrEmpty(SelectedLocation?.Id) ? "None" : SelectedLocation.Name;
             var personName = string.IsNullOrEmpty(SelectedPerson?.Id) ? "None" : SelectedPerson.Name;
-            var categoryPath = $"{subCategory.ParentCategoryName} > {subCategory.Name}";
+            var categoryPath = $"{subCategory.ParentCategoryName} + {subCategory.Name}";
 
             // Added "| Memo: " at the end so user can optionally add their own note
-            var noteText = $"Location: {locationName} | Person: {personName} | Category: {categoryPath} | Memo: ";
+            var noteText = $"Location: {locationName} - Person: {personName} - Category: {categoryPath} - Memo: ";
 
             _logger.LogInformation("Generated note: {Note}", noteText);
 

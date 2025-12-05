@@ -78,15 +78,18 @@ namespace NewwaysAdmin.Mobile.Services.Categories
 
                 // Create hub connection
                 _hubConnection = new HubConnectionBuilder()
-                    .WithUrl($"{_serverUrl}/hubs/universal")
-                    .WithAutomaticReconnect(new[] {
-                        TimeSpan.Zero,
-                        TimeSpan.FromSeconds(2),
-                        TimeSpan.FromSeconds(5),
-                        TimeSpan.FromSeconds(10),
-                        TimeSpan.FromSeconds(30)
-                    })
-                    .Build();
+                 .WithUrl($"{_serverUrl}/hubs/universal", options =>
+                 {
+                     options.Headers.Add("X-Mobile-Api-Key", AppConfig.MobileApiKey);
+                 })
+                 .WithAutomaticReconnect(new[] {
+                     TimeSpan.Zero,
+                     TimeSpan.FromSeconds(2),
+                     TimeSpan.FromSeconds(5),
+                     TimeSpan.FromSeconds(10),
+                     TimeSpan.FromSeconds(30)
+                 })
+                 .Build();
 
                 // Register event handlers BEFORE starting connection
                 RegisterHubEvents();

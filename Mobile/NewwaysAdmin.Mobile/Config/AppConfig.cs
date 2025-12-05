@@ -10,5 +10,7 @@ namespace NewwaysAdmin.Mobile.Config
         public const string ServerUrl = "http://newwaysadmin.hopto.org:5080";
         public const bool IsDebug = false;
 #endif
+        // Must match server's MobileApiSecurity.ApiKey
+        public const string MobileApiKey = "NwAdmin2024!Mx9$kL#pQ7zR";
     }
 }

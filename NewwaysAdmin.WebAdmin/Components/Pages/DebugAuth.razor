@@ -171,26 +171,10 @@
     {
         try
         {
-            // This is a hack to test - you should use proper credentials
-            var loginResult = await AuthService.LoginAsync(new LoginModel
-                {
-                    Username = "Superfox",
-                    Password = "Admin75"
-                });
+            // Don't hardcode credentials - just log that this is a debug page
+            Logger.LogWarning("TestLogin called - this should only be used in development!");
 
-            Logger.LogInformation("Login result: {Success}, Error: {Error}",
-                loginResult.success, loginResult.error);
-
-            if (loginResult.success)
-            {
-                // Refresh the authentication state
-                if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
-                {
-                    var session = await AuthService.GetCurrentSessionAsync();
-                    await customProvider.NotifyUserAuthenticationAsync(session);
-                }
-            }
-
+            // Option: Remove this feature entirely, or prompt for credentials
             await RefreshData();
         }
         catch (Exception ex)

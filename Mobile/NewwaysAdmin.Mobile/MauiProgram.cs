@@ -51,12 +51,14 @@ public static class MauiProgram
         {
             client.BaseAddress = new Uri(AppConfig.ServerUrl + "/");
             client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("X-Mobile-Api-Key", AppConfig.MobileApiKey);
         });
 
         builder.Services.AddHttpClient<IConnectionService, ConnectionService>(client =>
         {
             client.BaseAddress = new Uri(AppConfig.ServerUrl + "/");
             client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Add("X-Mobile-Api-Key", AppConfig.MobileApiKey);
         });
 
 
