@@ -32,6 +32,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
 
         private bool _isHeaderExpanded = false;
 
+        public ICommand OpenSettingsCommand { get; }
         public CategoryBrowserViewModel(
             ILogger<CategoryBrowserViewModel> logger,
             ConnectionState connectionState,
@@ -50,6 +51,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             RefreshCommand = new Command(async () => await RefreshDataAsync());
             ToggleHeaderCommand = new Command(ToggleHeader);
             NavigateToEditCommand = new Command(async () => await NavigateToEditAsync());
+            OpenSettingsCommand = new Command(async () => await Shell.Current.GoToAsync("SettingsPage"));
 
             // Subscribe to connection changes
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;

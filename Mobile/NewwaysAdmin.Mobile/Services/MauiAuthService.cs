@@ -40,7 +40,8 @@ namespace NewwaysAdmin.Mobile.Services
 
                 var savedCreds = await _credentialStorage.GetSavedCredentialsAsync();
 
-                if (savedCreds == null)
+                // Check for null OR empty username
+                if (savedCreds == null || string.IsNullOrEmpty(savedCreds.Username))
                 {
                     _logger.LogInformation("No saved credentials found");
                     return new AuthResult
@@ -51,7 +52,7 @@ namespace NewwaysAdmin.Mobile.Services
                     };
                 }
 
-                // We have credentials - check for cached permissions
+                // We have valid credentials - check for cached permissions
                 var cachedPermissions = await _permissionsCache.GetCachedPermissionsAsync(savedCreds.Username);
 
                 _logger.LogInformation("Found saved credentials for user: {Username}, Permissions: {Count}",
@@ -62,7 +63,7 @@ namespace NewwaysAdmin.Mobile.Services
                     Success = true,
                     Username = savedCreds.Username,
                     Permissions = cachedPermissions ?? new List<string>(),
-                    IsOfflineMode = true, // Assume offline until ConnectionMonitor says otherwise
+                    IsOfflineMode = true,
                     Message = "Loaded from cache"
                 };
             }

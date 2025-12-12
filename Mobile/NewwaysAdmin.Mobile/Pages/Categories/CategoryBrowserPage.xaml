@@ -37,24 +37,34 @@
 
         <!-- Row 1: Expandable menu -->
         <Frame Grid.Row="1" 
-               Padding="0" 
-               Margin="0"
-               CornerRadius="0"
-               HasShadow="True"
-               BackgroundColor="#6B46C1"
-               BorderColor="Transparent"
-               IsVisible="{Binding IsHeaderExpanded}">
+       Padding="0" 
+       Margin="0"
+       CornerRadius="0"
+       HasShadow="True"
+       BackgroundColor="#6B46C1"
+       BorderColor="Transparent"
+       IsVisible="{Binding IsHeaderExpanded}">
             <StackLayout Padding="15,12" Spacing="10">
 
                 <!-- Edit Categories Button -->
                 <Button Text="✏️  Edit Categories"
-                        Command="{Binding NavigateToEditCommand}"
-                        BackgroundColor="#7C3AED"
-                        TextColor="White"
-                        FontSize="14"
-                        CornerRadius="8"
-                        Padding="15,12"
-                        HorizontalOptions="FillAndExpand" />
+                Command="{Binding NavigateToEditCommand}"
+                BackgroundColor="#7C3AED"
+                TextColor="White"
+                FontSize="14"
+                CornerRadius="8"
+                Padding="15,12"
+                HorizontalOptions="FillAndExpand" />
+
+                <!-- Settings Button -->
+                <Button Text="⚙️  Settings"
+                Command="{Binding OpenSettingsCommand}"
+                BackgroundColor="#5B4A99"
+                TextColor="White"
+                FontSize="14"
+                CornerRadius="8"
+                Padding="15,12"
+                HorizontalOptions="FillAndExpand" />
 
             </StackLayout>
         </Frame>

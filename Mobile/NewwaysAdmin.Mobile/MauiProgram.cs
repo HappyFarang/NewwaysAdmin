@@ -76,12 +76,14 @@ public static class MauiProgram
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<CategoryBrowserViewModel>();
         builder.Services.AddTransient<CategoryManagementViewModel>();
+        builder.Services.AddTransient<SettingsViewModel>();
 
         // ===== PAGES =====
         builder.Services.AddTransient<SimpleLoginPage>();
         builder.Services.AddTransient<HomePage>();
         builder.Services.AddTransient<CategoryBrowserPage>();
         builder.Services.AddTransient<CategoryManagementPage>();
+        builder.Services.AddTransient<SettingsPage>();
 
 #if DEBUG
         builder.Logging.AddDebug();
