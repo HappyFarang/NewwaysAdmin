@@ -55,6 +55,8 @@ public class Program
         app.Services.ConfigureExternalFileProcessors();
         app.Services.ConfigurePassThroughSyncPaths();
 
+       
+
         // Configure the application pipeline
         await ConfigureApplication(app);
 
@@ -93,6 +95,8 @@ public class Program
         app.UseHttpsRedirection();
         app.UseStaticFiles();
         app.UseRouting();
+
+        // ===== PASSWORD ======
 
         // Custom middleware
         app.UseMiddleware<SimpleDoSMiddleware>();

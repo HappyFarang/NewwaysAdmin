@@ -251,6 +251,19 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     IndexedExtensions = [".json"],
                     PassThroughMode = true  // Key: files already serialized by remote IO Manager
                 },
+
+                // Passwords folder - stores encrypted password entries
+                new StorageFolder
+                {
+                    Name = "Passwords",
+                    Description = "Encrypted password storage",
+                    Type = StorageType.Json,
+                    Path = "Security/Passwords",
+                    IsShared = false,
+                    CreateBackups = true,
+                    MaxBackupCount = 10
+                },
+
                 new StorageFolder
                 {
                     Name = "SecurityRequests",

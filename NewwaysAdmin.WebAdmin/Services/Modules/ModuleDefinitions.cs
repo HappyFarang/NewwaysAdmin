@@ -25,6 +25,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
             { "worker-activity", AccessLevel.Read },
             { "accounting.reports", AccessLevel.Read },        // Future reports sub-module
             { "accounting.reconcile", AccessLevel.ReadWrite }, // Future reconciliation sub-module
+            { "passwords", AccessLevel.ReadWrite },
             { "security", AccessLevel.ReadWrite }
         };
 
@@ -87,6 +88,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                     Path = "/settings",
                     Icon = "bi bi-gear",
                     Description = "Admin page for accounts and other settings"
+                },
+                new NavigationItem
+                {
+                    Id = "passwords",
+                    Name = "Passwords",
+                    Path = "/passwords",
+                    Icon = "bi bi-key-fill",
+                    Description = "Company password storage"
                 },
                 new NavigationItem
                 {

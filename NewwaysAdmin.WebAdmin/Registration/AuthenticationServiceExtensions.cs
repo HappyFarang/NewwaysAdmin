@@ -66,6 +66,8 @@ namespace NewwaysAdmin.WebAdmin.Registration
             services.AddScoped<INavigationService, NavigationService>();
             services.AddScoped<AuthenticationStateProvider, CustomAuthenticationStateProvider>();
 
+            services.AddScoped<NewwaysAdmin.Shared.Services.Passwords.PasswordService>();
+
             return services;
         }
     }
