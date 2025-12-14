@@ -363,7 +363,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Auth
             {
                 await EnsureStorageInitializedAsync();
 
-                var users = await _userStorage!.LoadAsync("users") ?? new List<User>();
+                var users = await _userStorage!.LoadAsync("users-list") ?? new List<User>();  // <-- Fixed!
                 var user = users.FirstOrDefault(u => u.Username.Equals(username, StringComparison.OrdinalIgnoreCase));
 
                 if (user != null)

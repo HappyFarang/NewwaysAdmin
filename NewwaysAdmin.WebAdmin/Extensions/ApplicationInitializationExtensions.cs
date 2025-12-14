@@ -1,4 +1,7 @@
-﻿using NewwaysAdmin.WebAdmin.Services.Auth;
+﻿// File: NewwaysAdmin.WebAdmin/Extensions/ApplicationInitializationExtensions.cs
+
+using NewwaysAdmin.WebAdmin.Services.Auth;
+using NewwaysAdmin.WebAdmin.Services.Modules;
 
 namespace NewwaysAdmin.WebAdmin.Extensions
 {
@@ -11,6 +14,10 @@ namespace NewwaysAdmin.WebAdmin.Extensions
             // Initialize default users
             var userInitService = scope.ServiceProvider.GetRequiredService<UserInitializationService>();
             await userInitService.EnsureAdminUserExistsAsync();
+
+            // Initialize navigation modules from ModuleDefinitions
+            var moduleRegistry = scope.ServiceProvider.GetRequiredService<IModuleRegistry>();
+            await moduleRegistry.InitializeModulesAsync();
 
             app.Logger.LogInformation("Application data initialized successfully");
         }

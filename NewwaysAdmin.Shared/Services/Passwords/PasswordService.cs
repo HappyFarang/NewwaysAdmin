@@ -114,28 +114,41 @@ public class PasswordService
         try
         {
             var keyConfig = await _keyStorage!.LoadAsync(KEY_FILE);
-            _logger.LogDebug("Loaded existing encryption key");
-            return Convert.FromBase64String(keyConfig.Key);
+
+            // Validate key exists and is correct size (32 bytes for AES-256)
+            if (!string.IsNullOrEmpty(keyConfig.Key))
+            {
+                var key = Convert.FromBase64String(keyConfig.Key);
+                if (key.Length == 32)
+                {
+                    _logger.LogDebug("Loaded existing encryption key");
+                    return key;
+                }
+                _logger.LogWarning("Existing key is invalid size ({Size} bytes), regenerating", key.Length);
+            }
         }
         catch
         {
-            _logger.LogInformation("Generating new encryption key for password store");
-
-            using var aes = Aes.Create();
-            aes.KeySize = 256;
-            aes.GenerateKey();
-
-            var keyConfig = new EncryptionKeyConfig
-            {
-                Key = Convert.ToBase64String(aes.Key),
-                CreatedAt = DateTime.UtcNow
-            };
-
-            await _keyStorage!.SaveAsync(KEY_FILE, keyConfig);
-            _logger.LogInformation("Encryption key saved to {Folder}/{File}", KEY_FOLDER, KEY_FILE);
-
-            return aes.Key;
+            // Key doesn't exist or failed to load
+            _logger.LogDebug("No existing key found, generating new one");
         }
+
+        // Generate new key
+        _logger.LogInformation("Generating new encryption key for password store");
+        using var aes = Aes.Create();
+        aes.KeySize = 256;
+        aes.GenerateKey();
+
+        var newKeyConfig = new EncryptionKeyConfig
+        {
+            Key = Convert.ToBase64String(aes.Key),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _keyStorage!.SaveAsync(KEY_FILE, newKeyConfig);
+        _logger.LogInformation("Encryption key saved to {Folder}/{File}", KEY_FOLDER, KEY_FILE);
+
+        return aes.Key;
     }
 
     // ===== ENCRYPTED STORAGE =====
