@@ -51,7 +51,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             RefreshCommand = new Command(async () => await RefreshDataAsync());
             ToggleHeaderCommand = new Command(ToggleHeader);
             NavigateToEditCommand = new Command(async () => await NavigateToEditAsync());
-            OpenSettingsCommand = new Command(async () => await Shell.Current.GoToAsync("SettingsPage"));
+            OpenSettingsCommand = new Command(async () => await Shell.Current.GoToAsync("//SettingsPage"));
 
             // Subscribe to connection changes
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;

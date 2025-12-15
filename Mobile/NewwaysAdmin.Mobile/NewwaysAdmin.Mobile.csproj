@@ -16,6 +16,7 @@
     <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
     <!-- Fix for NullabilityInfoContext error on Android -->
     <NullabilityInfoContextSupport>true</NullabilityInfoContextSupport>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <!-- Android-specific settings -->
@@ -47,6 +48,14 @@
   <ItemGroup>
     <Compile Remove="**\*.bak" />
     <None Remove="**\*.bak" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="ViewModels\SettingsViewModel.cs.old" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="ViewModels\SettingsViewModel.cs.old" />
   </ItemGroup>
 
   <ItemGroup>

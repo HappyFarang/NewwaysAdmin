@@ -1,0 +1,143 @@
+﻿// File: Mobile/NewwaysAdmin.Mobile/ViewModels/SettingsViewModel.cs
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows.Input;
+using Microsoft.Extensions.Logging;
+using NewwaysAdmin.Mobile.Config;
+using NewwaysAdmin.Mobile.Services;
+
+namespace NewwaysAdmin.Mobile.ViewModels
+{
+    public class SettingsViewModel : INotifyPropertyChanged
+    {
+        private readonly CredentialStorageService _credentialStorage;
+        private readonly ILogger<SettingsViewModel> _logger;
+
+        private string _username = "Loading...";
+        private string _serverUrl = "";
+        private bool _isBusy;
+        private string _statusMessage = "";
+
+        public SettingsViewModel(
+            CredentialStorageService credentialStorage,
+            ILogger<SettingsViewModel> logger)
+        {
+            _credentialStorage = credentialStorage;
+            _logger = logger;
+            _serverUrl = AppConfig.ServerUrl;
+
+            // FIX: Don't use async lambda - use sync method that handles async internally
+            LogoutCommand = new Command(ExecuteLogout, () => !IsBusy);
+        }
+
+        #region Properties
+
+        public string Username
+        {
+            get => _username;
+            set { _username = value; OnPropertyChanged(); }
+        }
+
+        public string ServerUrl
+        {
+            get => _serverUrl;
+            set { _serverUrl = value; OnPropertyChanged(); }
+        }
+
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set
+            {
+                _isBusy = value;
+                OnPropertyChanged();
+                ((Command)LogoutCommand).ChangeCanExecute();
+            }
+        }
+
+        public string StatusMessage
+        {
+            get => _statusMessage;
+            set { _statusMessage = value; OnPropertyChanged(); }
+        }
+
+        #endregion
+
+        #region Commands
+
+        public ICommand LogoutCommand { get; }
+
+        #endregion
+
+        #region Methods
+
+        public async Task LoadDataAsync()
+        {
+            try
+            {
+                var creds = await _credentialStorage.GetSavedCredentialsAsync();
+                Username = creds?.Username ?? "Not logged in";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading settings data");
+                Username = "Error loading";
+            }
+        }
+
+        // FIX: Synchronous method that fires off async work with proper error handling
+        private void ExecuteLogout()
+        {
+            // Fire and forget, but wrapped in try/catch inside LogoutAsync
+            _ = LogoutAsync();
+        }
+
+        private async Task LogoutAsync()
+        {
+            try
+            {
+                bool confirm = await Application.Current!.MainPage!.DisplayAlert(
+                    "Sign Out",
+                    "Are you sure you want to sign out?",
+                    "Yes, Sign Out",
+                    "Cancel");
+
+                if (!confirm)
+                    return;
+
+                IsBusy = true;
+                StatusMessage = "Signing out...";
+
+                await _credentialStorage.ClearCredentialsAsync();
+
+                _logger.LogInformation("User logged out");
+
+                await Shell.Current.GoToAsync("//SimpleLoginPage");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during logout");
+                StatusMessage = $"Error: {ex.Message}";
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        #endregion
+
+        #region Future Settings (examples of what we can add)
+
+        // public bool AutoSyncEnabled { get; set; }
+        // public int SyncIntervalMinutes { get; set; }
+        // public ICommand ClearCacheCommand { get; }
+        // public ICommand TestConnectionCommand { get; }
+
+        #endregion
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
