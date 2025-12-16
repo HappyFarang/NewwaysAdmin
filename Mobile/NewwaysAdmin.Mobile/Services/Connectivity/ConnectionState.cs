@@ -13,9 +13,13 @@ namespace NewwaysAdmin.Mobile.Services.Connectivity
         private DateTime? _lastChecked = null;
         private DateTime? _lastOnline = null;
 
+        // Static accessor for components that can't use constructor injection
+        public static ConnectionState? Current { get; private set; }
+
         public ConnectionState(ILogger<ConnectionState> logger)
         {
             _logger = logger;
+            Current = this;
         }
 
         // ===== STATE =====
@@ -29,10 +33,8 @@ namespace NewwaysAdmin.Mobile.Services.Connectivity
                 {
                     _isOnline = value;
                     _logger.LogInformation("Connection state changed: {State}", value ? "ONLINE" : "OFFLINE");
-
                     if (value)
                         _lastOnline = DateTime.UtcNow;
-
                     // Fire event
                     OnConnectionChanged?.Invoke(this, value);
                 }

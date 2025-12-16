@@ -19,7 +19,6 @@ namespace NewwaysAdmin.Mobile.Pages
         {
             base.OnAppearing();
 
-            // Only try auto-login once per app session
             if (!_hasAttemptedAutoLogin)
             {
                 _hasAttemptedAutoLogin = true;

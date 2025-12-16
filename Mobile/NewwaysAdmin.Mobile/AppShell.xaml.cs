@@ -15,6 +15,7 @@ namespace NewwaysAdmin.Mobile
             Routing.RegisterRoute(nameof(CategoryBrowserPage), typeof(CategoryBrowserPage));
             Routing.RegisterRoute(nameof(HomePage), typeof(HomePage));
             Routing.RegisterRoute("CategoryManagementPage", typeof(CategoryManagementPage));
+            Routing.RegisterRoute(nameof(WelcomePage), typeof(WelcomePage));
         }
     }
 }

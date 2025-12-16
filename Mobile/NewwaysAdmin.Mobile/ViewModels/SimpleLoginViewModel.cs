@@ -13,6 +13,7 @@ namespace NewwaysAdmin.Mobile.ViewModels
         private readonly IMauiAuthService _authService;
         private readonly IConnectionService _connectionService;
         private readonly ILogger<SimpleLoginViewModel> _logger;
+        private readonly MobileSessionState _sessionState;
 
         private string _username = "";
         private string _password = "";
@@ -23,13 +24,27 @@ namespace NewwaysAdmin.Mobile.ViewModels
         private Color _connectionColor = Colors.Gray;
         private string _serverUrl = "";
 
+        private bool _showLoginForm = false;
+
+        public bool ShowLoginForm
+        {
+            get => _showLoginForm;
+            set
+            {
+                _showLoginForm = value;
+                OnPropertyChanged();
+            }
+        }
+
         public SimpleLoginViewModel(
             IMauiAuthService authService,
             IConnectionService connectionService,
+            MobileSessionState sessionState,  // ADD THIS
             ILogger<SimpleLoginViewModel> logger)
         {
             _authService = authService;
             _connectionService = connectionService;
+            _sessionState = sessionState;  // ADD THIS
             _logger = logger;
 
             TestConnectionCommand = new Command(async () => await TestConnectionAsync(), () => !IsBusy);
@@ -159,8 +174,11 @@ namespace NewwaysAdmin.Mobile.ViewModels
                     _logger.LogInformation("Found saved credentials for user: {Username} - navigating immediately",
                         result.Username);
 
-                    // Go straight to home page
-                    await NavigateToMainAppAsync(result.Username, false);
+                    // Populate session state
+                    _sessionState.SetSession(result.Username!, result.Permissions);
+
+                    // Go straight to main app
+                    await NavigateToMainAppAsync(result.Username);
                     return;
                 }
 
@@ -210,8 +228,11 @@ namespace NewwaysAdmin.Mobile.ViewModels
                     StatusColor = Colors.Green;
                     _logger.LogInformation("Login successful for user: {Username}", Username);
 
+                    // Populate session state
+                    _sessionState.SetSession(result.Username ?? Username, result.Permissions);
+
                     // Navigate to main app
-                    await NavigateToMainAppAsync(result.Username ?? Username, result.IsOfflineMode);
+                    await NavigateToMainAppAsync(result.Username ?? Username);
                 }
                 else
                 {
@@ -278,23 +299,9 @@ namespace NewwaysAdmin.Mobile.ViewModels
 
         #region Navigation
 
-        private async Task NavigateToMainAppAsync(string? username, bool isOfflineMode)
+        private async Task NavigateToMainAppAsync(string? username)
         {
             _logger.LogInformation("Navigating to CategoryBrowserPage for user: {Username}", username);
-
-            // Connect to SignalR hub for category sync (fire and forget - don't block navigation)
-            if (!isOfflineMode)
-            {
-                var hubConnector = Application.Current?.Handler?.MauiContext?.Services.GetService<CategoryHubConnector>();
-                if (hubConnector != null)
-                {
-                    // Set server URL from connection service
-                    hubConnector.SetServerUrl(_connectionService.GetBaseUrl());
-
-                    // Connect in background - don't await
-                    _ = hubConnector.ConnectAsync();
-                }
-            }
 
             // Navigate to category browser
             await Shell.Current.GoToAsync("//CategoryBrowserPage");

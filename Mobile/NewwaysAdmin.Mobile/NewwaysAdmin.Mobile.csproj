@@ -74,6 +74,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <MauiXaml Update="Components\NavigationHeader.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </MauiXaml>
     <MauiXaml Update="Pages\Categories\CategoryManagementPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
@@ -93,6 +96,12 @@
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
     <MauiXaml Update="Pages\ConnectionTestPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </MauiXaml>
+    <MauiXaml Update="Pages\WelcomePage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </MauiXaml>
+    <MauiXaml Update="Pages\WelcomePage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
   </ItemGroup>

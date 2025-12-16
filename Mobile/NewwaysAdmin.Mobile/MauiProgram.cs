@@ -65,11 +65,13 @@ public static class MauiProgram
         // ===== CONNECTIVITY =====
         builder.Services.AddSingleton<ConnectionState>();
         builder.Services.AddSingleton<ConnectionMonitor>();
+        builder.Services.AddSingleton<MobileSessionState>();
 
         // ===== CATEGORY SYNC SERVICES =====
         builder.Services.AddSingleton<SyncState>();
         builder.Services.AddSingleton<CategoryDataService>();
         builder.Services.AddSingleton<CategoryHubConnector>();
+
 
         // ===== VIEWMODELS =====
         builder.Services.AddTransient<SimpleLoginViewModel>();
