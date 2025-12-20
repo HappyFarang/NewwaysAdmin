@@ -377,11 +377,11 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                         {
                             _syncState.SetRemoteVersion(response.ServerVersion);
 
-                            if (response.YouNeedToDownload && response.Data != null)
+                            if (response.YouNeedUpdate && response.FullData != null)
                             {
                                 // Server has newer data - download it
                                 _logger.LogInformation("Server has v{Version}, downloading data...", response.ServerVersion);
-                                await HandleReceivedDataAsync(response.Data);
+                                await HandleReceivedDataAsync(response.FullData);
                                 return true;
                             }
                             else if (response.ServerNeedsYourData)

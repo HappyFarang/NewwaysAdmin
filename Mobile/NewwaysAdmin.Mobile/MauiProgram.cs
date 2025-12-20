@@ -9,6 +9,7 @@ using NewwaysAdmin.Mobile.Pages;
 using NewwaysAdmin.Mobile.Pages.Categories;
 using NewwaysAdmin.Mobile.Services.Connectivity;
 using NewwaysAdmin.Mobile.Services.Categories;
+using NewwaysAdmin.Mobile.Services.BankSlip;
 using NewwaysAdmin.Mobile.ViewModels.Categories;
 using NewwaysAdmin.Mobile.Config;
 
@@ -72,6 +73,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<CategoryDataService>();
         builder.Services.AddSingleton<CategoryHubConnector>();
 
+        // ===== BANK SLIP SERVICES =====
+        builder.Services.AddSingleton<ProcessedSlipsTracker>();
+        builder.Services.AddSingleton<BankSlipSettingsService>();
+        builder.Services.AddSingleton<BankSlipService>();
+        builder.Services.AddTransient<BankSlipSettingsViewModel>();
 
         // ===== VIEWMODELS =====
         builder.Services.AddTransient<SimpleLoginViewModel>();

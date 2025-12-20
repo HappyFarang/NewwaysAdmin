@@ -1,9 +1,10 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Registration/SignalRServiceExtensions.cs
-// UPDATED: Now using the FIXED Universal SignalR system
+// UPDATED: Now uses ExpenseTrackerSyncHandler which combines categories + documents
 
 using Microsoft.AspNetCore.SignalR;
 using NewwaysAdmin.SignalR.Universal.Extensions;
 using NewwaysAdmin.WebAdmin.Services.SignalR;
+using NewwaysAdmin.WebAdmin.Services.Documents;
 
 namespace NewwaysAdmin.WebAdmin.Registration
 {
@@ -11,23 +12,28 @@ namespace NewwaysAdmin.WebAdmin.Registration
     {
         public static IServiceCollection AddSignalRServices(this IServiceCollection services)
         {
-            // ===== UNIVERSAL SIGNALR SYSTEM (FIXED) =====
+            // ===== UNIVERSAL SIGNALR SYSTEM =====
             services.AddUniversalSignalR(options =>
             {
-                options.EnableDetailedErrors = true; // For development
+                options.EnableDetailedErrors = true;
                 options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
                 options.HandshakeTimeout = TimeSpan.FromSeconds(30);
                 options.KeepAliveInterval = TimeSpan.FromSeconds(15);
-                options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB max message
+                options.MaximumReceiveMessageSize = 10 * 1024 * 1024; // 10MB for document uploads
                 options.EnableConnectionCleanup = true;
                 options.ConnectionCleanupInterval = TimeSpan.FromMinutes(5);
                 options.MaxConnectionAge = TimeSpan.FromMinutes(30);
             });
 
+            // ===== DOCUMENT SERVICES =====
+            // Must be registered before handlers that depend on them
+            services.AddSingleton<DocumentStorageService>();
+
             // ===== APP-SPECIFIC MESSAGE HANDLERS =====
 
-            // MAUI Expense Tracker handler
-            services.AddMessageHandler<CategorySyncHandler>("MAUI_ExpenseTracker");
+            // MAUI Expense Tracker - combined handler for categories + documents
+            // Note: Replaces old CategorySyncHandler
+            services.AddMessageHandler<ExpenseTrackerSyncHandler>("MAUI_ExpenseTracker");
 
             // Future handlers can be added here:
             // services.AddMessageHandler<FaceScanningHandler>("FaceScanning_App");
@@ -42,15 +48,11 @@ namespace NewwaysAdmin.WebAdmin.Registration
         /// </summary>
         public static void MapSignalRHubs(this IEndpointRouteBuilder endpoints)
         {
-            // Universal communication hub (FIXED - no more generic methods)
+            // Universal communication hub
             endpoints.MapUniversalSignalR("/hubs/universal");
 
-            // Keep old endpoint for backward compatibility during transition
-            // TODO: Remove this after MAUI app is updated to use /hubs/universal
+            // Keep old endpoint for backward compatibility
             endpoints.MapUniversalSignalR("/hubs/mobile");
-
-            // Future specialized hubs can be added here if needed:
-            // endpoints.MapHub<SpecializedHub>("/hubs/specialized");
         }
     }
 }

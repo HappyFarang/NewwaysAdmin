@@ -24,5 +24,9 @@
   <ItemGroup>
     <ProjectReference Include="..\NewwaysAdmin.Shared\NewwaysAdmin.Shared.csproj" />
     <ProjectReference Include="..\NewwaysAdmin.SharedModels\NewwaysAdmin.SharedModels.csproj" />    
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="NetworkSyncManager\" />
   </ItemGroup>  
 </Project>

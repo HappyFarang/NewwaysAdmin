@@ -61,5 +61,76 @@ namespace NewwaysAdmin.Mobile.Services.SignalR
                 return false;
             }
         }
+        /// <summary>
+        /// Send a message and wait for typed response
+        /// </summary>
+        public async Task<TResponse?> SendMessageWithResponseAsync<TResponse>(
+            string messageType,
+            string appName,
+            object data) where TResponse : class
+        {
+            try
+            {
+                if (!_connection.IsConnected)
+                {
+                    _logger.LogWarning("Cannot send message - not connected");
+                    return null;
+                }
+
+                var hubConnection = _connection.GetConnection();
+                if (hubConnection == null)
+                {
+                    _logger.LogWarning("Cannot send message - no hub connection");
+                    return null;
+                }
+
+                // Serialize data to JsonElement
+                var jsonString = System.Text.Json.JsonSerializer.Serialize(data);
+                var jsonElement = System.Text.Json.JsonDocument.Parse(jsonString).RootElement.Clone();
+
+                var message = new UniversalMessage
+                {
+                    SourceApp = appName,
+                    TargetApp = "WebAdmin",
+                    MessageType = messageType,
+                    Data = jsonElement,
+                    UserId = GetDeviceId(),
+                    Timestamp = DateTime.UtcNow
+                };
+
+                var response = await hubConnection.InvokeAsync<UniversalMessage>("SendMessage", message);
+
+                if (response?.Data.ValueKind != System.Text.Json.JsonValueKind.Undefined)
+                {
+                    return System.Text.Json.JsonSerializer.Deserialize<TResponse>(response.Data.GetRawText());
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending message with response: {MessageType}", messageType);
+                return null;
+            }
+        }
+
+        private string GetDeviceId()
+        {
+            // Use stored device ID or generate one
+            var deviceId = Preferences.Get("DeviceId", string.Empty);
+            if (string.IsNullOrEmpty(deviceId))
+            {
+                deviceId = Guid.NewGuid().ToString();
+                Preferences.Set("DeviceId", deviceId);
+            }
+            return deviceId;
+        }
+
+
+
+
+
+
+
     }
 }

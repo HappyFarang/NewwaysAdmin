@@ -142,8 +142,8 @@ namespace NewwaysAdmin.SharedModels.Categories
     public class VersionExchangeResponse
     {
         public int ServerVersion { get; set; }
-        public bool YouNeedToDownload { get; set; }
-        public bool ServerNeedsYourData { get; set; } // Future: for mobile editing
-        public FullCategoryData? Data { get; set; } // Included if YouNeedToDownload = true
+        public bool YouNeedUpdate { get; set; }        // Match server
+        public bool ServerNeedsYourData { get; set; }
+        public FullCategoryData? FullData { get; set; } // Match server
     }
 }

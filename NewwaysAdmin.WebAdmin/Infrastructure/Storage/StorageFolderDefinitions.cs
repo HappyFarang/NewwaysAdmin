@@ -1,4 +1,4 @@
-﻿//NewwaysAdmin.WebAdmin/Storage/StorageFolderDefinitions.cs
+﻿//NewwaysAdmin.WebAdmin/Infrastructure/Storage/StorageFolderDefinitions.cs
 using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
@@ -250,6 +250,46 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     IndexFiles = true,
                     IndexedExtensions = [".json"],
                     PassThroughMode = true  // Key: files already serialized by remote IO Manager
+                },
+
+                // Bank Slip System - Config
+                new StorageFolder
+                {
+                    Name = "BankSlipJson",
+                    Description = "Bank slip source type configurations",
+                    Type = StorageType.Json,
+                    Path = "BankSlipJson",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 10
+                },
+                
+                // Bank Slip System - Shared Bills
+                new StorageFolder
+                {
+                    Name = "BankSlipBill",
+                    Description = "Shared bills and receipts from all users",
+                    Type = StorageType.Binary,
+                    Path = "BankSlipBill",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 100,
+                    IndexFiles = true,
+                    IndexedExtensions = new[] { ".bin" }
+                },
+                
+                // Bank Slip System - Bank Slips (dynamic subfolders per bank/user)
+                new StorageFolder
+                {
+                    Name = "BankSlipsBin",
+                    Description = "Bank slip images organized by bank and user",
+                    Type = StorageType.Binary,
+                    Path = "BankSlipsBin",
+                    IsShared = true,
+                    CreateBackups = true,
+                    MaxBackupCount = 100,
+                    IndexFiles = true,
+                    IndexedExtensions = new[] { ".bin" }
                 },
 
                 // Passwords folder - stores encrypted password entries

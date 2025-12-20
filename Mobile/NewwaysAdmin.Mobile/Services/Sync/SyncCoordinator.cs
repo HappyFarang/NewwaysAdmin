@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services.Cache;
 using NewwaysAdmin.Mobile.Services.SignalR;
+using NewwaysAdmin.SignalR.Contracts.Models;
 
 namespace NewwaysAdmin.Mobile.Services.Sync
 {
@@ -259,6 +260,68 @@ namespace NewwaysAdmin.Mobile.Services.Sync
                 TotalCachedItems = stats.TotalItems
             };
         }
+        #region Document Upload
+
+        /// <summary>
+        /// Upload a document directly (with immediate response, no caching)
+        /// Use for bank slips where we want immediate confirmation
+        /// </summary>
+        public async Task<DocumentUploadResponse> UploadDocumentAsync(DocumentUploadRequest request)
+        {
+            try
+            {
+                if (!IsOnline)
+                {
+                    _logger.LogWarning("Cannot upload document - offline");
+                    return DocumentUploadResponse.CreateError("Offline", "Not connected to server");
+                }
+
+                _logger.LogInformation("Uploading document: {FileName} ({Size} bytes)",
+                    request.FileName, request.ImageBase64?.Length ?? 0);
+
+                // Use SignalRMessageSender to send and get response
+                var response = await _messageSender.SendMessageWithResponseAsync<DocumentUploadResponse>(
+                    "UploadDocument",
+                    "MAUI_ExpenseTracker",
+                    request);
+
+                if (response == null)
+                {
+                    return DocumentUploadResponse.CreateError("NoResponse", "No response from server");
+                }
+
+                if (response.Success)
+                {
+                    _logger.LogInformation("Document uploaded successfully: {DocumentId}", response.DocumentId);
+                }
+                else
+                {
+                    _logger.LogWarning("Document upload failed: {Error}", response.Message);
+                }
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading document");
+                return DocumentUploadResponse.CreateError("Exception", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Upload a document with caching fallback (for offline support)
+        /// Will cache and retry if offline
+        /// </summary>
+        public async Task<string> QueueDocumentUploadAsync(DocumentUploadRequest request)
+        {
+            return await CacheAndSyncAsync(
+                request,
+                "BankSlipImage",
+                "UploadDocument",
+                CacheRetentionPolicy.DeleteAfterSync);
+        }
+
+        #endregion
     }
 
     /// <summary>
