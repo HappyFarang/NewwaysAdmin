@@ -1,4 +1,6 @@
-﻿// Middleware/SimpleDoSMiddleware.cs
+﻿// File: NewwaysAdmin.WebAdmin/Middleware/SimpleDoSMiddleware.cs
+// SIMPLIFIED: Trust authenticated users, simple blocking logic
+
 using System.Net;
 using NewwaysAdmin.WebAdmin.Services.Security;
 using NewwaysAdmin.WebAdmin.Services.Auth;
@@ -10,10 +12,9 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         private readonly RequestDelegate _next;
         private readonly ILogger<SimpleDoSMiddleware> _logger;
 
-        private bool IsMobileApiRequest(string path)
-        {
-            return path.StartsWith("/api/mobile/", StringComparison.OrdinalIgnoreCase);
-        }
+        // Trusted API key for mobile apps - must match AppConfig.MobileApiKey
+        private const string ValidMobileApiKey = "NwAdmin2024!Mx9$kL#pQ7zR";
+        private const string ApiKeyHeader = "X-Mobile-Api-Key";
 
         public SimpleDoSMiddleware(RequestDelegate next, ILogger<SimpleDoSMiddleware> logger)
         {
@@ -22,8 +23,8 @@ namespace NewwaysAdmin.WebAdmin.Middleware
         }
 
         public async Task InvokeAsync(HttpContext context,
-    ISimpleDoSProtectionService dosService,
-    IAuthenticationService authService)
+            ISimpleDoSProtectionService dosService,
+            IAuthenticationService authService)
         {
             var ipAddress = GetClientIpAddress(context);
             var userAgent = context.Request.Headers["User-Agent"].ToString();
@@ -32,20 +33,36 @@ namespace NewwaysAdmin.WebAdmin.Middleware
 
             try
             {
-                // MOBILE API BYPASS - Skip DoS protection for mobile API calls
+                // ===== TRUSTED API KEY BYPASS =====
+                // Check for valid Mobile API Key - trusted clients bypass DoS completely
+                var apiKey = context.Request.Headers[ApiKeyHeader].FirstOrDefault();
+                if (!string.IsNullOrEmpty(apiKey) && apiKey == ValidMobileApiKey)
+                {
+                    _logger.LogDebug("Trusted API key - bypassing DoS for {Path} from {IP}", path, ipAddress);
+
+                    context.Response.Headers["X-Protection-Level"] = "trusted-api";
+                    context.Response.Headers["X-RateLimit-Limit"] = "unlimited";
+
+                    await _next(context);
+
+                    // Still log for monitoring, but don't rate limit
+                    var responseTime = DateTime.UtcNow - startTime;
+                    await dosService.LogRequestAsync(ipAddress, userAgent, path, context.Response.StatusCode, true);
+
+                    return;
+                }
+
+                // ===== MOBILE API PATH BYPASS (legacy - for paths without key) =====
                 if (IsMobileApiRequest(path))
                 {
                     _logger.LogInformation("Mobile API request from {IpAddress} to {Path} - bypassing DoS protection",
                         ipAddress, path);
 
-                    // Add minimal security headers for mobile API
                     context.Response.Headers["X-Protection-Level"] = "mobile-api";
                     context.Response.Headers["X-RateLimit-Limit"] = "unlimited";
 
-                    // Continue to next middleware without DoS checks
                     await _next(context);
 
-                    // Calculate response time and log the request for monitoring
                     var mobileResponseTime = DateTime.UtcNow - startTime;
                     await dosService.LogRequestAsync(ipAddress, userAgent, path, context.Response.StatusCode, false);
 
@@ -53,7 +70,8 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                     return;
                 }
 
-                // EXISTING LOGIC FOR NON-MOBILE REQUESTS
+                // ===== STANDARD DOS PROTECTION FOR ALL OTHER REQUESTS =====
+
                 // Check if user is authenticated
                 var isAuthenticated = await IsUserAuthenticated(context, authService);
 
@@ -70,7 +88,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                 if (dosCheck.IsHighRisk)
                 {
                     var userType = isAuthenticated ? "authenticated" : "unauthenticated";
-                    _logger.LogWarning("High-risk {UserType} client: {IpAddress} - {RequestsInWindow} requests",
+                    _logger.LogWarning("High-risk activity from {UserType} IP {IpAddress}: {Requests} requests in window",
                         userType, ipAddress, dosCheck.RequestsInWindow);
                 }
 
@@ -80,53 +98,41 @@ namespace NewwaysAdmin.WebAdmin.Middleware
                 // Continue to next middleware
                 await _next(context);
 
-                // Log the request
-                var responseTime = DateTime.UtcNow - startTime;
+                // Log the request after completion
+                var responseTime2 = DateTime.UtcNow - startTime;
                 await dosService.LogRequestAsync(ipAddress, userAgent, path, context.Response.StatusCode, isAuthenticated);
 
-                // Log errors
+                // Check for suspicious patterns after response
                 if (context.Response.StatusCode >= 400)
                 {
-                    var logLevel = isAuthenticated ? LogLevel.Information : LogLevel.Warning;
-                    _logger.Log(logLevel,
-                        "Error {StatusCode} from {UserType} user {IpAddress} to {Path} in {ResponseTime}ms",
-                        context.Response.StatusCode,
-                        isAuthenticated ? "authenticated" : "unauthenticated",
-                        ipAddress,
-                        path,
-                        responseTime.TotalMilliseconds);
+                    _logger.LogDebug("Error response {StatusCode} for {Path} from {IpAddress}",
+                        context.Response.StatusCode, path, ipAddress);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in DoS middleware for {IpAddress}", ipAddress);
-
-                // Still log the request
-                await dosService.LogRequestAsync(ipAddress, userAgent, path, 500, false);
+                _logger.LogError(ex, "Error in DoS middleware for {Path}", path);
                 throw;
             }
         }
 
+        private bool IsMobileApiRequest(string path)
+        {
+            return path.StartsWith("/api/mobile/", StringComparison.OrdinalIgnoreCase);
+        }
 
         private async Task<bool> IsUserAuthenticated(HttpContext context, IAuthenticationService authService)
         {
             try
             {
-                // 1. Check for session cookie (primary check)
-                var sessionId = context.Request.Cookies["SessionId"];
-                if (!string.IsNullOrEmpty(sessionId))
+                // Check for authentication cookie or header
+                if (!context.Request.Cookies.Any() &&
+                    !context.Request.Headers.ContainsKey("Authorization"))
                 {
-                    _logger.LogDebug("Found SessionId cookie: {SessionId}", sessionId);
-                    return true;
+                    return false;
                 }
 
-                // 2. Check ASP.NET Core authentication
-                if (context.User?.Identity?.IsAuthenticated == true)
-                {
-                    return true;
-                }
-
-                // 3. Check your custom authentication service (fallback)
+                // Check your custom authentication service (fallback)
                 var session = await authService.GetCurrentSessionAsync();
                 return session != null;
             }
@@ -156,7 +162,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             }
             else
             {
-                context.Response.Headers["X-RateLimit-Limit"] = "50";  // Updated to match new limits
+                context.Response.Headers["X-RateLimit-Limit"] = "50";
                 context.Response.Headers["X-RateLimit-Window"] = "60";
             }
 
@@ -185,7 +191,7 @@ namespace NewwaysAdmin.WebAdmin.Middleware
             }
             else
             {
-                headers["X-RateLimit-Limit"] = "50";  // Updated to match new limits
+                headers["X-RateLimit-Limit"] = "50";
                 headers["X-Protection-Level"] = "public";
             }
 

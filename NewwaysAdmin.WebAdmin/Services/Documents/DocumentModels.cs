@@ -62,8 +62,13 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
         public string? StorageFolderName { get; set; }
         public string? ErrorMessage { get; set; }
 
-        public static DocumentSaveResult CreateSuccess(string documentId, string storagePath, string storageFolderName)
-            => new() { Success = true, DocumentId = documentId, StoragePath = storagePath, StorageFolderName = storageFolderName };
+        /// <summary>
+        /// True if file already existed (idempotent return)
+        /// </summary>
+        public bool IsDuplicate { get; set; }
+
+        public static DocumentSaveResult CreateSuccess(string documentId, string storagePath, string storageFolderName, bool isDuplicate = false)
+            => new() { Success = true, DocumentId = documentId, StoragePath = storagePath, StorageFolderName = storageFolderName, IsDuplicate = isDuplicate };
 
         public static DocumentSaveResult CreateError(string errorMessage)
             => new() { Success = false, ErrorMessage = errorMessage };

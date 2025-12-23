@@ -12,7 +12,14 @@ using NewwaysAdmin.Mobile.Services.Categories;
 using NewwaysAdmin.Mobile.Services.BankSlip;
 using NewwaysAdmin.Mobile.ViewModels.Categories;
 using NewwaysAdmin.Mobile.Config;
+using NewwaysAdmin.Mobile.Services.SignalR;
+using NewwaysAdmin.Mobile.Services.Cache;
+using NewwaysAdmin.Mobile.Services.Sync;
+using NewwaysAdmin.Mobile.ViewModels.Settings;
 
+#if ANDROID
+using NewwaysAdmin.Mobile.Platforms.Android.Services;
+#endif
 
 namespace NewwaysAdmin.Mobile;
 
@@ -45,7 +52,7 @@ public static class MauiProgram
 
         // ===== CORE SERVICES =====
         builder.Services.AddSingleton<CredentialStorageService>();
-        builder.Services.AddSingleton<PermissionsCache>();  // <-- This was missing!
+        builder.Services.AddSingleton<PermissionsCache>();
 
         // ===== HTTP CLIENTS + AUTH/CONNECTION SERVICES =====
         builder.Services.AddHttpClient<IMauiAuthService, MauiAuthService>(client =>
@@ -62,7 +69,6 @@ public static class MauiProgram
             client.DefaultRequestHeaders.Add("X-Mobile-Api-Key", AppConfig.MobileApiKey);
         });
 
-
         // ===== CONNECTIVITY =====
         builder.Services.AddSingleton<ConnectionState>();
         builder.Services.AddSingleton<ConnectionMonitor>();
@@ -73,18 +79,36 @@ public static class MauiProgram
         builder.Services.AddSingleton<CategoryDataService>();
         builder.Services.AddSingleton<CategoryHubConnector>();
 
+        // ===== SIGNALR SERVICES =====
+        builder.Services.AddSingleton<SignalRConnection>();
+        builder.Services.AddSingleton<SignalRMessageSender>();
+        builder.Services.AddSingleton<SignalRAppRegistration>();
+        builder.Services.AddSingleton<SignalREventListener>();
+
+        // ===== CACHE SERVICES =====
+        builder.Services.AddSingleton<CacheStorage>();
+        builder.Services.AddSingleton<CacheManager>();
+
+        // ===== SYNC COORDINATOR =====
+        builder.Services.AddSingleton<SyncCoordinator>();
+
         // ===== BANK SLIP SERVICES =====
         builder.Services.AddSingleton<ProcessedSlipsTracker>();
         builder.Services.AddSingleton<BankSlipSettingsService>();
         builder.Services.AddSingleton<BankSlipService>();
-        builder.Services.AddTransient<BankSlipSettingsViewModel>();
+
+        // Bank slip real-time monitoring (Android only)
+#if ANDROID
+        builder.Services.AddSingleton<BankSlipObserverManager>();
+        builder.Services.AddSingleton<IBankSlipMonitorControl, BankSlipMonitorControl>();
+#endif
 
         // ===== VIEWMODELS =====
         builder.Services.AddTransient<SimpleLoginViewModel>();
         builder.Services.AddTransient<HomeViewModel>();
         builder.Services.AddTransient<CategoryBrowserViewModel>();
         builder.Services.AddTransient<CategoryManagementViewModel>();
-        // builder.Services.AddTransient<SettingsViewModel>();
+        builder.Services.AddTransient<BankSlipSettingsViewModel>();
 
         // ===== PAGES =====
         builder.Services.AddTransient<SimpleLoginPage>();

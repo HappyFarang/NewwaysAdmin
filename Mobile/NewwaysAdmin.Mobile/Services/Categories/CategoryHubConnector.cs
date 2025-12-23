@@ -547,5 +547,88 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 return "Unknown_Device";
             }
         }
+        #region Document Upload
+
+        /// <summary>
+        /// Upload a bank slip document via the existing hub connection
+        /// </summary>
+        public async Task<DocumentUploadResponse> UploadDocumentAsync(DocumentUploadRequest request)
+        {
+            if (_hubConnection?.State != HubConnectionState.Connected)
+            {
+                // Try to connect first
+                _logger.LogInformation("Hub not connected, attempting to connect...");
+                var connected = await ConnectAsync();
+
+                if (!connected)
+                {
+                    _logger.LogWarning("Cannot upload document - failed to connect");
+                    return DocumentUploadResponse.CreateError("Offline", "Not connected to server");
+                }
+            }
+
+            try
+            {
+                _logger.LogInformation("Uploading document: {FileName} ({Size} bytes)",
+                    request.FileName, request.ImageBase64?.Length ?? 0);
+
+                _versionExchangeResponse = new TaskCompletionSource<JsonElement?>();
+
+                await _hubConnection!.SendAsync("SendMessageAsync", new UniversalMessage
+                {
+                    MessageId = Guid.NewGuid().ToString(),
+                    MessageType = "UploadDocument",
+                    SourceApp = "MAUI_ExpenseTracker",
+                    TargetApp = "MAUI_ExpenseTracker",
+                    Data = JsonSerializer.SerializeToElement(request),
+                    Timestamp = DateTime.UtcNow
+                });
+
+                _logger.LogDebug("Upload message sent, waiting for response...");
+
+                var responseTask = _versionExchangeResponse.Task;
+                if (await Task.WhenAny(responseTask, Task.Delay(30000)) == responseTask)
+                {
+                    var result = await responseTask;
+
+                    if (result?.TryGetProperty("success", out var successProp) == true && successProp.GetBoolean())
+                    {
+                        if (result.Value.TryGetProperty("data", out var dataProp))
+                        {
+                            var response = JsonSerializer.Deserialize<DocumentUploadResponse>(
+                                dataProp.GetRawText(),
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                            if (response?.Success == true)
+                            {
+                                _logger.LogInformation("✅ Document uploaded: {DocumentId}", response.DocumentId);
+                                return response;
+                            }
+                        }
+
+                        // Generic success if no detailed response
+                        _logger.LogInformation("✅ Document uploaded successfully");
+                        return new DocumentUploadResponse { Success = true };
+                    }
+
+                    if (result?.TryGetProperty("error", out var errorProp) == true)
+                    {
+                        var error = errorProp.GetString() ?? "Unknown error";
+                        _logger.LogWarning("Upload failed: {Error}", error);
+                        return DocumentUploadResponse.CreateError("ServerError", error);
+                    }
+                }
+
+                _logger.LogWarning("Upload timed out after 30 seconds");
+                return DocumentUploadResponse.CreateError("Timeout", "Upload timed out");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading document");
+                return DocumentUploadResponse.CreateError("Exception", ex.Message);
+            }
+        }
+
+        #endregion
     }
 }

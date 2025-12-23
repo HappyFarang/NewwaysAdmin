@@ -1,6 +1,7 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Services/SignalR/SignalRConnection.cs
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
+using NewwaysAdmin.Mobile.Config;
 
 namespace NewwaysAdmin.Mobile.Services.SignalR
 {
@@ -33,7 +34,10 @@ namespace NewwaysAdmin.Mobile.Services.SignalR
                 _logger.LogInformation("Connecting to SignalR: {ServerUrl}", serverUrl);
 
                 _connection = new HubConnectionBuilder()
-                    .WithUrl($"{serverUrl}/hubs/universal")
+                    .WithUrl($"{serverUrl}/hubs/universal", options =>
+                    {
+                        options.Headers.Add("X-Mobile-Api-Key", AppConfig.MobileApiKey);
+                    })
                     .WithAutomaticReconnect()
                     .Build();
 
@@ -69,7 +73,6 @@ namespace NewwaysAdmin.Mobile.Services.SignalR
         }
 
         public bool IsConnected => _connection?.State == HubConnectionState.Connected;
-
         public HubConnection? GetConnection() => _connection;
 
         // ===== DISPOSE =====

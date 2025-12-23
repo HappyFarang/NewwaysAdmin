@@ -2,20 +2,44 @@
 // Manages bank slip monitoring settings - saves/loads the BankSlipSyncSettings
 
 using System.Text.Json;
-using Microsoft.Maui.Storage;
 
 namespace NewwaysAdmin.Mobile.Services.BankSlip
 {
+    /// <summary>
+    /// A folder to monitor for bank slip images
+    /// </summary>
+    public class MonitoredFolder
+    {
+        /// <summary>
+        /// Full path to the folder on the device (from folder picker)
+        /// e.g., "/storage/emulated/0/DCIM/KPLUS"
+        /// </summary>
+        public string DeviceFolderPath { get; set; } = "";
+
+        /// <summary>
+        /// User-defined pattern identifier sent to server
+        /// e.g., "KPLUS_Thomas", "KBIZ_Office_Tablet"
+        /// This becomes the subfolder in BankSlipsBin on the server
+        /// </summary>
+        public string PatternIdentifier { get; set; } = "";
+
+        /// <summary>
+        /// Display name for UI (derived from path if not set)
+        /// </summary>
+        public string DisplayName => string.IsNullOrEmpty(PatternIdentifier)
+            ? Path.GetFileName(DeviceFolderPath)
+            : PatternIdentifier;
+    }
+
     /// <summary>
     /// User-configurable settings for bank slip monitoring
     /// </summary>
     public class BankSlipSyncSettings
     {
         /// <summary>
-        /// Folder names to monitor (relative to DCIM/Pictures)
-        /// e.g. "kbiz", "kplus", "bangkokbank"
+        /// Folders to monitor with their pattern identifiers
         /// </summary>
-        public List<string> MonitoredFolders { get; set; } = new();
+        public List<MonitoredFolder> MonitoredFolders { get; set; } = new();
 
         /// <summary>
         /// Is auto-sync enabled?
@@ -32,16 +56,6 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
     {
         private readonly string _settingsFilePath;
         private BankSlipSyncSettings? _cachedSettings;
-
-        // Default folder names that banking apps commonly use
-        public static readonly List<FolderOption> AvailableFolders = new()
-        {
-            new FolderOption("kbiz", "KBIZ", "K-Bank Business App"),
-            new FolderOption("kplus", "KPlus", "K-Bank Plus App"),
-            new FolderOption("scb", "SCB", "SCB Easy App"),
-            new FolderOption("bangkokbank", "BangkokBank", "Bangkok Bank Mobile"),
-            new FolderOption("bills", "Bills", "General receipts/bills")
-        };
 
         public BankSlipSettingsService()
         {
@@ -100,25 +114,34 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         /// <summary>
         /// Add a folder to monitor
         /// </summary>
-        public async Task AddFolderAsync(string folderName)
+        public async Task AddFolderAsync(string deviceFolderPath, string patternIdentifier)
         {
             var settings = await LoadSettingsAsync();
 
-            if (!settings.MonitoredFolders.Contains(folderName, StringComparer.OrdinalIgnoreCase))
+            // Check if pattern identifier already exists
+            if (settings.MonitoredFolders.Any(f =>
+                f.PatternIdentifier.Equals(patternIdentifier, StringComparison.OrdinalIgnoreCase)))
             {
-                settings.MonitoredFolders.Add(folderName);
-                await SaveSettingsAsync(settings);
+                return; // Already exists
             }
+
+            settings.MonitoredFolders.Add(new MonitoredFolder
+            {
+                DeviceFolderPath = deviceFolderPath,
+                PatternIdentifier = patternIdentifier
+            });
+
+            await SaveSettingsAsync(settings);
         }
 
         /// <summary>
-        /// Remove a folder from monitoring
+        /// Remove a folder from monitoring by pattern identifier
         /// </summary>
-        public async Task RemoveFolderAsync(string folderName)
+        public async Task RemoveFolderAsync(string patternIdentifier)
         {
             var settings = await LoadSettingsAsync();
             settings.MonitoredFolders.RemoveAll(f =>
-                f.Equals(folderName, StringComparison.OrdinalIgnoreCase));
+                f.PatternIdentifier.Equals(patternIdentifier, StringComparison.OrdinalIgnoreCase));
             await SaveSettingsAsync(settings);
         }
 
@@ -148,23 +171,6 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         public void ClearCache()
         {
             _cachedSettings = null;
-        }
-    }
-
-    /// <summary>
-    /// Display info for available folder options
-    /// </summary>
-    public class FolderOption
-    {
-        public string FolderName { get; }
-        public string DisplayName { get; }
-        public string Description { get; }
-
-        public FolderOption(string folderName, string displayName, string description)
-        {
-            FolderName = folderName;
-            DisplayName = displayName;
-            Description = description;
         }
     }
 }

@@ -2,6 +2,7 @@
 @using NewwaysAdmin.WebAdmin.Models.Auth
 @using NewwaysAdmin.WebAdmin.Services.Auth
 @using NewwaysAdmin.WebAdmin.Authentication
+@using NewwaysAdmin.WebAdmin.Security
 @using Microsoft.AspNetCore.Components.Authorization
 
 @inject IAuthenticationService AuthService
@@ -9,6 +10,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject ILogger<Login> Logger
 @inject IJSRuntime JSRuntime
+@inject IHttpContextAccessor HttpContextAccessor
 
 <div class="login-container">
     <div class="login-card">
@@ -22,7 +24,7 @@
 
                     @if (!string.IsNullOrEmpty(errorMessage))
                     {
-                        <div class="alert alert-danger">@errorMessage</div>
+                            <div class="alert alert-danger">@errorMessage</div>
                     }
 
                     <div class="mb-4">
@@ -40,12 +42,12 @@
                     <button type="submit" class="btn btn-secondary w-100 btn-lg" disabled="@isLoading">
                         @if (isLoading)
                         {
-                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                            <span class="ms-2">Logging in...</span>
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="ms-2">Logging in...</span>
                         }
                         else
                         {
-                            <span>Login</span>
+                                <span>Login</span>
                         }
                     </button>
                 </EditForm>
@@ -54,8 +56,6 @@
     </div>
 </div>
 
-<!-- Debug button -->
-<button class="btn btn-secondary mt-3" @onclick="DebugStyles">Debug Styles</button>
 @code {
     private LoginModel loginModel = new();
     private string? errorMessage;
@@ -78,10 +78,16 @@
             isLoading = true;
             errorMessage = null;
 
+            // Get client IP for tracking
+            var clientIp = GetClientIp();
+
             var (success, error) = await AuthService.LoginAsync(loginModel);
 
             if (success)
             {
+                // SUCCESS - Clear any failed attempts for this IP
+                AuthGateMiddleware.RecordSuccessfulLogin(clientIp, Logger);
+
                 var session = await AuthService.GetCurrentSessionAsync();
                 if (session != null)
                 {
@@ -101,7 +107,27 @@
             }
             else
             {
-                errorMessage = error ?? "Login failed";
+                // FAILED - Record the failed attempt
+                AuthGateMiddleware.RecordFailedLogin(clientIp, Logger);
+
+                // Check if IP is now banned
+                var (attempts, isBanned, bannedUntil) = AuthGateMiddleware.GetStatus(clientIp);
+
+                if (isBanned)
+                {
+                    var minutes = (int)(bannedUntil!.Value - DateTime.UtcNow).TotalMinutes;
+                    errorMessage = $"Too many failed attempts. Access blocked for {minutes} minutes.";
+                    Logger.LogWarning("IP {IP} banned after {Attempts} failed login attempts", clientIp, attempts);
+                }
+                else
+                {
+                    var remaining = 3 - attempts;
+                    errorMessage = error ?? "Login failed";
+                    if (remaining > 0 && remaining < 3)
+                    {
+                        errorMessage += $" ({remaining} attempt{(remaining == 1 ? "" : "s")} remaining)";
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -115,50 +141,19 @@
         }
     }
 
-
-    private async Task DebugStyles()
+    private string GetClientIp()
     {
-        await JSRuntime.InvokeVoidAsync("eval", @"
-        // Debug Container and Card structure
-        const selectors = ['.login-container', '.login-card', '.card'];
-        selectors.forEach(selector => {
-            const el = document.querySelector(selector);
-            if (el) {
-                console.log(`\n=== ${selector} Details ===`);
-                const computed = window.getComputedStyle(el);
-                console.log('Width:', computed.width);
-                console.log('Max-Width:', computed.maxWidth);
-                console.log('Margin:', computed.margin);
-                console.log('Padding:', computed.padding);
-                console.log('Display:', computed.display);
-                console.log('Position:', computed.position);
-                console.log('Box-Sizing:', computed.boxSizing);
+        var context = HttpContextAccessor.HttpContext;
+        if (context == null) return "unknown";
 
-                console.log('Actual dimensions:');
-                console.log('- offsetWidth:', el.offsetWidth);
-                console.log('- offsetHeight:', el.offsetHeight);
-                console.log('- clientWidth:', el.clientWidth);
-                console.log('- clientHeight:', el.clientHeight);
-            }
-        });
-
-        // Log parent hierarchy
-        console.log('\n=== Parent Hierarchy ===');
-        let element = document.querySelector('.login-container');
-        let level = 0;
-        while (element && level < 10) {
-            const computed = window.getComputedStyle(element);
-            console.log(`\nLevel ${level}:`);
-            console.log('- Element:', element.tagName.toLowerCase() + (element.className ? '.' + element.className.replace(/ /g, '.') : ''));
-            console.log('- Width:', computed.width);
-            console.log('- Max-Width:', computed.maxWidth);
-            console.log('- Display:', computed.display);
-            console.log('- Position:', computed.position);
-            console.log('- Actual Width:', element.offsetWidth + 'px');
-
-            element = element.parentElement;
-            level++;
+        // Check for forwarded IP (behind reverse proxy)
+        var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(forwardedFor))
+        {
+            var ip = forwardedFor.Split(',').First().Trim();
+            if (!string.IsNullOrEmpty(ip)) return ip;
         }
-    ");
+
+        return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
     }
 }

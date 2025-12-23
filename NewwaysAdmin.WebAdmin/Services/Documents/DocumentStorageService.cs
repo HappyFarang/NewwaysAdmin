@@ -1,24 +1,20 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Services/Documents/DocumentStorageService.cs
 // Handles storage of uploaded documents using IO Manager
-// 3 registered folders, fully dynamic users
+// UPDATED: Idempotent uploads - same file timestamp = return existing, not create duplicate
 //
 // Storage structure:
 // BankSlipJson/                    ← Registered (Json) - config
 // └── source-types.json
 //
 // BankSlipBill/                    ← Registered (Binary) - shared bills
-// ├── Amy_Bills_07_12_2025_18_00.bin
-// └── Thomas_Bills_08_12_2025_12_30.bin
+// ├── Amy_Bills_07_12_2025_18_00_30.bin
+// └── Thomas_Bills_08_12_2025_12_30_45.bin
 //
 // BankSlipsBin/                    ← Registered (Binary) - all bank slips
 // ├── KBIZ_Amy/                    ← Dynamic subfolder via key
-// │   └── Amy_KBIZ_07_12_2025_16_45.bin
-// ├── KPlus_Amy/
-// │   └── Amy_KPlus_08_12_2025_09_15.bin
-// ├── KBIZ_Thomas/
-// │   └── Thomas_KBIZ_07_12_2025_16_45.bin
+// │   └── Amy_KBIZ_07_12_2025_16_45_30.bin   ← Now includes seconds!
 // └── KPlus_Thomas/
-//     └── Thomas_KPlus_08_12_2025_09_15.bin
+//     └── Thomas_KPlus_08_12_2025_09_15_00.bin
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
@@ -59,10 +55,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
         {
             try
             {
-                // Folders are registered in StorageFolderDefinitions.cs
-                // Just get the config storage and load config
                 _configStorage = _storageFactory.GetStorage<SourceTypeConfig>(CONFIG_FOLDER);
-
                 await LoadOrCreateConfigAsync();
 
                 _logger.LogInformation("DocumentStorageService initialized with {TypeCount} source types",
@@ -113,10 +106,17 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
             };
         }
 
+        private async Task SaveConfigAsync()
+        {
+            _config.LastModified = DateTime.UtcNow;
+            await _configStorage!.SaveAsync(CONFIG_KEY, _config);
+        }
+
         // ===== DOCUMENT STORAGE =====
 
         /// <summary>
-        /// Save an uploaded document
+        /// Save an uploaded document - IDEMPOTENT
+        /// If same file (by device timestamp) already exists, returns success with existing path
         /// </summary>
         public async Task<DocumentSaveResult> SaveDocumentAsync(DocumentUploadRequest request)
         {
@@ -129,80 +129,79 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
                     return DocumentSaveResult.CreateError(validation.ErrorMessage!);
                 }
 
-                // Get source type
+                // Get source type - if not found, use the SourceFolder as-is (for custom pattern identifiers)
                 var sourceType = GetSourceType(request.SourceFolder);
-                if (sourceType == null)
-                {
-                    _logger.LogWarning("Unknown source folder: {SourceFolder}", request.SourceFolder);
-                    return DocumentSaveResult.CreateError($"Unknown source folder: {request.SourceFolder}");
-                }
+                var displayName = sourceType?.DisplayName ?? SanitizeName(request.SourceFolder);
 
                 var username = SanitizeName(request.Username);
                 var displayUsername = char.ToUpper(username[0]) + username[1..];
-                var timestamp = DateTime.UtcNow;
+
+                // Use DEVICE timestamp for idempotency - same file = same key
+                var fileTimestamp = request.DeviceTimestamp;
+                if (fileTimestamp == default || fileTimestamp == DateTime.MinValue)
+                {
+                    // Fallback to server time if device didn't send timestamp
+                    fileTimestamp = DateTime.UtcNow;
+                    _logger.LogWarning("No device timestamp provided, using server time");
+                }
 
                 string binFolderName;
                 string documentKey;
 
                 // Bills go to shared folder, bank slips go to BankSlipsBin with dynamic subfolders
-                if (sourceType.Key.Equals("bills", StringComparison.OrdinalIgnoreCase))
+                if (sourceType?.Key.Equals("bills", StringComparison.OrdinalIgnoreCase) == true)
                 {
                     // Bills: shared folder, flat structure
                     binFolderName = BILLS_FOLDER;
-                    documentKey = $"{displayUsername}_Bills_{timestamp:dd_MM_yyyy_HH_mm}";
+                    // Include seconds for uniqueness within same minute
+                    documentKey = $"{displayUsername}_Bills_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
                 }
                 else
                 {
                     // Bank slips: dynamic subfolder {Bank}_{User}/filename
                     binFolderName = BANKSLIPS_FOLDER;
-                    var subFolder = $"{sourceType.DisplayName}_{displayUsername}";
-                    var fileName = $"{displayUsername}_{sourceType.DisplayName}_{timestamp:dd_MM_yyyy_HH_mm}";
+                    var subFolder = $"{displayName}_{displayUsername}";
+                    // Include seconds for uniqueness - based on DEVICE timestamp
+                    var fileName = $"{displayUsername}_{displayName}_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
                     documentKey = $"{subFolder}/{fileName}";
                 }
 
-                // Get storage and check for duplicates
+                // Get storage
                 var storage = _storageFactory.GetStorage<ImageData>(binFolderName);
+
+                // ===== IDEMPOTENT CHECK =====
+                // If file with this key already exists, return success with existing path
+                // This prevents duplicates when mobile retries due to network issues
                 if (await storage.ExistsAsync(documentKey))
                 {
-                    // Add seconds for uniqueness
-                    if (sourceType.Key.Equals("bills", StringComparison.OrdinalIgnoreCase))
-                    {
-                        documentKey = $"{displayUsername}_Bills_{timestamp:dd_MM_yyyy_HH_mm_ss}";
-                    }
-                    else
-                    {
-                        var subFolder = $"{sourceType.DisplayName}_{displayUsername}";
-                        var fileName = $"{displayUsername}_{sourceType.DisplayName}_{timestamp:dd_MM_yyyy_HH_mm_ss}";
-                        documentKey = $"{subFolder}/{fileName}";
-                    }
+                    _logger.LogInformation(
+                        "📋 DUPLICATE DETECTED - File already exists: {DocumentKey}. Returning existing path (idempotent).",
+                        documentKey);
+
+                    var existingPath = $"{binFolderName}/{documentKey}";
+                    return DocumentSaveResult.CreateSuccess(documentKey, existingPath, binFolderName, isDuplicate: true);
                 }
 
-                // Decode image bytes
-                byte[] imageBytes;
-                try
-                {
-                    imageBytes = Convert.FromBase64String(request.ImageBase64);
-                }
-                catch (FormatException)
-                {
-                    return DocumentSaveResult.CreateError("Invalid base64 image data");
-                }
+                // Decode and save
+                var imageBytes = Convert.FromBase64String(request.ImageBase64);
+                var imageData = new ImageData { Bytes = imageBytes };
 
-                // Save wrapped in ImageData (IO Manager requires class with parameterless constructor)
-                await storage.SaveAsync(documentKey, new ImageData(imageBytes));
+                await storage.SaveAsync(documentKey, imageData);
 
-                var storagePath = $"{binFolderName}/{documentKey}.bin";
-
-                _logger.LogInformation(
-                    "Document saved: {DocumentKey} for {Username} via {SourceFolder} ({Size} bytes)",
-                    documentKey, username, request.SourceFolder, imageBytes.Length);
+                var storagePath = $"{binFolderName}/{documentKey}";
+                _logger.LogInformation("✅ Document saved: {DocumentKey} -> {Path} ({Size} bytes)",
+                    documentKey, storagePath, imageBytes.Length);
 
                 return DocumentSaveResult.CreateSuccess(documentKey, storagePath, binFolderName);
             }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Invalid base64 image data");
+                return DocumentSaveResult.CreateError("Invalid image data format");
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving document from {Username} via {SourceFolder}",
-                    request.Username, request.SourceFolder);
+                _logger.LogError(ex, "Error saving document");
                 return DocumentSaveResult.CreateError($"Storage error: {ex.Message}");
             }
         }
@@ -350,9 +349,9 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
         }
 
         /// <summary>
-        /// Remove a source type (keeps files)
+        /// Delete a source type
         /// </summary>
-        public async Task<bool> RemoveSourceTypeAsync(string key)
+        public async Task<bool> DeleteSourceTypeAsync(string key)
         {
             await _lock.WaitAsync();
             try
@@ -362,12 +361,13 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
 
                 if (removed == 0)
                 {
-                    _logger.LogWarning("Source type not found: {Key}", key);
+                    _logger.LogWarning("Source type not found for deletion: {Key}", key);
                     return false;
                 }
 
                 await SaveConfigAsync();
-                _logger.LogInformation("Removed source type: {Key}", key);
+
+                _logger.LogInformation("Deleted source type: {Key}", key);
                 return true;
             }
             finally
@@ -376,55 +376,36 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
             }
         }
 
-        // ===== HELPERS =====
-
-        private async Task SaveConfigAsync()
-        {
-            if (_configStorage != null)
-            {
-                _config.LastModified = DateTime.UtcNow;
-                await _configStorage.SaveAsync(CONFIG_KEY, _config);
-            }
-        }
+        // ===== VALIDATION =====
 
         private (bool IsValid, string? ErrorMessage) ValidateRequest(DocumentUploadRequest request)
         {
             if (string.IsNullOrWhiteSpace(request.SourceFolder))
-                return (false, "Source folder is required");
-
-            if (string.IsNullOrWhiteSpace(request.FileName))
-                return (false, "File name is required");
-
-            if (string.IsNullOrWhiteSpace(request.ImageBase64))
-                return (false, "Image data is required");
+                return (false, "SourceFolder is required");
 
             if (string.IsNullOrWhiteSpace(request.Username))
                 return (false, "Username is required");
 
-            var estimatedSize = request.ImageBase64.Length * 3 / 4;
-            if (estimatedSize > 10 * 1024 * 1024)
-                return (false, "File too large (max 10MB)");
+            if (string.IsNullOrWhiteSpace(request.ImageBase64))
+                return (false, "ImageBase64 is required");
+
+            if (string.IsNullOrWhiteSpace(request.FileName))
+                return (false, "FileName is required");
 
             return (true, null);
         }
 
-        private static string SanitizeName(string name)
+        private string SanitizeName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
                 return "unknown";
 
-            var sanitized = string.Join("_", name.Split(Path.GetInvalidFileNameChars(),
-                StringSplitOptions.RemoveEmptyEntries));
+            // Remove invalid characters and normalize
+            var sanitized = new string(name
+                .Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-')
+                .ToArray());
 
-            while (sanitized.Contains("__"))
-                sanitized = sanitized.Replace("__", "_");
-
-            sanitized = sanitized.Trim('_');
-
-            if (sanitized.Length > 30)
-                sanitized = sanitized[..30];
-
-            return string.IsNullOrEmpty(sanitized) ? "unknown" : sanitized;
+            return string.IsNullOrWhiteSpace(sanitized) ? "unknown" : sanitized.ToLowerInvariant();
         }
     }
 }

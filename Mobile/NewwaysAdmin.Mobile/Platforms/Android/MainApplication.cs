@@ -10,30 +10,16 @@ namespace NewwaysAdmin.Mobile
             : base(handle, ownership)
         {
         }
+
         public override void OnCreate()
         {
             base.OnCreate();
 
-            // Start bank slip monitor if enabled
-            Task.Run(async () =>
-            {
-                try
-                {
-                    var settingsService = new NewwaysAdmin.Mobile.Services.BankSlip.BankSlipSettingsService();
-                    var settings = await settingsService.LoadSettingsAsync();
-
-                    if (settings.IsEnabled)
-                    {
-                        NewwaysAdmin.Mobile.Platforms.Android.Services.BankSlipWorkerManager.EnqueueMonitorWorker(this);
-                        Android.Util.Log.Info("MainApplication", "Bank slip monitor started");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Android.Util.Log.Error("MainApplication", $"Failed to start bank slip monitor: {ex.Message}");
-                }
-            });
+            // Bank slip monitoring is now started via Settings page
+            // using the new FileObserver-based service (IBankSlipMonitorControl)
+            Android.Util.Log.Info("MainApplication", "Application started");
         }
+
         protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
     }
 }

@@ -3,7 +3,7 @@ using NewwaysAdmin.WebAdmin.Extensions;
 using NewwaysAdmin.WebAdmin.Registration;
 using NewwaysAdmin.WebAdmin.Middleware;
 using NewwaysAdmin.WebAdmin.Services.Background;
-
+using NewwaysAdmin.WebAdmin.Security;  // <-- Added for AuthGateMiddleware
 
 namespace NewwaysAdmin.WebAdmin;
 
@@ -55,8 +55,6 @@ public class Program
         app.Services.ConfigureExternalFileProcessors();
         app.Services.ConfigurePassThroughSyncPaths();
 
-       
-
         // Configure the application pipeline
         await ConfigureApplication(app);
 
@@ -78,7 +76,8 @@ public class Program
             .AddMobileApiServices()                     // Mobile API Controllers
             .AddBackgroundServices();                   // Blazor Server, Background Workers
 
-        // 🔥 THAT'S IT! NO MORE 200-LINE MESS!
+        // HttpContextAccessor - needed for Login.razor to get client IP
+        services.AddHttpContextAccessor();
     }
 
     private static async Task ConfigureApplication(WebApplication app)
@@ -96,17 +95,13 @@ public class Program
         app.UseStaticFiles();
         app.UseRouting();
 
-        // ===== PASSWORD ======
-
-        // Custom middleware
-        app.UseMiddleware<SimpleDoSMiddleware>();
-
-        // Authentication & Authorization
+        // ===== AUTHENTICATION & SECURITY =====
         app.UseAuthentication();
+        app.UseMiddleware<AuthGateMiddleware>();  // Auth gate AFTER authentication
         app.UseAuthorization();
 
-        // ===== API CONTROLLERS 
-        app.MapMobileApiEndpoints();    
+        // ===== API CONTROLLERS =====
+        app.MapMobileApiEndpoints();
 
         // ===== BLAZOR CONFIGURATION =====
         app.MapRazorPages();
@@ -122,8 +117,3 @@ public class Program
         app.Logger.LogInformation("🚀 NewwaysAdmin.WebAdmin started successfully!");
     }
 }
-
-// 🎉 FROM 200+ LINES OF CHAOS TO BEAUTIFUL CLEAN CODE!
-// 🎯 Easy to read, easy to maintain, easy to extend
-// 💪 Proper dependency order, no more "heavy heart" when adding services!
-// 🔥 Each service group has its own home - no more hunting!

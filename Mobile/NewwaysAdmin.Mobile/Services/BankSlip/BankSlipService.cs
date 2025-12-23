@@ -2,7 +2,7 @@
 // Handles bank slip scanning and uploading via SignalR
 
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.Mobile.Services.Sync;
+using NewwaysAdmin.Mobile.Services.Categories;
 using NewwaysAdmin.SignalR.Contracts.Models;
 
 namespace NewwaysAdmin.Mobile.Services.BankSlip
@@ -10,22 +10,24 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
     public class BankSlipService
     {
         private readonly ILogger<BankSlipService> _logger;
-        private readonly SyncCoordinator _syncCoordinator;
+        private readonly CategoryHubConnector _hubConnector;
         private readonly ProcessedSlipsTracker _tracker;
         private readonly BankSlipSettingsService _settingsService;
         private readonly string _username;
+
+        private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png" };
 
         public event EventHandler<SlipUploadedEventArgs>? SlipUploaded;
         public event EventHandler<SlipUploadFailedEventArgs>? SlipUploadFailed;
 
         public BankSlipService(
             ILogger<BankSlipService> logger,
-            SyncCoordinator syncCoordinator,
+            CategoryHubConnector hubConnector,
             ProcessedSlipsTracker tracker,
             BankSlipSettingsService settingsService)
         {
             _logger = logger;
-            _syncCoordinator = syncCoordinator;
+            _hubConnector = hubConnector;
             _tracker = tracker;
             _settingsService = settingsService;
             _username = Preferences.Get("Username", "Unknown");
@@ -45,208 +47,213 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
                 return result;
             }
 
-            foreach (var folderName in settings.MonitoredFolders)
+            foreach (var folder in settings.MonitoredFolders)
             {
                 try
                 {
-                    // Folder name IS the source type (kbiz, kplus, etc.)
-                    var folderResult = await ScanFolderAsync(folderName, folderName, settings.SyncFromDate);
-                    result.ScannedFolders++;
-                    result.NewFilesFound += folderResult.NewFilesFound;
-                    result.UploadedCount += folderResult.UploadedCount;
-                    result.FailedCount += folderResult.FailedCount;
+                    await ScanFolderAsync(folder, settings.SyncFromDate, result);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error scanning folder: {Folder}", folderName);
-                    result.FailedCount++;
+                    _logger.LogError(ex, "Error scanning folder {Pattern} at {Path}",
+                        folder.PatternIdentifier, folder.DeviceFolderPath);
                 }
             }
-
-            // Clean old entries periodically
-            _tracker.CleanOldEntries(500);
-
-            _logger.LogInformation(
-                "Scan complete: {Scanned} folders, {Found} new files, {Uploaded} uploaded, {Failed} failed",
-                result.ScannedFolders, result.NewFilesFound, result.UploadedCount, result.FailedCount);
 
             return result;
         }
 
-        /// <summary>
-        /// Scan a specific folder for new images
-        /// </summary>
-        public async Task<FolderScanResult> ScanFolderAsync(string folderName, string sourceType, DateTime syncFromDate)
+        private async Task ScanFolderAsync(MonitoredFolder folder, DateTime syncFromDate, ScanResult result)
         {
-            var result = new FolderScanResult { FolderName = folderName };
-
-            var folderPath = GetFolderPath(folderName);
-            if (!Directory.Exists(folderPath))
+            if (!Directory.Exists(folder.DeviceFolderPath))
             {
-                _logger.LogDebug("Folder does not exist: {Path}", folderPath);
-                return result;
+                _logger.LogWarning("Folder does not exist: {Path}", folder.DeviceFolderPath);
+                return;
             }
 
-            var imageExtensions = new[] { ".jpg", ".jpeg", ".png" };
-            var files = Directory.GetFiles(folderPath)
-                .Where(f => imageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                .Where(f => File.GetCreationTimeUtc(f) >= syncFromDate)
-                .Where(f => !_tracker.IsAlreadyProcessed(f))
+            var files = Directory.GetFiles(folder.DeviceFolderPath)
+                .Where(f => ImageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
                 .ToList();
 
-            result.NewFilesFound = files.Count;
-
-            foreach (var file in files)
+            foreach (var filePath in files)
             {
                 try
                 {
-                    var success = await UploadFileAsync(file, sourceType);
+                    var fileInfo = new FileInfo(filePath);
+
+                    // Skip if older than sync date
+                    if (fileInfo.LastWriteTimeUtc < syncFromDate)
+                        continue;
+
+                    // Skip if already processed
+                    if (_tracker.IsAlreadyProcessed(filePath))
+                        continue;
+
+                    result.NewFilesFound++;
+
+                    // Upload the file
+                    var success = await UploadFileAsync(filePath, folder.PatternIdentifier);
+
                     if (success)
                     {
-                        _tracker.MarkAsProcessed(file);
+                        _tracker.MarkAsProcessed(filePath);
                         result.UploadedCount++;
-                        SlipUploaded?.Invoke(this, new SlipUploadedEventArgs(file, sourceType));
+                        SlipUploaded?.Invoke(this, new SlipUploadedEventArgs(filePath, folder.PatternIdentifier));
                     }
                     else
                     {
                         result.FailedCount++;
-                        SlipUploadFailed?.Invoke(this, new SlipUploadFailedEventArgs(file, "Upload failed"));
+                        SlipUploadFailed?.Invoke(this, new SlipUploadFailedEventArgs(filePath, "Upload failed"));
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error uploading file: {File}", file);
+                    _logger.LogError(ex, "Error processing file: {FilePath}", filePath);
                     result.FailedCount++;
-                    SlipUploadFailed?.Invoke(this, new SlipUploadFailedEventArgs(file, ex.Message));
+                    SlipUploadFailed?.Invoke(this, new SlipUploadFailedEventArgs(filePath, ex.Message));
                 }
             }
-
-            return result;
         }
 
         /// <summary>
         /// Upload a single file to the server
         /// </summary>
-        public async Task<bool> UploadFileAsync(string filePath, string sourceType)
+        public async Task<bool> UploadFileAsync(string filePath, string patternIdentifier)
         {
             try
             {
-                if (!File.Exists(filePath))
-                {
-                    _logger.LogWarning("File not found: {Path}", filePath);
-                    return false;
-                }
-
-                var bytes = await File.ReadAllBytesAsync(filePath);
-                var base64 = Convert.ToBase64String(bytes);
+                var fileBytes = await ReadFileBytesAsync(filePath);
                 var fileName = Path.GetFileName(filePath);
+
+                // Get file info
+                var fileInfo = new FileInfo(filePath);
+                var lastWriteTime = fileInfo.Exists ? fileInfo.LastWriteTimeUtc : DateTime.UtcNow;
+                var fileSize = fileBytes.Length;
 
                 var request = new DocumentUploadRequest
                 {
-                    SourceFolder = sourceType,
                     FileName = fileName,
-                    ImageBase64 = base64,
-                    Username = _username
+                    ImageBase64 = Convert.ToBase64String(fileBytes),
+                    SourceFolder = patternIdentifier,
+                    Username = Preferences.Get("Username", "Unknown"),  // Fresh value, not _username
+                    DeviceTimestamp = lastWriteTime,
+                    FileSizeBytes = fileSize,
+                    ContentType = GetContentType(filePath)
                 };
 
-                _logger.LogDebug("Uploading {FileName} ({Size} bytes) as {SourceType}",
-                    fileName, bytes.Length, sourceType);
-
-                var response = await _syncCoordinator.UploadDocumentAsync(request);
+                // Use the hub connector for upload
+                var response = await _hubConnector.UploadDocumentAsync(request);
 
                 if (response.Success)
                 {
-                    _logger.LogInformation("Uploaded: {FileName} -> {DocumentId}", fileName, response.DocumentId);
+                    _logger.LogInformation("✅ Uploaded {FileName} to {Pattern}", fileName, patternIdentifier);
                     return true;
                 }
                 else
                 {
-                    _logger.LogWarning("Upload failed for {FileName}: {Error}", fileName, response.Message);
+                    _logger.LogWarning("Upload failed for {FileName}: {Message}", fileName, response.Message);
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error uploading {FilePath}", filePath);
+                _logger.LogError(ex, "Exception uploading {FilePath}", filePath);
                 return false;
             }
         }
 
         /// <summary>
-        /// Get the full path to a monitored folder
+        /// Read file bytes using platform-appropriate method
         /// </summary>
-        public string GetFolderPath(string folderName)
+        private async Task<byte[]> ReadFileBytesAsync(string filePath)
         {
-            // On Android, bank apps typically save to DCIM or Pictures
-            // Common locations:
-            // - /storage/emulated/0/DCIM/kbiz/
-            // - /storage/emulated/0/Pictures/kbiz/
-            // - /storage/emulated/0/Download/kbiz/
-
 #if ANDROID
-            var dcimPath = Android.OS.Environment.GetExternalStoragePublicDirectory(
-                Android.OS.Environment.DirectoryDcim)?.AbsolutePath;
-            var picturesPath = Android.OS.Environment.GetExternalStoragePublicDirectory(
-                Android.OS.Environment.DirectoryPictures)?.AbsolutePath;
+            _logger.LogDebug("Reading file via Java FileInputStream: {Path}", filePath);
 
-            // Check DCIM first (most banking apps use this)
-            var dcimFolder = Path.Combine(dcimPath ?? "", folderName);
-            if (Directory.Exists(dcimFolder))
-                return dcimFolder;
+            using var fileInputStream = new Java.IO.FileInputStream(filePath);
+            using var memoryStream = new MemoryStream();
 
-            // Check Pictures
-            var picturesFolder = Path.Combine(picturesPath ?? "", folderName);
-            if (Directory.Exists(picturesFolder))
-                return picturesFolder;
+            var buffer = new byte[8192];
+            int bytesRead;
 
-            // Default to DCIM
-            return dcimFolder;
+            while ((bytesRead = fileInputStream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                memoryStream.Write(buffer, 0, bytesRead);
+            }
+
+            _logger.LogDebug("Read {Bytes} bytes from file", memoryStream.Length);
+            return memoryStream.ToArray();
 #else
-            // Windows/other platforms - use Pictures folder
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
-                folderName);
+            return await File.ReadAllBytesAsync(filePath);
 #endif
         }
 
-        /// <summary>
-        /// Check if a folder exists
-        /// </summary>
-        public bool FolderExists(string folderName)
+        private string GetContentType(string filePath)
         {
-            var path = GetFolderPath(folderName);
-            return Directory.Exists(path);
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            return ext switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                _ => "application/octet-stream"
+            };
         }
 
         /// <summary>
-        /// Get count of pending files in a folder
+        /// Check if a folder path exists on the device
         /// </summary>
-        public int GetPendingCount(string folderName, DateTime syncFromDate)
+        public bool FolderExists(string folderPath)
         {
-            var folderPath = GetFolderPath(folderName);
+            return Directory.Exists(folderPath);
+        }
+
+        /// <summary>
+        /// Get count of pending (unprocessed) images in a folder
+        /// </summary>
+        public int GetPendingCount(string folderPath, DateTime syncFromDate)
+        {
             if (!Directory.Exists(folderPath))
                 return 0;
 
-            var imageExtensions = new[] { ".jpg", ".jpeg", ".png" };
-            var count = Directory.GetFiles(folderPath)
-                .Where(f => imageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
-                .Where(f => File.GetCreationTimeUtc(f) >= syncFromDate)
-                .Count(f => !_tracker.IsAlreadyProcessed(f));
+            try
+            {
+                var count = 0;
+                var files = Directory.GetFiles(folderPath)
+                    .Where(f => ImageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
 
-            return count;
+                foreach (var filePath in files)
+                {
+                    var fileInfo = new FileInfo(filePath);
+
+                    if (fileInfo.LastWriteTimeUtc < syncFromDate)
+                        continue;
+
+                    if (_tracker.IsAlreadyProcessed(filePath))
+                        continue;
+
+                    count++;
+                }
+
+                return count;
+            }
+            catch
+            {
+                return 0;
+            }
         }
     }
 
-    // Event args
+    // ===== Event Args =====
+
     public class SlipUploadedEventArgs : EventArgs
     {
         public string FilePath { get; }
-        public string SourceType { get; }
+        public string PatternIdentifier { get; }
 
-        public SlipUploadedEventArgs(string filePath, string sourceType)
+        public SlipUploadedEventArgs(string filePath, string patternIdentifier)
         {
             FilePath = filePath;
-            SourceType = sourceType;
+            PatternIdentifier = patternIdentifier;
         }
     }
 
@@ -262,18 +269,8 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         }
     }
 
-    // Result classes
     public class ScanResult
     {
-        public int ScannedFolders { get; set; }
-        public int NewFilesFound { get; set; }
-        public int UploadedCount { get; set; }
-        public int FailedCount { get; set; }
-    }
-
-    public class FolderScanResult
-    {
-        public string FolderName { get; set; } = "";
         public int NewFilesFound { get; set; }
         public int UploadedCount { get; set; }
         public int FailedCount { get; set; }

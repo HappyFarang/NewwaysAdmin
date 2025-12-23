@@ -21,6 +21,7 @@ namespace NewwaysAdmin.Mobile.Services.Sync
 
         private bool _isOnline = false;
         private bool _isSyncing = false;
+        private readonly SemaphoreSlim _connectLock = new(1, 1);
 
         public SyncCoordinator(
             ILogger<SyncCoordinator> logger,
@@ -270,10 +271,29 @@ namespace NewwaysAdmin.Mobile.Services.Sync
         {
             try
             {
+                // Auto-connect if not online
                 if (!IsOnline)
                 {
-                    _logger.LogWarning("Cannot upload document - offline");
-                    return DocumentUploadResponse.CreateError("Offline", "Not connected to server");
+                    await _connectLock.WaitAsync();
+                    try
+                    {
+                        // Double-check after acquiring lock
+                        if (!IsOnline)
+                        {
+                            _logger.LogInformation("SyncCoordinator not connected - attempting to connect...");
+                            var connected = await ConnectAndRegisterAsync("http://newwaysadmin.hopto.org:5080");
+
+                            if (!connected)
+                            {
+                                _logger.LogWarning("Cannot upload document - failed to connect");
+                                return DocumentUploadResponse.CreateError("Offline", "Not connected to server");
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _connectLock.Release();
+                    }
                 }
 
                 _logger.LogInformation("Uploading document: {FileName} ({Size} bytes)",
