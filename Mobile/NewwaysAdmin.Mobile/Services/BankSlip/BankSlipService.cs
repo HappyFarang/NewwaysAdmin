@@ -13,7 +13,6 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         private readonly CategoryHubConnector _hubConnector;
         private readonly ProcessedSlipsTracker _tracker;
         private readonly BankSlipSettingsService _settingsService;
-        private readonly string _username;
 
         private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png" };
 
@@ -30,7 +29,6 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
             _hubConnector = hubConnector;
             _tracker = tracker;
             _settingsService = settingsService;
-            _username = Preferences.Get("Username", "Unknown");
         }
 
         /// <summary>
@@ -135,7 +133,7 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
                     FileName = fileName,
                     ImageBase64 = Convert.ToBase64String(fileBytes),
                     SourceFolder = patternIdentifier,
-                    Username = Preferences.Get("Username", "Unknown"),  // Fresh value, not _username
+                    Username = MobileSessionState.Current?.Username ?? "Unknown",  // FIXED
                     DeviceTimestamp = lastWriteTime,
                     FileSizeBytes = fileSize,
                     ContentType = GetContentType(filePath)
