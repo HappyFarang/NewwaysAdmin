@@ -265,14 +265,12 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
 
         private async Task<MessageHandlerResult> HandleGetSourceMappingsAsync(UniversalMessage message, string connectionId)
         {
-            var mappings = _documentStorageService.GetSourceMappingsForMobile();
-
-            _logger.LogDebug("Returning {Count} source mappings to {ConnectionId}",
-                mappings.Count(), connectionId);
+            // No predefined mappings - mobile uses whatever pattern name user types
+            _logger.LogDebug("GetSourceMappings called - returning empty (patterns are user-defined)");
 
             return MessageHandlerResult.CreateSuccess(new
             {
-                Mappings = mappings.ToList(),
+                Mappings = new List<DocumentSourceMapping>(),
                 Timestamp = DateTime.UtcNow
             });
         }
@@ -314,14 +312,13 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             _logger.LogDebug("Getting initial data for device {DeviceId}", connection.DeviceId);
 
             var categoryData = await _categoryService.GetFullDataAsync();
-            var sourceMappings = _documentStorageService.GetSourceMappingsForMobile();
 
             return new
             {
                 MessageType = "InitialData",
                 Version = categoryData.DataVersion,
                 CategoryData = categoryData,
-                DocumentMappings = sourceMappings.ToList()
+                DocumentMappings = new List<DocumentSourceMapping>()  // Empty - patterns are user-defined
             };
         }
     }

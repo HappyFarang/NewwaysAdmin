@@ -1,20 +1,15 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Services/Documents/DocumentStorageService.cs
 // Handles storage of uploaded documents using IO Manager
-// UPDATED: Idempotent uploads - same file timestamp = return existing, not create duplicate
+// 
+// SIMPLIFIED: No predefined mappings - pattern name from mobile IS the pattern name
+// OCR processor parses filename to get pattern: KPLUS_Superfox75_17_11_2025_10_04_36.bin → "KPLUS"
 //
 // Storage structure:
-// BankSlipJson/                    ← Registered (Json) - config
-// └── source-types.json
+// BankSlipBill/                    ← Shared bills folder
+// └── Superfox75_Bills_07_12_2025_18_00_30.bin
 //
-// BankSlipBill/                    ← Registered (Binary) - shared bills
-// ├── Amy_Bills_07_12_2025_18_00_30.bin
-// └── Thomas_Bills_08_12_2025_12_30_45.bin
-//
-// BankSlipsBin/                    ← Registered (Binary) - all bank slips
-// ├── KBIZ_Amy/                    ← Dynamic subfolder via key
-// │   └── Amy_KBIZ_07_12_2025_16_45_30.bin   ← Now includes seconds!
-// └── KPlus_Thomas/
-//     └── Thomas_KPlus_08_12_2025_09_15_00.bin
+// BankSlipsBin/                    ← All bank slips (flat, pattern in filename)
+// └── KPLUS_Superfox75_17_11_2025_10_04_36.bin
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
@@ -28,17 +23,9 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
         private readonly ILogger<DocumentStorageService> _logger;
         private readonly EnhancedStorageFactory _storageFactory;
 
-        // Configuration storage
-        private IDataStorage<SourceTypeConfig>? _configStorage;
-        private SourceTypeConfig _config = new();
-
-        private readonly SemaphoreSlim _lock = new(1, 1);
-
         // Folder names
-        private const string CONFIG_FOLDER = "BankSlipJson";
         private const string BILLS_FOLDER = "BankSlipBill";
         private const string BANKSLIPS_FOLDER = "BankSlipsBin";
-        private const string CONFIG_KEY = "source-types";
 
         public DocumentStorageService(
             ILogger<DocumentStorageService> logger,
@@ -47,69 +34,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
             _logger = logger;
             _storageFactory = storageFactory;
 
-            // Initialize storage
-            _ = InitializeAsync();
-        }
-
-        private async Task InitializeAsync()
-        {
-            try
-            {
-                _configStorage = _storageFactory.GetStorage<SourceTypeConfig>(CONFIG_FOLDER);
-                await LoadOrCreateConfigAsync();
-
-                _logger.LogInformation("DocumentStorageService initialized with {TypeCount} source types",
-                    _config.SourceTypes.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize DocumentStorageService");
-            }
-        }
-
-        private async Task LoadOrCreateConfigAsync()
-        {
-            try
-            {
-                if (await _configStorage!.ExistsAsync(CONFIG_KEY))
-                {
-                    _config = await _configStorage.LoadAsync(CONFIG_KEY);
-                    _logger.LogInformation("Loaded {Count} source types from config", _config.SourceTypes.Count);
-                }
-                else
-                {
-                    _config = CreateDefaultConfig();
-                    await _configStorage.SaveAsync(CONFIG_KEY, _config);
-                    _logger.LogInformation("Created default source type config");
-                }
-            }
-            catch (StorageException)
-            {
-                _config = CreateDefaultConfig();
-                await _configStorage!.SaveAsync(CONFIG_KEY, _config);
-                _logger.LogInformation("Created default source type config");
-            }
-        }
-
-        private SourceTypeConfig CreateDefaultConfig()
-        {
-            return new SourceTypeConfig
-            {
-                SourceTypes = new List<SourceTypeInfo>
-                {
-                    new("kbiz", "KBIZ", "BankSlips", "KBIZ"),
-                    new("kplus", "KPlus", "BankSlips", "KPlus"),
-                    new("bangkokbank", "BangkokBank", "BankSlips", "BangkokBank"),
-                    new("scb", "SCB", "BankSlips", "SCB"),
-                    new("bills", "Bills", "Bills", "Receipt")
-                }
-            };
-        }
-
-        private async Task SaveConfigAsync()
-        {
-            _config.LastModified = DateTime.UtcNow;
-            await _configStorage!.SaveAsync(CONFIG_KEY, _config);
+            _logger.LogInformation("DocumentStorageService initialized (simplified - no mapping layer)");
         }
 
         // ===== DOCUMENT STORAGE =====
@@ -129,18 +54,17 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
                     return DocumentSaveResult.CreateError(validation.ErrorMessage!);
                 }
 
-                // Get source type - if not found, use the SourceFolder as-is (for custom pattern identifiers)
-                var sourceType = GetSourceType(request.SourceFolder);
-                var displayName = sourceType?.DisplayName ?? SanitizeName(request.SourceFolder);
-
+                // Use pattern name EXACTLY as sent from mobile (just sanitized for filesystem safety)
+                var patternName = SanitizeName(request.SourceFolder);
                 var username = SanitizeName(request.Username);
-                var displayUsername = char.ToUpper(username[0]) + username[1..];
+
+                // Capitalize first letter of username for display
+                var displayUsername = char.ToUpper(username[0]) + username.Substring(1);
 
                 // Use DEVICE timestamp for idempotency - same file = same key
                 var fileTimestamp = request.DeviceTimestamp;
                 if (fileTimestamp == default || fileTimestamp == DateTime.MinValue)
                 {
-                    // Fallback to server time if device didn't send timestamp
                     fileTimestamp = DateTime.UtcNow;
                     _logger.LogWarning("No device timestamp provided, using server time");
                 }
@@ -148,22 +72,19 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
                 string binFolderName;
                 string documentKey;
 
-                // Bills go to shared folder, bank slips go to BankSlipsBin with dynamic subfolders
-                if (sourceType?.Key.Equals("bills", StringComparison.OrdinalIgnoreCase) == true)
+                // Bills go to shared folder, everything else goes to BankSlipsBin
+                if (patternName.Contains("bill", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Bills: shared folder, flat structure
+                    // Bills: shared folder
                     binFolderName = BILLS_FOLDER;
-                    // Include seconds for uniqueness within same minute
                     documentKey = $"{displayUsername}_Bills_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
                 }
                 else
                 {
-                    // Bank slips: dynamic subfolder {Bank}_{User}/filename
+                    // Bank slips: Pattern_User_Timestamp format
+                    // e.g., KPLUS_Superfox75_17_11_2025_10_04_36
                     binFolderName = BANKSLIPS_FOLDER;
-                    var subFolder = $"{displayName}_{displayUsername}";
-                    // Include seconds for uniqueness - based on DEVICE timestamp
-                    var fileName = $"{displayUsername}_{displayName}_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
-                    documentKey = $"{subFolder}/{fileName}";
+                    documentKey = $"{patternName}_{displayUsername}_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
                 }
 
                 // Get storage
@@ -175,7 +96,7 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
                 if (await storage.ExistsAsync(documentKey))
                 {
                     _logger.LogInformation(
-                        "📋 DUPLICATE DETECTED - File already exists: {DocumentKey}. Returning existing path (idempotent).",
+                        "📋 DUPLICATE DETECTED - File already exists: {DocumentKey}. Returning existing path.",
                         documentKey);
 
                     var existingPath = $"{binFolderName}/{documentKey}";
@@ -226,154 +147,95 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading document {DocumentKey} from {Folder}", documentKey, binFolderName);
+                _logger.LogError(ex, "Error loading document {DocumentKey}", documentKey);
                 return null;
             }
         }
 
         /// <summary>
-        /// Load bank slip by source type, username, and document ID
+        /// Check if document exists
         /// </summary>
-        public async Task<byte[]?> LoadBankSlipAsync(string sourceType, string username, string documentId)
+        public async Task<bool> DocumentExistsAsync(string binFolderName, string documentKey)
         {
-            var displayUsername = char.ToUpper(username[0]) + username[1..];
-            var documentKey = $"{sourceType}_{displayUsername}/{documentId}";
-            return await LoadDocumentAsync(BANKSLIPS_FOLDER, documentKey);
-        }
-
-        /// <summary>
-        /// Load bill by document ID
-        /// </summary>
-        public async Task<byte[]?> LoadBillAsync(string documentId)
-        {
-            return await LoadDocumentAsync(BILLS_FOLDER, documentId);
-        }
-
-        // ===== SOURCE TYPE MANAGEMENT =====
-
-        /// <summary>
-        /// Get a source type by key
-        /// </summary>
-        public SourceTypeInfo? GetSourceType(string key)
-        {
-            return _config.SourceTypes.FirstOrDefault(s =>
-                s.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>
-        /// Get all source types
-        /// </summary>
-        public IReadOnlyList<SourceTypeInfo> GetAllSourceTypes()
-        {
-            return _config.SourceTypes.AsReadOnly();
-        }
-
-        /// <summary>
-        /// Get active source types for mobile app
-        /// </summary>
-        public IEnumerable<DocumentSourceMapping> GetSourceMappingsForMobile()
-        {
-            return _config.SourceTypes
-                .Where(s => s.IsActive)
-                .Select(s => new DocumentSourceMapping
-                {
-                    FolderName = s.Key,
-                    DisplayName = s.DisplayName,
-                    StorageFolderName = "", // Dynamic per user
-                    OcrDocumentType = s.OcrDocumentType,
-                    OcrFormatName = s.OcrFormatName,
-                    IsActive = s.IsActive
-                });
-        }
-
-        /// <summary>
-        /// Add a new source type (bank)
-        /// </summary>
-        public async Task<bool> AddSourceTypeAsync(string key, string displayName, string ocrDocType, string ocrFormat)
-        {
-            await _lock.WaitAsync();
             try
             {
-                var normalizedKey = key.ToLowerInvariant();
-
-                if (_config.SourceTypes.Any(s => s.Key.Equals(normalizedKey, StringComparison.OrdinalIgnoreCase)))
-                {
-                    _logger.LogWarning("Source type already exists: {Key}", key);
-                    return false;
-                }
-
-                _config.SourceTypes.Add(new SourceTypeInfo(normalizedKey, displayName, ocrDocType, ocrFormat));
-                await SaveConfigAsync();
-
-                _logger.LogInformation("Added source type: {Key} -> {DisplayName}", key, displayName);
-                return true;
+                var storage = _storageFactory.GetStorage<ImageData>(binFolderName);
+                return await storage.ExistsAsync(documentKey);
             }
-            finally
+            catch
             {
-                _lock.Release();
+                return false;
             }
         }
 
         /// <summary>
-        /// Update an existing source type
+        /// List all documents in a folder
         /// </summary>
-        public async Task<bool> UpdateSourceTypeAsync(string key, string? displayName = null,
-            string? ocrDocType = null, string? ocrFormat = null, bool? isActive = null)
+        public async Task<IEnumerable<string>> ListDocumentsAsync(string binFolderName)
         {
-            await _lock.WaitAsync();
             try
             {
-                var sourceType = _config.SourceTypes.FirstOrDefault(s =>
-                    s.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
-
-                if (sourceType == null)
-                {
-                    _logger.LogWarning("Source type not found: {Key}", key);
-                    return false;
-                }
-
-                if (displayName != null) sourceType.DisplayName = displayName;
-                if (ocrDocType != null) sourceType.OcrDocumentType = ocrDocType;
-                if (ocrFormat != null) sourceType.OcrFormatName = ocrFormat;
-                if (isActive.HasValue) sourceType.IsActive = isActive.Value;
-
-                await SaveConfigAsync();
-
-                _logger.LogInformation("Updated source type: {Key}", key);
-                return true;
+                var storage = _storageFactory.GetStorage<ImageData>(binFolderName);
+                return await storage.ListIdentifiersAsync();
             }
-            finally
+            catch (Exception ex)
             {
-                _lock.Release();
+                _logger.LogError(ex, "Error listing documents in {Folder}", binFolderName);
+                return Enumerable.Empty<string>();
             }
         }
 
         /// <summary>
-        /// Delete a source type
+        /// List bank slip documents, optionally filtered by pattern
         /// </summary>
-        public async Task<bool> DeleteSourceTypeAsync(string key)
+        public async Task<IEnumerable<string>> ListBankSlipsAsync(string? patternFilter = null)
         {
-            await _lock.WaitAsync();
-            try
-            {
-                var removed = _config.SourceTypes.RemoveAll(s =>
-                    s.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+            var allKeys = await ListDocumentsAsync(BANKSLIPS_FOLDER);
 
-                if (removed == 0)
+            if (string.IsNullOrEmpty(patternFilter))
+                return allKeys;
+
+            // Filter by pattern (first part before underscore)
+            return allKeys.Where(k => k.StartsWith(patternFilter + "_", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // ===== HELPER: Parse filename to get components =====
+
+        /// <summary>
+        /// Parse a bank slip filename to extract pattern, username, and timestamp
+        /// Format: PATTERN_Username_dd_MM_yyyy_HH_mm_ss
+        /// Example: KPLUS_Superfox75_17_11_2025_10_04_36 
+        /// </summary>
+        public static (string Pattern, string Username, DateTime? Timestamp) ParseBankSlipFilename(string filename)
+        {
+            // Remove extension if present
+            var name = Path.GetFileNameWithoutExtension(filename);
+            var parts = name.Split('_');
+
+            if (parts.Length < 8)
+                return (parts.Length > 0 ? parts[0] : "Unknown", "Unknown", null);
+
+            var pattern = parts[0];
+            var username = parts[1];
+
+            // Try parse timestamp from remaining parts: dd_MM_yyyy_HH_mm_ss
+            if (parts.Length >= 8 &&
+                int.TryParse(parts[2], out int day) &&
+                int.TryParse(parts[3], out int month) &&
+                int.TryParse(parts[4], out int year) &&
+                int.TryParse(parts[5], out int hour) &&
+                int.TryParse(parts[6], out int minute) &&
+                int.TryParse(parts[7], out int second))
+            {
+                try
                 {
-                    _logger.LogWarning("Source type not found for deletion: {Key}", key);
-                    return false;
+                    var timestamp = new DateTime(year, month, day, hour, minute, second);
+                    return (pattern, username, timestamp);
                 }
-
-                await SaveConfigAsync();
-
-                _logger.LogInformation("Deleted source type: {Key}", key);
-                return true;
+                catch { }
             }
-            finally
-            {
-                _lock.Release();
-            }
+
+            return (pattern, username, null);
         }
 
         // ===== VALIDATION =====
@@ -395,17 +257,20 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
             return (true, null);
         }
 
+        /// <summary>
+        /// Sanitize name for filesystem safety - preserves case
+        /// </summary>
         private string SanitizeName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
-                return "unknown";
+                return "Unknown";
 
-            // Remove invalid characters and normalize
+            // Remove invalid characters, keep letters, digits, underscore, dash
             var sanitized = new string(name
                 .Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-')
                 .ToArray());
 
-            return string.IsNullOrWhiteSpace(sanitized) ? "unknown" : sanitized.ToLowerInvariant();
+            return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized;
         }
     }
 }
