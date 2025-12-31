@@ -19,15 +19,18 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         private readonly ILogger<SpatialResultParser> _logger;
         private readonly DateParsingService _dateParsingService;
         private readonly NumberParsingService _numberParsingService;
+        private readonly TimeParsingService _timeParsingService;
 
         public SpatialResultParser(
             ILogger<SpatialResultParser> logger,
             DateParsingService dateParsingService,
-            NumberParsingService numberParsingService)
+            NumberParsingService numberParsingService,
+            TimeParsingService timeParsingService)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _dateParsingService = dateParsingService ?? throw new ArgumentNullException(nameof(dateParsingService));
             _numberParsingService = numberParsingService ?? throw new ArgumentNullException(nameof(numberParsingService));
+            _timeParsingService = timeParsingService ?? throw new ArgumentNullException(nameof(timeParsingService));
         }
 
         /// <summary>
@@ -184,6 +187,14 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                             processedText = _dateParsingService.ParseDate(processedText, dateType, dateContextInfo);
                             Console.WriteLine($"✅ Date parsing result: '{processedText}'");
                             break;
+
+                        case "time":
+                            var timeType = parsingType == "12" ? TimeParsingType.Hour12 : TimeParsingType.Hour24;
+                            var timeContextInfo = $"{patternKey} on {fileName} (magic pattern)";
+                            Console.WriteLine($"⏰ Applying time parsing ({timeType}) to: '{processedText}'");
+                            processedText = _timeParsingService.ParseTime(processedText, timeType, timeContextInfo);
+                            Console.WriteLine($"✅ Time parsing result: '{processedText}'");
+                            break;
                     }
                 }
                 else if (pattern.RegexPatterns == null || pattern.RegexPatterns.Count == 0)
@@ -311,6 +322,23 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
                 var normalized = pattern.Trim().ToLowerInvariant();
                 Console.WriteLine($"🔍 Normalized pattern: '{normalized}'");
 
+                // Time magic patterns
+                if (normalized == "time 24")
+                {
+                    Console.WriteLine("🪄 MAGIC PATTERN DETECTED: Time 24!");
+                    return ("time", "24", false);
+                }
+                if (normalized == "time 12")
+                {
+                    Console.WriteLine("🪄 MAGIC PATTERN DETECTED: Time 12!");
+                    return ("time", "12", false);
+                }
+                if (normalized == "time")
+                {
+                    Console.WriteLine("🪄 MAGIC PATTERN DETECTED: Time (default 24-hour)!");
+                    return ("time", "24", false);
+                }
+
                 // Number magic patterns
                 if (normalized == "number thai")
                 {
@@ -366,7 +394,7 @@ namespace NewwaysAdmin.SharedModels.Services.Ocr
         private bool IsMagicPattern(string pattern)
         {
             var normalized = pattern.Trim().ToLowerInvariant();
-            return normalized.StartsWith("number") || normalized.StartsWith("date");
+            return normalized.StartsWith("number") || normalized.StartsWith("date") || normalized.StartsWith("time");
         }
     }
 }

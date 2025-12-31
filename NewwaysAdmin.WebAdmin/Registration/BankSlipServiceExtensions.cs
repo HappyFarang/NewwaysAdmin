@@ -37,6 +37,7 @@ namespace NewwaysAdmin.WebAdmin.Registration
             services.AddScoped<ISpatialOcrService, SpatialOcrService>();
             services.AddScoped<OcrFieldAnalyzerService>();
             services.AddScoped<SpatialPatternMatcher>();
+            services.AddScoped<TimeParsingService>();
             services.AddScoped<DateParsingService>();
             services.AddScoped<NumberParsingService>();
             services.AddScoped<SpatialResultParser>();
