@@ -1,58 +1,56 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/Categories/CategoryBrowserPage.xaml -->
-<ContentPage x:Class="NewwaysAdmin.Mobile.Pages.Categories.CategoryBrowserPage"
-             xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+<!-- File: NewwaysAdmin.Mobile/Pages/Categories/CategoryBrowserPage.xaml -->
+<!-- UPDATED: Added VAT toggle at top for per-transaction VAT selection -->
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:components="clr-namespace:NewwaysAdmin.Mobile.Components"
-             Title="Expense Category"
-             Shell.NavBarIsVisible="False">
+             x:Class="NewwaysAdmin.Mobile.Pages.Categories.CategoryBrowserPage"
+             Title="Categories"
+             BackgroundColor="White">
 
     <Grid RowDefinitions="Auto,Auto,*">
 
-        <!-- Row 0: Navigation Header -->
-        <components:NavigationHeader Grid.Row="0" 
-                                      Title="Expense Category" 
-                                      x:Name="NavHeader" />
+        <!-- Navigation Header -->
+        <components:NavigationHeader x:Name="NavHeader" 
+                                     Grid.Row="0"
+                                     Title="Categories" />
 
-        <!-- Row 1: Selection bar (Location + Person) -->
-        <Grid Grid.Row="1" Padding="10,8" BackgroundColor="#F5F5F5" ColumnSpacing="10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+        <!-- Connection status bar -->
+        <Grid Grid.Row="1" 
+              Padding="15,10" 
+              BackgroundColor="#F5F5F5"
+              ColumnDefinitions="Auto,*,Auto">
 
-            <!-- Location Picker -->
-            <Frame Grid.Column="0" Padding="8,4" CornerRadius="5" BorderColor="#CCCCCC" HasShadow="False">
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                    <Label Grid.Column="0" Text="Loc:" FontSize="12" TextColor="Gray" VerticalOptions="Center" />
-                    <Picker Grid.Column="1"
-                            ItemsSource="{Binding Locations}"
-                            ItemDisplayBinding="{Binding Name}"
-                            SelectedItem="{Binding SelectedLocation}"
-                            Title="Location"
-                            FontSize="14"
-                            HorizontalOptions="FillAndExpand" />
-                </Grid>
-            </Frame>
+            <!-- Connection dot -->
+            <Ellipse Grid.Column="0"
+                     WidthRequest="10"
+                     HeightRequest="10"
+                     Fill="{Binding ConnectionDotColor}"
+                     VerticalOptions="Center"
+                     Margin="0,0,8,0"/>
 
-            <!-- Person Picker -->
-            <Frame Grid.Column="1" Padding="8,4" CornerRadius="5" BorderColor="#CCCCCC" HasShadow="False">
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                    <Label Grid.Column="0" Text="Who:" FontSize="12" TextColor="Gray" VerticalOptions="Center" />
-                    <Picker Grid.Column="1"
-                            ItemsSource="{Binding Persons}"
-                            ItemDisplayBinding="{Binding Name}"
-                            SelectedItem="{Binding SelectedPerson}"
-                            Title="Person"
-                            FontSize="14"
-                            HorizontalOptions="FillAndExpand" />
-                </Grid>
-            </Frame>
+            <!-- Sync status -->
+            <Label Grid.Column="1"
+                   Text="{Binding SyncStatusText}"
+                   FontSize="12"
+                   TextColor="Gray"
+                   VerticalOptions="Center"/>
+
+            <!-- Refresh button -->
+            <Button Grid.Column="2"
+                    Text="↻"
+                    Command="{Binding RefreshCommand}"
+                    BackgroundColor="Transparent"
+                    TextColor="#1565C0"
+                    FontSize="18"
+                    Padding="5"
+                    WidthRequest="40"
+                    HeightRequest="40"/>
         </Grid>
 
-        <!-- Row 2: Category list -->
+        <!-- Main content -->
         <ScrollView Grid.Row="2">
-            <StackLayout Padding="10" Spacing="8">
+            <StackLayout Padding="15" Spacing="8">
 
                 <!-- Loading indicator -->
                 <ActivityIndicator IsVisible="{Binding IsLoading}" 
@@ -61,7 +59,86 @@
                                    Color="#512BD4"
                                    Margin="20" />
 
-                <!-- Categories -->
+                <!-- ========== VAT TOGGLE (NEW) ========== -->
+                <Frame BackgroundColor="#E8F5E9" 
+                       Padding="12" 
+                       CornerRadius="8" 
+                       HasShadow="False"
+                       BorderColor="#4CAF50">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Label Grid.Column="0"
+                               Text="🧾"
+                               FontSize="24"
+                               VerticalOptions="Center"/>
+                        <StackLayout Grid.Column="1" 
+                                     VerticalOptions="Center"
+                                     Margin="10,0">
+                            <Label Text="Include VAT"
+                                   FontSize="16"
+                                   FontAttributes="Bold"
+                                   TextColor="#2E7D32"/>
+                            <Label Text="Toggle for this transaction"
+                                   FontSize="11"
+                                   TextColor="#689F38"/>
+                        </StackLayout>
+                        <Switch Grid.Column="2"
+                                IsToggled="{Binding IncludeVat}"
+                                OnColor="#4CAF50"
+                                VerticalOptions="Center"/>
+                    </Grid>
+                </Frame>
+
+                <!-- ========== LOCATION & PERSON PICKERS ========== -->
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                    <!-- Location Picker -->
+                    <Frame Grid.Column="0" 
+                           Padding="8" 
+                           CornerRadius="6" 
+                           HasShadow="False"
+                           BackgroundColor="#FFF3E0"
+                           BorderColor="#FF9800">
+                        <StackLayout Spacing="4">
+                            <Label Text="📍 Location" 
+                                   FontSize="11" 
+                                   TextColor="#E65100"
+                                   FontAttributes="Bold"/>
+                            <Picker ItemsSource="{Binding Locations}"
+                                    SelectedItem="{Binding SelectedLocation}"
+                                    ItemDisplayBinding="{Binding Name}"
+                                    FontSize="14"
+                                    TextColor="#333"/>
+                        </StackLayout>
+                    </Frame>
+
+                    <!-- Person Picker -->
+                    <Frame Grid.Column="1" 
+                           Padding="8" 
+                           CornerRadius="6" 
+                           HasShadow="False"
+                           BackgroundColor="#E3F2FD"
+                           BorderColor="#2196F3">
+                        <StackLayout Spacing="4">
+                            <Label Text="👤 Person" 
+                                   FontSize="11" 
+                                   TextColor="#1565C0"
+                                   FontAttributes="Bold"/>
+                            <Picker ItemsSource="{Binding Persons}"
+                                    SelectedItem="{Binding SelectedPerson}"
+                                    ItemDisplayBinding="{Binding Name}"
+                                    FontSize="14"
+                                    TextColor="#333"/>
+                        </StackLayout>
+                    </Frame>
+                </Grid>
+
+                <!-- Instructions -->
+                <Label Text="Tap a subcategory to copy the transfer note"
+                       FontSize="12"
+                       TextColor="Gray"
+                       HorizontalOptions="Center"
+                       Margin="0,5"/>
+
+                <!-- ========== CATEGORIES LIST ========== -->
                 <StackLayout IsVisible="{Binding HasCategories}" 
                              BindableLayout.ItemsSource="{Binding Categories}"
                              Spacing="8">
@@ -75,37 +152,54 @@
                                         <Grid.GestureRecognizers>
                                             <TapGestureRecognizer 
                                                 Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ToggleCategoryCommand}"
-                                                CommandParameter="{Binding .}" />
+                                                CommandParameter="{Binding .}"/>
                                         </Grid.GestureRecognizers>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
-                                        <Label Grid.Column="0" 
-                                               Text="{Binding ExpanderIcon}"
-                                               FontSize="12"
+                                        <!-- Expand icon -->
+                                        <Label Grid.Column="0"
+                                               Text="{Binding IsExpanded, Converter={StaticResource BoolToExpanderConverter}}"
+                                               FontSize="14"
+                                               TextColor="#1565C0"
                                                VerticalOptions="Center"
-                                               Margin="0,0,8,0" />
-                                        <Label Grid.Column="1" 
-                                               Text="{Binding Name}" 
-                                               FontSize="16" 
+                                               Margin="0,0,8,0"/>
+
+                                        <!-- Category name -->
+                                        <Label Grid.Column="1"
+                                               Text="{Binding Name}"
+                                               FontSize="16"
                                                FontAttributes="Bold"
-                                               TextColor="#1976D2"
-                                               VerticalOptions="Center" />
+                                               TextColor="#1565C0"
+                                               VerticalOptions="Center"/>
+
+                                        <!-- Subcategory count badge -->
+                                        <Frame Grid.Column="2"
+                                               BackgroundColor="#1565C0"
+                                               Padding="8,4"
+                                               CornerRadius="10"
+                                               HasShadow="False">
+                                            <Label Text="{Binding SubCategories.Count}"
+                                                   FontSize="12"
+                                                   TextColor="White"/>
+                                        </Frame>
                                     </Grid>
 
-                                    <!-- Subcategories -->
+                                    <!-- Subcategories (visible when expanded) -->
                                     <StackLayout IsVisible="{Binding IsExpanded}"
                                                  BindableLayout.ItemsSource="{Binding SubCategories}"
-                                                 Spacing="0">
+                                                 Padding="10,5,10,10"
+                                                 Spacing="6">
                                         <BindableLayout.ItemTemplate>
                                             <DataTemplate>
-                                                <Grid Padding="12,10" BackgroundColor="White">
+                                                <Grid Padding="10,8" BackgroundColor="#FAFAFA">
                                                     <Grid.GestureRecognizers>
                                                         <TapGestureRecognizer 
                                                             Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.SelectSubCategoryCommand}"
-                                                            CommandParameter="{Binding .}" />
+                                                            CommandParameter="{Binding .}"/>
                                                     </Grid.GestureRecognizers>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="24" />
@@ -118,6 +212,8 @@
                                                            Text="{Binding Name}"
                                                            FontSize="15"
                                                            VerticalOptions="Center" />
+
+                                                    <!-- VAT badge (shows subcategory default) -->
                                                     <Frame Grid.Column="2"
                                                            IsVisible="{Binding HasVAT}"
                                                            BackgroundColor="#4CAF50"

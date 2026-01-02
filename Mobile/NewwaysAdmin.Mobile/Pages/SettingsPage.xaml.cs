@@ -1,8 +1,11 @@
-﻿// File: Mobile/NewwaysAdmin.Mobile/Pages/SettingsPage.xaml.cs
+﻿// File: NewwaysAdmin.Mobile/Pages/SettingsPage.xaml.cs
+// UPDATED: Added date range and batch upload support
+
 using NewwaysAdmin.Mobile.Config;
 using NewwaysAdmin.Mobile.Services;
 using NewwaysAdmin.Mobile.ViewModels;
 using NewwaysAdmin.Mobile.ViewModels.Settings;
+using NewwaysAdmin.Mobile.Services.BankSlip;
 
 #if ANDROID
 using Android.Content;
@@ -67,8 +70,21 @@ namespace NewwaysAdmin.Mobile.Pages
                 EnabledSwitch.IsToggled = _bankSlipViewModel.IsEnabled;
                 SyncFromDatePicker.Date = _bankSlipViewModel.SyncFromDate;
 
+                // Date range settings
+                DateRangeSwitch.IsToggled = _bankSlipViewModel.UseDateRange;
+                SyncToDateContainer.IsVisible = _bankSlipViewModel.UseDateRange;
+                if (_bankSlipViewModel.SyncToDate.HasValue)
+                {
+                    SyncToDatePicker.Date = _bankSlipViewModel.SyncToDate.Value;
+                }
+                else
+                {
+                    SyncToDatePicker.Date = DateTime.Now;
+                }
+
                 RefreshFolderList();
                 ClearAddFolderForm();
+                UpdatePendingCountDisplay();
 
                 BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
             }
@@ -83,7 +99,6 @@ namespace NewwaysAdmin.Mobile.Pages
         {
             _selectedFolderPath = null;
             SelectedFolderLabel.Text = "No folder selected";
-            SelectedFolderLabel.TextColor = Colors.Gray;
             PatternNameEntry.Text = "";
         }
 
@@ -94,336 +109,339 @@ namespace NewwaysAdmin.Mobile.Pages
                 .Where(c => c is Frame)
                 .ToList();
 
-            foreach (var child in toRemove)
+            foreach (var item in toRemove)
             {
-                FolderListContainer.Children.Remove(child);
+                FolderListContainer.Children.Remove(item);
             }
 
-            // Show/hide "no folders" label
-            NoFoldersLabel.IsVisible = _bankSlipViewModel.MonitoredFolders.Count == 0;
+            // Show/hide the "no folders" label
+            NoFoldersLabel.IsVisible = !_bankSlipViewModel.MonitoredFolders.Any();
 
             // Add folder items
             foreach (var folder in _bankSlipViewModel.MonitoredFolders)
             {
-                var folderFrame = CreateFolderItem(folder);
-                FolderListContainer.Children.Add(folderFrame);
+                var frame = CreateFolderItemView(folder);
+                FolderListContainer.Children.Add(frame);
             }
         }
 
-        private Frame CreateFolderItem(FolderItemViewModel folder)
+        private Frame CreateFolderItemView(FolderItemViewModel folder)
         {
+            var statusColor = folder.Exists ? Colors.Green : Colors.Orange;
+
             var grid = new Grid
             {
                 ColumnDefinitions = new ColumnDefinitionCollection
                 {
-                    new ColumnDefinition(GridLength.Star),
-                    new ColumnDefinition(GridLength.Auto),
-                    new ColumnDefinition(GridLength.Auto)
-                },
-                ColumnSpacing = 10,
-                RowDefinitions = new RowDefinitionCollection
-                {
-                    new RowDefinition(GridLength.Auto),
-                    new RowDefinition(GridLength.Auto)
-                },
-                RowSpacing = 2
+                    new ColumnDefinition { Width = GridLength.Star },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                }
             };
 
-            // Pattern name (main label)
-            var patternLabel = new Label
+            var infoStack = new StackLayout { Spacing = 2 };
+            infoStack.Children.Add(new Label
             {
                 Text = folder.PatternIdentifier,
                 FontSize = 14,
-                FontAttributes = FontAttributes.Bold,
-                VerticalOptions = LayoutOptions.Center
-            };
-            grid.Add(patternLabel, 0, 0);
-
-            // Folder path (subtitle)
-            var pathLabel = new Label
+                FontAttributes = FontAttributes.Bold
+            });
+            infoStack.Children.Add(new Label
             {
-                Text = folder.FolderDisplayName,
-                FontSize = 11,
+                Text = folder.DeviceFolderPath,
+                FontSize = 10,
                 TextColor = Colors.Gray,
-                VerticalOptions = LayoutOptions.Center
-            };
-            grid.Add(pathLabel, 0, 1);
-
-            // Status
-            var statusLabel = new Label
+                LineBreakMode = LineBreakMode.TailTruncation
+            });
+            infoStack.Children.Add(new Label
             {
                 Text = folder.StatusText,
-                FontSize = 12,
-                TextColor = folder.Exists ? Colors.Green : Colors.Orange,
-                VerticalOptions = LayoutOptions.Center
-            };
-            Grid.SetRowSpan(statusLabel, 2);
-            grid.Add(statusLabel, 1, 0);
+                FontSize = 10,
+                TextColor = statusColor
+            });
 
-            // Remove button
-            var removeButton = new Button
+            Grid.SetColumn(infoStack, 0);
+            grid.Children.Add(infoStack);
+
+            var deleteButton = new Button
             {
-                Text = "✕",
+                Text = "🗑️",
                 BackgroundColor = Colors.Transparent,
                 TextColor = Colors.Red,
-                FontSize = 16,
+                FontSize = 18,
                 WidthRequest = 40,
                 HeightRequest = 40,
                 VerticalOptions = LayoutOptions.Center
             };
-            removeButton.Clicked += async (s, e) => await OnRemoveFolderClicked(folder);
-            Grid.SetRowSpan(removeButton, 2);
-            grid.Add(removeButton, 2, 0);
+            deleteButton.Clicked += async (s, e) => await OnDeleteFolderClicked(folder.PatternIdentifier);
+
+            Grid.SetColumn(deleteButton, 1);
+            grid.Children.Add(deleteButton);
 
             return new Frame
             {
                 BackgroundColor = Colors.White,
-                Padding = new Thickness(10, 8),
+                Padding = new Thickness(10),
                 CornerRadius = 5,
                 Content = grid
             };
         }
 
-        // ===== FOLDER PICKER =====
-
-        private async void OnBrowseFolderClicked(object sender, EventArgs e)
+        private void UpdatePendingCountDisplay()
         {
-#if ANDROID
+            var count = _bankSlipViewModel.PendingCount;
+            PendingCountLabel.Text = count == 1
+                ? "1 file pending"
+                : $"{count} files pending";
+        }
+
+        // ===== EVENT HANDLERS =====
+
+        private void OnEnabledToggled(object? sender, ToggledEventArgs e)
+        {
+            _bankSlipViewModel.IsEnabled = e.Value;
+            BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
+        }
+
+        private void OnSyncFromDateChanged(object? sender, DateChangedEventArgs e)
+        {
+            _bankSlipViewModel.SyncFromDate = e.NewDate;
+            UpdatePendingCountDisplay();
+        }
+
+        private void OnSyncToDateChanged(object? sender, DateChangedEventArgs e)
+        {
+            _bankSlipViewModel.SyncToDate = e.NewDate;
+            UpdatePendingCountDisplay();
+        }
+
+        private void OnDateRangeToggled(object? sender, ToggledEventArgs e)
+        {
+            _bankSlipViewModel.UseDateRange = e.Value;
+            SyncToDateContainer.IsVisible = e.Value;
+
+            if (e.Value && _bankSlipViewModel.SyncToDate == null)
+            {
+                SyncToDatePicker.Date = DateTime.Now;
+            }
+
+            UpdatePendingCountDisplay();
+        }
+
+        private async void OnBrowseFolderClicked(object? sender, EventArgs e)
+        {
             try
             {
-                await ShowFolderPickerAsync();
+#if ANDROID
+                // Use Android folder picker
+                var intent = new Intent(Intent.ActionOpenDocumentTree);
+                intent.AddFlags(ActivityFlags.GrantReadUriPermission | ActivityFlags.GrantPersistableUriPermission);
+
+                var activity = Platform.CurrentActivity;
+                if (activity != null)
+                {
+                    activity.StartActivityForResult(intent, 1001);
+
+                    // Note: The result is handled via MainActivity
+                    // For now, show a manual entry option
+                    var result = await DisplayPromptAsync(
+                        "Enter Folder Path",
+                        "Enter the full path to the screenshot folder:",
+                        placeholder: "/storage/emulated/0/Pictures/KPLUS",
+                        keyboard: Keyboard.Text);
+
+                    if (!string.IsNullOrWhiteSpace(result))
+                    {
+                        _selectedFolderPath = result.Trim();
+                        SelectedFolderLabel.Text = _selectedFolderPath;
+                    }
+                }
+#else
+                // Fallback for non-Android
+                var result = await DisplayPromptAsync(
+                    "Enter Folder Path",
+                    "Enter the full path to the screenshot folder:",
+                    placeholder: "/path/to/folder",
+                    keyboard: Keyboard.Text);
+
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    _selectedFolderPath = result.Trim();
+                    SelectedFolderLabel.Text = _selectedFolderPath;
+                }
+#endif
             }
             catch (Exception ex)
             {
-                BankSlipStatusLabel.Text = $"Error: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"Error browsing folder: {ex.Message}");
+                await DisplayAlert("Error", $"Could not open folder picker: {ex.Message}", "OK");
             }
-#else
-            await DisplayAlert("Not Supported", "Folder browsing is only available on Android", "OK");
-#endif
         }
 
-        private async Task ShowFolderPickerAsync()
+        private async void OnAddFolderClicked(object? sender, EventArgs e)
         {
-            // Get common image folders and show as ActionSheet
-            var commonFolders = GetCommonImageFolders();
-
-            if (commonFolders.Count == 0)
+            try
             {
-                await DisplayAlert("No Folders", "No image folders found on device", "OK");
-                return;
-            }
+                var pattern = PatternNameEntry.Text?.Trim();
 
-            var folderNames = commonFolders.Select(f => f.Name).ToArray();
-            var selected = await DisplayActionSheet("Select Folder", "Cancel", null, folderNames);
-
-            if (string.IsNullOrEmpty(selected) || selected == "Cancel")
-                return;
-
-            // Find the selected folder
-            foreach (var folder in commonFolders)
-            {
-                if (folder.Name == selected)
+                if (string.IsNullOrWhiteSpace(_selectedFolderPath))
                 {
-                    _selectedFolderPath = folder.Path;
-                    SelectedFolderLabel.Text = folder.Path;
-                    SelectedFolderLabel.TextColor = Colors.Black;
-
-                    // Auto-suggest pattern name based on folder
-                    if (string.IsNullOrEmpty(PatternNameEntry.Text))
-                    {
-                        var username = UsernameLabel.Text ?? "User";
-                        // Get just the last folder name for the pattern
-                        var lastFolderName = Path.GetFileName(folder.Path);
-                        PatternNameEntry.Text = $"{lastFolderName}_{username}";
-                    }
-                    break;
+                    await DisplayAlert("Missing Folder", "Please select a folder first", "OK");
+                    return;
                 }
+
+                if (string.IsNullOrWhiteSpace(pattern))
+                {
+                    await DisplayAlert("Missing Pattern", "Please enter a pattern name (e.g., KPLUS_Thomas)", "OK");
+                    return;
+                }
+
+                await _bankSlipViewModel.AddFolderAsync(_selectedFolderPath, pattern);
+
+                RefreshFolderList();
+                ClearAddFolderForm();
+                UpdatePendingCountDisplay();
+
+                BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error adding folder: {ex.Message}");
+                await DisplayAlert("Error", ex.Message, "OK");
             }
         }
 
-        private List<FolderInfo> GetCommonImageFolders()
+        private async Task OnDeleteFolderClicked(string patternIdentifier)
         {
-            var folders = new List<FolderInfo>();
+            var confirm = await DisplayAlert(
+                "Remove Folder",
+                $"Remove '{patternIdentifier}' from monitoring?",
+                "Remove", "Cancel");
 
-#if ANDROID
-            var basePaths = new[]
+            if (confirm)
             {
-                Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDcim)?.AbsolutePath,
-                Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryPictures)?.AbsolutePath,
-                Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath
-            };
+                await _bankSlipViewModel.RemoveFolderAsync(patternIdentifier);
+                RefreshFolderList();
+                UpdatePendingCountDisplay();
+                BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
+            }
+        }
 
-            foreach (var basePath in basePaths)
+        private async void OnBatchUploadClicked(object? sender, EventArgs e)
+        {
+            try
             {
-                if (string.IsNullOrEmpty(basePath) || !Directory.Exists(basePath))
-                    continue;
+                if (_bankSlipViewModel.IsBatchUploading)
+                {
+                    await DisplayAlert("In Progress", "Batch upload is already running", "OK");
+                    return;
+                }
 
-                // Add the base folder itself
-                var baseName = Path.GetFileName(basePath);
-                folders.Add(new FolderInfo(baseName, basePath));
+                var pendingCount = _bankSlipViewModel.PendingCount;
+                if (pendingCount == 0)
+                {
+                    await DisplayAlert("No Files", "No pending files to upload in the selected date range", "OK");
+                    return;
+                }
 
-                // Add subfolders
+                var fromDate = _bankSlipViewModel.SyncFromDate;
+                var toDate = _bankSlipViewModel.SyncToDate ?? DateTime.Now;
+
+                var confirm = await DisplayAlert(
+                    "Batch Upload",
+                    $"Upload {pendingCount} files from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}?",
+                    "Upload", "Cancel");
+
+                if (!confirm) return;
+
+                // Show progress UI
+                BatchProgressContainer.IsVisible = true;
+                BatchUploadButton.IsEnabled = false;
+                ScanNowButton.IsEnabled = false;
+
+                // Subscribe to progress updates
+                _bankSlipViewModel.PropertyChanged += OnBatchProgressChanged;
+
                 try
                 {
-                    foreach (var subDir in Directory.GetDirectories(basePath))
-                    {
-                        var subName = Path.GetFileName(subDir);
-                        folders.Add(new FolderInfo($"{baseName}/{subName}", subDir));
-                    }
+                    var result = await _bankSlipViewModel.BatchUploadAsync();
+
+                    await DisplayAlert(
+                        "Batch Complete",
+                        $"Uploaded: {result.UploadedCount}\nFailed: {result.FailedCount}",
+                        "OK");
                 }
-                catch { /* Permission denied, skip */ }
-            }
-#endif
+                finally
+                {
+                    _bankSlipViewModel.PropertyChanged -= OnBatchProgressChanged;
 
-            return folders.OrderBy(f => f.Name).ToList();
-        }
+                    // Hide progress UI
+                    BatchProgressContainer.IsVisible = false;
+                    BatchUploadButton.IsEnabled = true;
+                    ScanNowButton.IsEnabled = true;
+                }
 
-        // Simple class instead of tuple to avoid null comparison issues
-        private class FolderInfo
-        {
-            public string Name { get; }
-            public string Path { get; }
-
-            public FolderInfo(string name, string path)
-            {
-                Name = name;
-                Path = path;
-            }
-        }
-
-        private async void OnEnabledToggled(object sender, ToggledEventArgs e)
-        {
-            try
-            {
-                _bankSlipViewModel.IsEnabled = e.Value;
+                UpdatePendingCountDisplay();
                 BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
             }
             catch (Exception ex)
             {
-                BankSlipStatusLabel.Text = $"Error: {ex.Message}";
+                System.Diagnostics.Debug.WriteLine($"Error in batch upload: {ex.Message}");
+                await DisplayAlert("Error", ex.Message, "OK");
+
+                BatchProgressContainer.IsVisible = false;
+                BatchUploadButton.IsEnabled = true;
+                ScanNowButton.IsEnabled = true;
             }
         }
 
-        private async void OnAddFolderClicked(object sender, EventArgs e)
+        private void OnBatchProgressChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(_selectedFolderPath))
+            if (e.PropertyName == nameof(_bankSlipViewModel.BatchProgress))
             {
-                BankSlipStatusLabel.Text = "Please select a folder first";
-                return;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    BatchProgressBar.Progress = _bankSlipViewModel.BatchProgress / 100.0;
+                });
             }
-
-            var patternName = PatternNameEntry.Text?.Trim();
-            if (string.IsNullOrWhiteSpace(patternName))
+            else if (e.PropertyName == nameof(_bankSlipViewModel.BatchProgressText))
             {
-                BankSlipStatusLabel.Text = "Please enter a pattern name";
-                return;
-            }
-
-            try
-            {
-                AddFolderButton.IsEnabled = false;
-
-                await _bankSlipViewModel.AddFolderAsync(_selectedFolderPath, patternName);
-
-                ClearAddFolderForm();
-                RefreshFolderList();
-                BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
-            }
-            catch (Exception ex)
-            {
-                BankSlipStatusLabel.Text = $"Error: {ex.Message}";
-            }
-            finally
-            {
-                AddFolderButton.IsEnabled = true;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    BatchProgressLabel.Text = _bankSlipViewModel.BatchProgressText;
+                });
             }
         }
 
-        private async Task OnRemoveFolderClicked(FolderItemViewModel folder)
-        {
-            bool confirm = await DisplayAlert(
-                "Remove Folder",
-                $"Remove '{folder.PatternIdentifier}' from monitored folders?",
-                "Remove",
-                "Cancel");
-
-            if (!confirm)
-                return;
-
-            try
-            {
-                await _bankSlipViewModel.RemoveFolderAsync(folder);
-                RefreshFolderList();
-                BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
-            }
-            catch (Exception ex)
-            {
-                BankSlipStatusLabel.Text = $"Error: {ex.Message}";
-            }
-        }
-
-        private async void OnSyncFromDateChanged(object sender, DateChangedEventArgs e)
-        {
-            try
-            {
-                _bankSlipViewModel.SyncFromDate = e.NewDate;
-            }
-            catch (Exception ex)
-            {
-                BankSlipStatusLabel.Text = $"Error: {ex.Message}";
-            }
-        }
-
-        private async void OnScanNowClicked(object sender, EventArgs e)
+        private async void OnScanNowClicked(object? sender, EventArgs e)
         {
             try
             {
                 ScanNowButton.IsEnabled = false;
-                ScanNowButton.Text = "🔄 Scanning...";
-                BankSlipStatusLabel.Text = "Scanning for new images...";
+                BankSlipStatusLabel.Text = "Scanning...";
 
-                await _bankSlipViewModel.ScanNowAsync();
+                var result = await _bankSlipViewModel.ScanNowAsync();
 
+                UpdatePendingCountDisplay();
                 BankSlipStatusLabel.Text = _bankSlipViewModel.StatusMessage;
-                RefreshFolderList(); // Update pending counts
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"Error scanning: {ex.Message}");
                 BankSlipStatusLabel.Text = $"Error: {ex.Message}";
             }
             finally
             {
                 ScanNowButton.IsEnabled = true;
-                ScanNowButton.Text = "🔍 Scan Now";
             }
         }
 
-        // ===== NAVIGATION =====
-
-        private async void OnBackClicked(object sender, EventArgs e)
+        private async void OnLogoutClicked(object? sender, EventArgs e)
         {
-            await Shell.Current.GoToAsync("//CategoryBrowserPage");
-        }
-
-        private async void OnLogoutClicked(object sender, EventArgs e)
-        {
-            bool confirm = await DisplayAlert(
-                "Sign Out",
-                "Are you sure you want to sign out?",
-                "Yes, Sign Out",
-                "Cancel");
-
-            if (!confirm)
-                return;
-
-            try
+            var confirm = await DisplayAlert("Sign Out", "Are you sure you want to sign out?", "Sign Out", "Cancel");
+            if (confirm)
             {
                 await _credentialStorage.ClearCredentialsAsync();
-                await Shell.Current.GoToAsync("//SimpleLoginPage");
-            }
-            catch (Exception ex)
-            {
-                await DisplayAlert("Error", $"Logout failed: {ex.Message}", "OK");
+                await Shell.Current.GoToAsync("//LoginPage");
             }
         }
     }

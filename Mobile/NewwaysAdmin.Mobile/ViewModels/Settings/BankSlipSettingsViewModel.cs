@@ -1,5 +1,6 @@
 ﻿// File: NewwaysAdmin.Mobile/ViewModels/Settings/BankSlipSettingsViewModel.cs
-// ViewModel for bank slip sync settings - matches SettingsPage.xaml.cs expectations
+// ViewModel for bank slip sync settings
+// UPDATED: Added SyncToDate and batch upload support
 
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -13,24 +14,36 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
     {
         private readonly ILogger<BankSlipSettingsViewModel> _logger;
         private readonly BankSlipSettingsService _settingsService;
+        private readonly BankSlipService _bankSlipService;
         private readonly IBankSlipMonitorControl _monitorControl;
 
         private bool _isEnabled;
         private DateTime _syncFromDate = DateTime.Now;
+        private DateTime? _syncToDate = null;
+        private bool _useDateRange = false;
         private string _statusMessage = "";
+        private bool _isBatchUploading = false;
+        private int _pendingCount = 0;
+        private double _batchProgress = 0;
+        private string _batchProgressText = "";
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
         public BankSlipSettingsViewModel(
             ILogger<BankSlipSettingsViewModel> logger,
             BankSlipSettingsService settingsService,
+            BankSlipService bankSlipService,
             IBankSlipMonitorControl monitorControl)
         {
             _logger = logger;
             _settingsService = settingsService;
+            _bankSlipService = bankSlipService;
             _monitorControl = monitorControl;
 
             MonitoredFolders = new ObservableCollection<FolderItemViewModel>();
+
+            // Subscribe to batch progress events
+            _bankSlipService.BatchProgress += OnBatchProgress;
         }
 
         public bool IsEnabled
@@ -57,6 +70,45 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
                     _syncFromDate = value;
                     OnPropertyChanged();
                     _ = _settingsService.SetSyncFromDateAsync(value);
+                    _ = UpdatePendingCountAsync();
+                }
+            }
+        }
+
+        public DateTime? SyncToDate
+        {
+            get => _syncToDate;
+            set
+            {
+                if (_syncToDate != value)
+                {
+                    _syncToDate = value;
+                    OnPropertyChanged();
+                    _ = _settingsService.SetSyncToDateAsync(value);
+                    _ = UpdatePendingCountAsync();
+                }
+            }
+        }
+
+        public bool UseDateRange
+        {
+            get => _useDateRange;
+            set
+            {
+                if (_useDateRange != value)
+                {
+                    _useDateRange = value;
+                    OnPropertyChanged();
+
+                    // Clear or set the SyncToDate based on toggle
+                    if (!value)
+                    {
+                        SyncToDate = null;
+                    }
+                    else if (_syncToDate == null)
+                    {
+                        SyncToDate = DateTime.Now;
+                    }
                 }
             }
         }
@@ -64,9 +116,49 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
         public string StatusMessage
         {
             get => _statusMessage;
-            private set
+            set
             {
                 _statusMessage = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public bool IsBatchUploading
+        {
+            get => _isBatchUploading;
+            set
+            {
+                _isBatchUploading = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public int PendingCount
+        {
+            get => _pendingCount;
+            set
+            {
+                _pendingCount = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public double BatchProgress
+        {
+            get => _batchProgress;
+            set
+            {
+                _batchProgress = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string BatchProgressText
+        {
+            get => _batchProgressText;
+            set
+            {
+                _batchProgressText = value;
                 OnPropertyChanged();
             }
         }
@@ -90,6 +182,12 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
                 _syncFromDate = settings.SyncFromDate;
                 OnPropertyChanged(nameof(SyncFromDate));
 
+                _syncToDate = settings.SyncToDate;
+                OnPropertyChanged(nameof(SyncToDate));
+
+                _useDateRange = settings.SyncToDate.HasValue;
+                OnPropertyChanged(nameof(UseDateRange));
+
                 MonitoredFolders.Clear();
                 foreach (var folder in settings.MonitoredFolders)
                 {
@@ -102,6 +200,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
                     MonitoredFolders.Add(vm);
                 }
 
+                await UpdatePendingCountAsync();
                 UpdateStatusMessage();
 
                 // Start monitoring if enabled
@@ -147,15 +246,10 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
                 vm.UpdateStatus();
                 MonitoredFolders.Add(vm);
 
-                UpdateStatusMessage();
+                await UpdatePendingCountAsync();
+                StatusMessage = $"Added folder: {patternIdentifier}";
 
-                // Refresh file watchers
-                if (_isEnabled)
-                {
-                    _monitorControl.RefreshWatchedFolders();
-                }
-
-                _logger.LogInformation("[BankSlipVM] ✅ Added folder: {Pattern}", patternIdentifier);
+                _logger.LogInformation("[BankSlipVM] ✅ Folder added successfully");
             }
             catch (Exception ex)
             {
@@ -167,24 +261,24 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
         /// <summary>
         /// Remove a folder from monitoring
         /// </summary>
-        public async Task RemoveFolderAsync(FolderItemViewModel folder)
+        public async Task RemoveFolderAsync(string patternIdentifier)
         {
             try
             {
-                _logger.LogInformation("[BankSlipVM] Removing folder: {Pattern}", folder.PatternIdentifier);
+                _logger.LogInformation("[BankSlipVM] Removing folder: {Pattern}", patternIdentifier);
 
-                await _settingsService.RemoveFolderAsync(folder.PatternIdentifier);
-                MonitoredFolders.Remove(folder);
+                await _settingsService.RemoveFolderAsync(patternIdentifier);
 
-                UpdateStatusMessage();
+                var folder = MonitoredFolders.FirstOrDefault(f =>
+                    f.PatternIdentifier.Equals(patternIdentifier, StringComparison.OrdinalIgnoreCase));
 
-                // Refresh file watchers
-                if (_isEnabled)
+                if (folder != null)
                 {
-                    _monitorControl.RefreshWatchedFolders();
+                    MonitoredFolders.Remove(folder);
                 }
 
-                _logger.LogInformation("[BankSlipVM] ✅ Removed folder: {Pattern}", folder.PatternIdentifier);
+                await UpdatePendingCountAsync();
+                StatusMessage = $"Removed folder: {patternIdentifier}";
             }
             catch (Exception ex)
             {
@@ -194,22 +288,130 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
         }
 
         /// <summary>
-        /// Manual scan (placeholder - real-time monitoring handles this now)
+        /// Perform batch upload of historical files
         /// </summary>
-        public Task ScanNowAsync()
+        public async Task<ScanResult> BatchUploadAsync()
         {
-            _logger.LogInformation("[BankSlipVM] Manual scan requested");
-
-            if (_isEnabled)
+            if (IsBatchUploading)
             {
-                StatusMessage = "Real-time monitoring is active. New files are detected automatically.";
+                _logger.LogWarning("[BankSlipVM] Batch upload already in progress");
+                return new ScanResult();
+            }
+
+            try
+            {
+                IsBatchUploading = true;
+                BatchProgress = 0;
+                BatchProgressText = "Starting...";
+
+                var fromDate = SyncFromDate;
+                var toDate = SyncToDate ?? DateTime.Now;
+
+                _logger.LogInformation("[BankSlipVM] Starting batch upload from {From} to {To}", fromDate, toDate);
+                StatusMessage = $"Uploading files from {fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd}...";
+
+                var progress = new Progress<BatchProgressEventArgs>(args =>
+                {
+                    BatchProgress = args.PercentComplete;
+                    BatchProgressText = $"{args.CurrentIndex}/{args.TotalFiles}: {args.CurrentFile}";
+                });
+
+                var result = await _bankSlipService.BatchUploadAsync(fromDate, toDate, progress);
+
+                StatusMessage = $"✅ Uploaded {result.UploadedCount} of {result.NewFilesFound} files";
+                if (result.FailedCount > 0)
+                {
+                    StatusMessage += $" ({result.FailedCount} failed)";
+                }
+
+                await UpdatePendingCountAsync();
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[BankSlipVM] Error during batch upload");
+                StatusMessage = $"Error: {ex.Message}";
+                return new ScanResult();
+            }
+            finally
+            {
+                IsBatchUploading = false;
+                BatchProgress = 0;
+                BatchProgressText = "";
+            }
+        }
+
+        /// <summary>
+        /// Manual scan and upload
+        /// </summary>
+        public async Task<ScanResult> ScanNowAsync()
+        {
+            try
+            {
+                _logger.LogInformation("[BankSlipVM] Manual scan triggered");
+                StatusMessage = "Scanning...";
+
+                var result = await _bankSlipService.ScanAndUploadAsync();
+
+                if (result.NewFilesFound == 0)
+                {
+                    StatusMessage = "No new files found";
+                }
+                else
+                {
+                    StatusMessage = $"Uploaded {result.UploadedCount} of {result.NewFilesFound} files";
+                    if (result.FailedCount > 0)
+                    {
+                        StatusMessage += $" ({result.FailedCount} failed)";
+                    }
+                }
+
+                await UpdatePendingCountAsync();
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[BankSlipVM] Error during manual scan");
+                StatusMessage = $"Error: {ex.Message}";
+                return new ScanResult();
+            }
+        }
+
+        /// <summary>
+        /// Update the pending file count
+        /// </summary>
+        public async Task UpdatePendingCountAsync()
+        {
+            try
+            {
+                var toDate = UseDateRange ? SyncToDate : null;
+                PendingCount = await _bankSlipService.GetPendingCountAsync(SyncFromDate, toDate);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[BankSlipVM] Error getting pending count");
+                PendingCount = 0;
+            }
+        }
+
+        private void OnBatchProgress(object? sender, BatchProgressEventArgs e)
+        {
+            BatchProgress = e.PercentComplete;
+            BatchProgressText = $"{e.CurrentIndex}/{e.TotalFiles}: {e.CurrentFile}";
+        }
+
+        private void UpdateStatusMessage()
+        {
+            if (_isEnabled && MonitoredFolders.Count > 0)
+            {
+                StatusMessage = $"Monitoring {MonitoredFolders.Count} folder(s). New files are detected automatically.";
             }
             else
             {
                 StatusMessage = "Enable sync to start monitoring for new bank slips.";
             }
-
-            return Task.CompletedTask;
         }
 
         private async Task OnEnabledChangedAsync(bool enabled)
@@ -272,64 +474,23 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
         {
             try
             {
-                PermissionStatus status;
+#if ANDROID
+                var status = await Permissions.CheckStatusAsync<Permissions.StorageRead>();
 
-                if (OperatingSystem.IsAndroidVersionAtLeast(33))
+                if (status != PermissionStatus.Granted)
                 {
-                    // Android 13+ needs READ_MEDIA_IMAGES
-                    _logger.LogInformation("[BankSlipVM] Checking Photos permission (Android 13+)");
-                    status = await Permissions.CheckStatusAsync<Permissions.Photos>();
-
-                    if (status != PermissionStatus.Granted)
-                    {
-                        _logger.LogInformation("[BankSlipVM] Requesting Photos permission...");
-                        status = await Permissions.RequestAsync<Permissions.Photos>();
-                    }
-                }
-                else
-                {
-                    // Android 12 and below needs READ_EXTERNAL_STORAGE
-                    _logger.LogInformation("[BankSlipVM] Checking StorageRead permission (Android 12-)");
-                    status = await Permissions.CheckStatusAsync<Permissions.StorageRead>();
-
-                    if (status != PermissionStatus.Granted)
-                    {
-                        _logger.LogInformation("[BankSlipVM] Requesting StorageRead permission...");
-                        status = await Permissions.RequestAsync<Permissions.StorageRead>();
-                    }
+                    status = await Permissions.RequestAsync<Permissions.StorageRead>();
                 }
 
-                _logger.LogInformation("[BankSlipVM] Permission status: {Status}", status);
                 return status == PermissionStatus.Granted;
+#else
+                return true;
+#endif
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[BankSlipVM] Error requesting permission");
+                _logger.LogError(ex, "[BankSlipVM] Error checking permissions");
                 return false;
-            }
-        }
-
-        private void UpdateStatusMessage()
-        {
-            if (!_isEnabled)
-            {
-                StatusMessage = "Bank slip sync disabled";
-            }
-            else if (MonitoredFolders.Count == 0)
-            {
-                StatusMessage = "No folders configured - add a folder to start";
-            }
-            else
-            {
-                var validCount = MonitoredFolders.Count(f => f.Exists);
-                if (validCount == MonitoredFolders.Count)
-                {
-                    StatusMessage = $"Monitoring {MonitoredFolders.Count} folder(s) for new bank slips";
-                }
-                else
-                {
-                    StatusMessage = $"⚠️ {MonitoredFolders.Count - validCount} folder(s) not accessible";
-                }
             }
         }
 
@@ -339,45 +500,65 @@ namespace NewwaysAdmin.Mobile.ViewModels.Settings
         }
     }
 
-    /// <summary>
-    /// ViewModel for a monitored folder item
-    /// </summary>
+    // ===== Folder Item ViewModel =====
+
     public class FolderItemViewModel : INotifyPropertyChanged
     {
+        private string _statusText = "";
+        private bool _exists = false;
+
         public string PatternIdentifier { get; set; } = "";
         public string DeviceFolderPath { get; set; } = "";
 
-        public string FolderDisplayName => string.IsNullOrEmpty(DeviceFolderPath)
-            ? "Not configured"
-            : TruncatePath(DeviceFolderPath);
+        public string FolderDisplayName => Path.GetFileName(DeviceFolderPath);
 
-        public bool Exists { get; private set; }
-        public string StatusText { get; private set; } = "";
+        public string StatusText
+        {
+            get => _statusText;
+            set
+            {
+                _statusText = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StatusText)));
+            }
+        }
+
+        public bool Exists
+        {
+            get => _exists;
+            set
+            {
+                _exists = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Exists)));
+            }
+        }
 
         public void UpdateStatus()
         {
-            Exists = !string.IsNullOrEmpty(DeviceFolderPath) && Directory.Exists(DeviceFolderPath);
+            Exists = Directory.Exists(DeviceFolderPath);
             StatusText = Exists ? "✓ Ready" : "⚠️ Not found";
-            OnPropertyChanged(nameof(Exists));
-            OnPropertyChanged(nameof(StatusText));
-        }
-
-        private static string TruncatePath(string path)
-        {
-            if (path.Length <= 35) return path;
-
-            // Show last part of path
-            var parts = path.Split('/');
-            if (parts.Length <= 2) return path;
-
-            return ".../" + string.Join("/", parts.TakeLast(2));
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
+    }
 
-        protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    // ===== Platform-specific helper =====
+
+    public static class BankSlipWorkerHelper
+    {
+        public static void StartWorkerIfEnabled()
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+#if ANDROID
+            // TODO: Start Android WorkManager worker
+            System.Diagnostics.Debug.WriteLine("[BankSlipWorkerHelper] Starting Android worker...");
+#endif
+        }
+
+        public static void StopWorker()
+        {
+#if ANDROID
+            // TODO: Stop Android WorkManager worker
+            System.Diagnostics.Debug.WriteLine("[BankSlipWorkerHelper] Stopping Android worker...");
+#endif
         }
     }
 }

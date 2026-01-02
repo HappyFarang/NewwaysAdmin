@@ -1,48 +1,46 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
-<!-- File: Mobile/NewwaysAdmin.Mobile/Pages/SettingsPage.xaml -->
+<!-- File: NewwaysAdmin.Mobile/Pages/SettingsPage.xaml -->
+<!-- UPDATED: Added date range and batch upload support -->
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="NewwaysAdmin.Mobile.Pages.SettingsPage"
-             Title="Settings">
+             Title="Settings"
+             BackgroundColor="White">
 
     <ScrollView>
         <StackLayout Padding="20" Spacing="15">
 
-            <!-- Header -->
-            <Label Text="⚙️ Settings" 
-                   FontSize="24" 
-                   FontAttributes="Bold" 
-                   HorizontalOptions="Center"
-                   Margin="0,10,0,20"/>
-
-            <!-- Back Button -->
-            <Button Text="← Back to Categories"
-                    Clicked="OnBackClicked"
-                    BackgroundColor="#1976D2"
-                    TextColor="White"
-                    FontSize="16"
-                    HeightRequest="50"
-                    CornerRadius="10"
-                    Margin="0,0,0,10"/>
-
-            <BoxView HeightRequest="1" Color="LightGray" />
-
             <!-- User Info Section -->
+            <Label Text="Settings" 
+                   FontSize="28" 
+                   FontAttributes="Bold"
+                   TextColor="#1565C0"/>
+
             <Frame BackgroundColor="#F5F5F5" 
                    Padding="15" 
                    CornerRadius="10">
                 <StackLayout Spacing="5">
-                    <Label Text="Account" 
+                    <Label Text="Logged in as" 
                            FontSize="12" 
                            TextColor="Gray"/>
                     <Label x:Name="UsernameLabel" 
                            Text="Loading..." 
                            FontSize="18" 
                            FontAttributes="Bold"/>
-                    <Label x:Name="ServerLabel" 
-                           Text="" 
+                </StackLayout>
+            </Frame>
+
+            <!-- Server Info -->
+            <Frame BackgroundColor="#F5F5F5" 
+                   Padding="15" 
+                   CornerRadius="10">
+                <StackLayout Spacing="5">
+                    <Label Text="Server" 
                            FontSize="12" 
                            TextColor="Gray"/>
+                    <Label x:Name="ServerLabel" 
+                           Text="..." 
+                           FontSize="14"/>
                 </StackLayout>
             </Frame>
 
@@ -158,19 +156,99 @@
                 </StackLayout>
             </Frame>
 
-            <!-- Sync From Date -->
+            <!-- Date Range Section -->
             <Frame BackgroundColor="#F5F5F5" 
                    Padding="15" 
                    CornerRadius="10">
-                <StackLayout Spacing="5">
-                    <Label Text="Sync images from" 
-                           FontSize="16"/>
-                    <Label Text="Only upload images newer than this date" 
-                           FontSize="12" 
-                           TextColor="Gray"/>
-                    <DatePicker x:Name="SyncFromDatePicker"
-                                DateSelected="OnSyncFromDateChanged"
-                                Format="yyyy-MM-dd"/>
+                <StackLayout Spacing="10">
+                    <Label Text="📅 Date Range" 
+                           FontSize="16" 
+                           FontAttributes="Bold"/>
+
+                    <!-- Sync From Date -->
+                    <StackLayout Spacing="5">
+                        <Label Text="From date" 
+                               FontSize="14"/>
+                        <Label Text="Only upload images newer than this date" 
+                               FontSize="11" 
+                               TextColor="Gray"/>
+                        <DatePicker x:Name="SyncFromDatePicker"
+                                    DateSelected="OnSyncFromDateChanged"
+                                    Format="yyyy-MM-dd"/>
+                    </StackLayout>
+
+                    <!-- Date Range Toggle -->
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,5">
+                        <StackLayout Grid.Column="0" VerticalOptions="Center">
+                            <Label Text="Use date range (batch mode)" 
+                                   FontSize="14"/>
+                            <Label Text="Set an end date for historical uploads" 
+                                   FontSize="11" 
+                                   TextColor="Gray"/>
+                        </StackLayout>
+                        <Switch x:Name="DateRangeSwitch" 
+                                Grid.Column="1"
+                                VerticalOptions="Center"
+                                Toggled="OnDateRangeToggled"/>
+                    </Grid>
+
+                    <!-- Sync To Date (visible when date range is enabled) -->
+                    <StackLayout x:Name="SyncToDateContainer" 
+                                 Spacing="5" 
+                                 IsVisible="False">
+                        <Label Text="To date" 
+                               FontSize="14"/>
+                        <Label Text="Only upload images older than this date" 
+                               FontSize="11" 
+                               TextColor="Gray"/>
+                        <DatePicker x:Name="SyncToDatePicker"
+                                    DateSelected="OnSyncToDateChanged"
+                                    Format="yyyy-MM-dd"/>
+                    </StackLayout>
+
+                    <!-- Pending Count Display -->
+                    <Frame BackgroundColor="#E3F2FD" 
+                           Padding="10" 
+                           CornerRadius="5"
+                           Margin="0,5">
+                        <Label x:Name="PendingCountLabel"
+                               Text="0 files pending"
+                               FontSize="14"
+                               TextColor="#1565C0"
+                               HorizontalOptions="Center"/>
+                    </Frame>
+                </StackLayout>
+            </Frame>
+
+            <!-- Batch Upload Button -->
+            <Button x:Name="BatchUploadButton"
+                    Text="📤 Batch Upload"
+                    Clicked="OnBatchUploadClicked"
+                    BackgroundColor="#9C27B0"
+                    TextColor="White"
+                    FontSize="16"
+                    HeightRequest="50"
+                    CornerRadius="10"/>
+
+            <!-- Batch Progress (hidden by default) -->
+            <Frame x:Name="BatchProgressContainer" 
+                   BackgroundColor="#F3E5F5" 
+                   Padding="15" 
+                   CornerRadius="10"
+                   IsVisible="False">
+                <StackLayout Spacing="8">
+                    <Label Text="Uploading..." 
+                           FontSize="14" 
+                           FontAttributes="Bold"
+                           TextColor="#7B1FA2"/>
+                    <ProgressBar x:Name="BatchProgressBar" 
+                                 Progress="0"
+                                 ProgressColor="#9C27B0"/>
+                    <Label x:Name="BatchProgressLabel"
+                           Text=""
+                           FontSize="12"
+                           TextColor="Gray"
+                           HorizontalOptions="Center"/>
                 </StackLayout>
             </Frame>
 

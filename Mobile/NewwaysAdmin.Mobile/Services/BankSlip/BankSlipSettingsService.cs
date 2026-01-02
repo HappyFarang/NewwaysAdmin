@@ -1,5 +1,6 @@
 ﻿// File: NewwaysAdmin.Mobile/Services/BankSlip/BankSlipSettingsService.cs
 // Manages bank slip monitoring settings - saves/loads the BankSlipSyncSettings
+// UPDATED: Added SyncToDate for historical batch uploads
 
 using System.Text.Json;
 
@@ -49,7 +50,13 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         /// <summary>
         /// Only sync images newer than this (prevents uploading old history)
         /// </summary>
-        public DateTime SyncFromDate { get; set; } = DateTime.UtcNow;
+        public DateTime SyncFromDate { get; set; } = DateTime.Now;
+
+        /// <summary>
+        /// Only sync images older than this (for historical batch uploads)
+        /// null = no upper limit (realtime mode)
+        /// </summary>
+        public DateTime? SyncToDate { get; set; } = null;
     }
 
     public class BankSlipSettingsService
@@ -162,6 +169,37 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         {
             var settings = await LoadSettingsAsync();
             settings.SyncFromDate = date;
+            await SaveSettingsAsync(settings);
+        }
+
+        /// <summary>
+        /// Update the sync-to date (for historical batch uploads)
+        /// </summary>
+        public async Task SetSyncToDateAsync(DateTime? date)
+        {
+            var settings = await LoadSettingsAsync();
+            settings.SyncToDate = date;
+            await SaveSettingsAsync(settings);
+        }
+
+        /// <summary>
+        /// Set date range for batch uploads
+        /// </summary>
+        public async Task SetDateRangeAsync(DateTime fromDate, DateTime? toDate)
+        {
+            var settings = await LoadSettingsAsync();
+            settings.SyncFromDate = fromDate;
+            settings.SyncToDate = toDate;
+            await SaveSettingsAsync(settings);
+        }
+
+        /// <summary>
+        /// Clear the sync-to date (switch to realtime mode)
+        /// </summary>
+        public async Task ClearSyncToDateAsync()
+        {
+            var settings = await LoadSettingsAsync();
+            settings.SyncToDate = null;
             await SaveSettingsAsync(settings);
         }
 

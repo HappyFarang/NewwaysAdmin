@@ -1,5 +1,6 @@
 ﻿// File: NewwaysAdmin.Mobile/Services/BankSlip/BankSlipService.cs
 // Handles bank slip scanning and uploading via SignalR
+// UPDATED: Added date range filtering for historical batch uploads
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Mobile.Services.Categories;
@@ -18,6 +19,7 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
 
         public event EventHandler<SlipUploadedEventArgs>? SlipUploaded;
         public event EventHandler<SlipUploadFailedEventArgs>? SlipUploadFailed;
+        public event EventHandler<BatchProgressEventArgs>? BatchProgress;
 
         public BankSlipService(
             ILogger<BankSlipService> logger,
@@ -49,7 +51,7 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
             {
                 try
                 {
-                    await ScanFolderAsync(folder, settings.SyncFromDate, result);
+                    await ScanFolderAsync(folder, settings.SyncFromDate, settings.SyncToDate, result);
                 }
                 catch (Exception ex)
                 {
@@ -61,7 +63,41 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
             return result;
         }
 
-        private async Task ScanFolderAsync(MonitoredFolder folder, DateTime syncFromDate, ScanResult result)
+        /// <summary>
+        /// Batch upload files within a specific date range
+        /// </summary>
+        public async Task<ScanResult> BatchUploadAsync(DateTime fromDate, DateTime toDate, IProgress<BatchProgressEventArgs>? progress = null)
+        {
+            var result = new ScanResult();
+            var settings = await _settingsService.LoadSettingsAsync();
+
+            _logger.LogInformation("Starting batch upload from {From} to {To}", fromDate, toDate);
+
+            foreach (var folder in settings.MonitoredFolders)
+            {
+                try
+                {
+                    await ScanFolderAsync(folder, fromDate, toDate, result, progress);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error scanning folder {Pattern} at {Path}",
+                        folder.PatternIdentifier, folder.DeviceFolderPath);
+                }
+            }
+
+            _logger.LogInformation("Batch upload complete: {Found} found, {Uploaded} uploaded, {Failed} failed",
+                result.NewFilesFound, result.UploadedCount, result.FailedCount);
+
+            return result;
+        }
+
+        private async Task ScanFolderAsync(
+            MonitoredFolder folder,
+            DateTime syncFromDate,
+            DateTime? syncToDate,
+            ScanResult result,
+            IProgress<BatchProgressEventArgs>? progress = null)
         {
             if (!Directory.Exists(folder.DeviceFolderPath))
             {
@@ -73,21 +109,54 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
                 .Where(f => ImageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
                 .ToList();
 
+            var eligibleFiles = new List<string>();
+
+            // First pass: count eligible files
             foreach (var filePath in files)
+            {
+                var fileInfo = new FileInfo(filePath);
+
+                // Skip if older than sync-from date
+                if (fileInfo.LastWriteTime < syncFromDate)
+                    continue;
+
+                // Skip if newer than sync-to date (for historical batch uploads)
+                if (syncToDate.HasValue && fileInfo.LastWriteTime > syncToDate.Value)
+                    continue;
+
+                // Skip if already processed
+                if (_tracker.IsAlreadyProcessed(filePath))
+                    continue;
+
+                eligibleFiles.Add(filePath);
+            }
+
+            result.NewFilesFound += eligibleFiles.Count;
+            var processedCount = 0;
+
+            // Second pass: upload files
+            foreach (var filePath in eligibleFiles)
             {
                 try
                 {
-                    var fileInfo = new FileInfo(filePath);
+                    processedCount++;
 
-                    // Skip if older than sync date
-                    if (fileInfo.LastWriteTimeUtc < syncFromDate)
-                        continue;
+                    // Report progress
+                    progress?.Report(new BatchProgressEventArgs
+                    {
+                        CurrentFile = Path.GetFileName(filePath),
+                        CurrentIndex = processedCount,
+                        TotalFiles = eligibleFiles.Count,
+                        FolderPattern = folder.PatternIdentifier
+                    });
 
-                    // Skip if already processed
-                    if (_tracker.IsAlreadyProcessed(filePath))
-                        continue;
-
-                    result.NewFilesFound++;
+                    BatchProgress?.Invoke(this, new BatchProgressEventArgs
+                    {
+                        CurrentFile = Path.GetFileName(filePath),
+                        CurrentIndex = processedCount,
+                        TotalFiles = eligibleFiles.Count,
+                        FolderPattern = folder.PatternIdentifier
+                    });
 
                     // Upload the file
                     var success = await UploadFileAsync(filePath, folder.PatternIdentifier);
@@ -114,6 +183,22 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         }
 
         /// <summary>
+        /// Get count of files pending upload within date range
+        /// </summary>
+        public async Task<int> GetPendingCountAsync(DateTime fromDate, DateTime? toDate = null)
+        {
+            var settings = await _settingsService.LoadSettingsAsync();
+            var totalCount = 0;
+
+            foreach (var folder in settings.MonitoredFolders)
+            {
+                totalCount += GetPendingCountForFolder(folder.DeviceFolderPath, fromDate, toDate);
+            }
+
+            return totalCount;
+        }
+
+        /// <summary>
         /// Upload a single file to the server
         /// </summary>
         public async Task<bool> UploadFileAsync(string filePath, string patternIdentifier)
@@ -123,9 +208,9 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
                 var fileBytes = await ReadFileBytesAsync(filePath);
                 var fileName = Path.GetFileName(filePath);
 
-                // Get file info
+                // Get file info - use LOCAL time, not UTC
                 var fileInfo = new FileInfo(filePath);
-                var lastWriteTime = fileInfo.Exists ? fileInfo.LastWriteTimeUtc : DateTime.UtcNow;
+                var lastWriteTime = fileInfo.Exists ? fileInfo.LastWriteTime : DateTime.Now;
                 var fileSize = fileBytes.Length;
 
                 var request = new DocumentUploadRequest
@@ -133,7 +218,7 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
                     FileName = fileName,
                     ImageBase64 = Convert.ToBase64String(fileBytes),
                     SourceFolder = patternIdentifier,
-                    Username = MobileSessionState.Current?.Username ?? "Unknown",  // FIXED
+                    Username = MobileSessionState.Current?.Username ?? "Unknown",
                     DeviceTimestamp = lastWriteTime,
                     FileSizeBytes = fileSize,
                     ContentType = GetContentType(filePath)
@@ -206,9 +291,9 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
         }
 
         /// <summary>
-        /// Get count of pending (unprocessed) images in a folder
+        /// Get count of pending (unprocessed) images in a folder within date range
         /// </summary>
-        public int GetPendingCount(string folderPath, DateTime syncFromDate)
+        public int GetPendingCountForFolder(string folderPath, DateTime syncFromDate, DateTime? syncToDate = null)
         {
             if (!Directory.Exists(folderPath))
                 return 0;
@@ -223,9 +308,15 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
                 {
                     var fileInfo = new FileInfo(filePath);
 
-                    if (fileInfo.LastWriteTimeUtc < syncFromDate)
+                    // Skip if older than sync-from date
+                    if (fileInfo.LastWriteTime < syncFromDate)
                         continue;
 
+                    // Skip if newer than sync-to date
+                    if (syncToDate.HasValue && fileInfo.LastWriteTime > syncToDate.Value)
+                        continue;
+
+                    // Skip if already processed
                     if (_tracker.IsAlreadyProcessed(filePath))
                         continue;
 
@@ -238,6 +329,14 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
             {
                 return 0;
             }
+        }
+
+        /// <summary>
+        /// Get count of pending images using current settings
+        /// </summary>
+        public int GetPendingCount(string folderPath, DateTime syncFromDate)
+        {
+            return GetPendingCountForFolder(folderPath, syncFromDate, null);
         }
     }
 
@@ -265,6 +364,15 @@ namespace NewwaysAdmin.Mobile.Services.BankSlip
             FilePath = filePath;
             Error = error;
         }
+    }
+
+    public class BatchProgressEventArgs : EventArgs
+    {
+        public string CurrentFile { get; set; } = "";
+        public int CurrentIndex { get; set; }
+        public int TotalFiles { get; set; }
+        public string FolderPattern { get; set; } = "";
+        public double PercentComplete => TotalFiles > 0 ? (double)CurrentIndex / TotalFiles * 100 : 0;
     }
 
     public class ScanResult
