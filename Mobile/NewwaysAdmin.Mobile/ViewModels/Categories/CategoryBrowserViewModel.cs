@@ -6,87 +6,128 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.Mobile.Services.Categories;
 using NewwaysAdmin.Mobile.Services.Connectivity;
-using NewwaysAdmin.SharedModels.Categories;
+using NewwaysAdmin.Mobile.Services.Categories;
 
 namespace NewwaysAdmin.Mobile.ViewModels.Categories
 {
-    public class CategoryBrowserViewModel : INotifyPropertyChanged, IDisposable
+    public class CategoryBrowserViewModel : INotifyPropertyChanged
     {
         private readonly ILogger<CategoryBrowserViewModel> _logger;
-        private readonly CategoryDataService _categoryDataService;
         private readonly ConnectionState _connectionState;
+        private readonly CategoryDataService _categoryDataService;
+        private readonly CategoryHubConnector _hubConnector;
 
         private bool _isLoading;
-        private string _syncStatusText = "Loading...";
         private Color _connectionDotColor = Colors.Gray;
-        private LocationItem? _selectedLocation;
-        private PersonItem? _selectedPerson;
+        private LocationDisplayItem? _selectedLocation;
+        private PersonDisplayItem? _selectedPerson;
+        private string _syncStatusText = "";
+        private bool _isHeaderExpanded = false;
         private bool _includeVat = true;  // NEW: VAT toggle state
+
+        public ICommand OpenSettingsCommand { get; }
 
         public CategoryBrowserViewModel(
             ILogger<CategoryBrowserViewModel> logger,
+            ConnectionState connectionState,
             CategoryDataService categoryDataService,
-            ConnectionState connectionState)
+            CategoryHubConnector hubConnector)
         {
             _logger = logger;
-            _categoryDataService = categoryDataService;
             _connectionState = connectionState;
-
-            // Initialize collections
-            Categories = new ObservableCollection<CategoryDisplayItem>();
-            Locations = new ObservableCollection<LocationItem>();
-            Persons = new ObservableCollection<PersonItem>();
+            _categoryDataService = categoryDataService;
+            _hubConnector = hubConnector;
 
             // Commands
-            ToggleCategoryCommand = new Command<CategoryDisplayItem?>(ToggleCategory);
-            SelectSubCategoryCommand = new Command<SubCategoryDisplayItem?>(SelectSubCategory);
-            RefreshCommand = new Command(async () => await LoadCategoriesAsync());
+            ToggleCategoryCommand = new Command<CategoryDisplayItem>(ToggleCategory);
+            SelectSubCategoryCommand = new Command<SubCategoryDisplayItem>(SelectSubCategory);
             ModuleTappedCommand = new Command(OnModuleTapped);
+            RefreshCommand = new Command(async () => await RefreshDataAsync());
+            ToggleHeaderCommand = new Command(ToggleHeader);
+            NavigateToEditCommand = new Command(async () => await NavigateToEditAsync());
+            OpenSettingsCommand = new Command(async () => await Shell.Current.GoToAsync("//SettingsPage"));
 
-            // Subscribe to events
+            // Subscribe to connection changes
             _connectionState.OnConnectionChanged += OnConnectionStateChanged;
+
+            // Subscribe to data updates
             _categoryDataService.DataUpdated += OnDataUpdated;
+
+            UpdateConnectionDot();
         }
 
         #region Properties
 
+        public ObservableCollection<CategoryDisplayItem> Categories { get; } = new();
+        public ObservableCollection<LocationDisplayItem> Locations { get; } = new();
+        public ObservableCollection<PersonDisplayItem> Persons { get; } = new();
+
+        public LocationDisplayItem? SelectedLocation
+        {
+            get => _selectedLocation;
+            set
+            {
+                _selectedLocation = value;
+                OnPropertyChanged();
+                _logger.LogDebug("Location selected: {Location}", value?.Name ?? "None");
+            }
+        }
+
+        public bool IsHeaderExpanded
+        {
+            get => _isHeaderExpanded;
+            set
+            {
+                _isHeaderExpanded = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public PersonDisplayItem? SelectedPerson
+        {
+            get => _selectedPerson;
+            set
+            {
+                _selectedPerson = value;
+                OnPropertyChanged();
+                _logger.LogDebug("Person selected: {Person}", value?.Name ?? "None");
+            }
+        }
+
         public bool IsLoading
         {
             get => _isLoading;
-            set { _isLoading = value; OnPropertyChanged(); OnPropertyChanged(nameof(ShowEmptyState)); }
+            set
+            {
+                _isLoading = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasCategories));
+                OnPropertyChanged(nameof(ShowEmptyState));
+            }
+        }
+
+        public bool HasCategories => !IsLoading && Categories.Count > 0;
+        public bool ShowEmptyState => !IsLoading && Categories.Count == 0;
+
+        public Color ConnectionDotColor
+        {
+            get => _connectionDotColor;
+            set
+            {
+                _connectionDotColor = value;
+                OnPropertyChanged();
+            }
         }
 
         public string SyncStatusText
         {
             get => _syncStatusText;
-            set { _syncStatusText = value; OnPropertyChanged(); }
-        }
-
-        public Color ConnectionDotColor
-        {
-            get => _connectionDotColor;
-            set { _connectionDotColor = value; OnPropertyChanged(); }
-        }
-
-        public ObservableCollection<CategoryDisplayItem> Categories { get; }
-        public ObservableCollection<LocationItem> Locations { get; }
-        public ObservableCollection<PersonItem> Persons { get; }
-
-        public bool HasCategories => Categories.Count > 0;
-        public bool ShowEmptyState => !IsLoading && !HasCategories;
-
-        public LocationItem? SelectedLocation
-        {
-            get => _selectedLocation;
-            set { _selectedLocation = value; OnPropertyChanged(); }
-        }
-
-        public PersonItem? SelectedPerson
-        {
-            get => _selectedPerson;
-            set { _selectedPerson = value; OnPropertyChanged(); }
+            set
+            {
+                _syncStatusText = value;
+                OnPropertyChanged();
+            }
         }
 
         // NEW: VAT toggle for current transaction
@@ -107,44 +148,41 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
 
         public ICommand ToggleCategoryCommand { get; }
         public ICommand SelectSubCategoryCommand { get; }
-        public ICommand RefreshCommand { get; }
         public ICommand ModuleTappedCommand { get; }
+        public ICommand RefreshCommand { get; }
+        public ICommand ToggleHeaderCommand { get; }
+        public ICommand NavigateToEditCommand { get; }
 
         #endregion
 
-        #region Public Methods
+        #region Methods
 
-        public async Task InitializeAsync()
+        private void ToggleHeader()
         {
-            _logger.LogInformation("CategoryBrowserViewModel initializing...");
-            UpdateConnectionDot();
-            await LoadCategoriesAsync();
+            IsHeaderExpanded = !IsHeaderExpanded;
+            _logger.LogDebug("Header expanded: {IsExpanded}", IsHeaderExpanded);
+        }
+
+        private async Task NavigateToEditAsync()
+        {
+            IsHeaderExpanded = false; // Collapse menu
+            await Shell.Current.GoToAsync("CategoryManagementPage");
         }
 
         public async Task LoadCategoriesAsync()
         {
-            if (IsLoading) return;
-
             try
             {
                 IsLoading = true;
                 _logger.LogInformation("Loading categories...");
 
+                // Get data from service (cache + server sync)
                 var data = await _categoryDataService.GetDataAsync();
 
-                if (data != null)
-                {
-                    PopulateFromData(data);
-                    UpdateSyncStatus();
-                }
-                else
-                {
-                    _logger.LogWarning("No category data available");
-                    SyncStatusText = "No data - pull to refresh";
-                }
+                PopulateFromData(data);
 
-                OnPropertyChanged(nameof(HasCategories));
-                OnPropertyChanged(nameof(ShowEmptyState));
+                // Update sync status
+                UpdateSyncStatus();
             }
             catch (Exception ex)
             {
@@ -157,41 +195,53 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             }
         }
 
-        public void Dispose()
+        private async Task RefreshDataAsync()
         {
-            _connectionState.OnConnectionChanged -= OnConnectionStateChanged;
-            _categoryDataService.DataUpdated -= OnDataUpdated;
+            if (IsLoading) return;
+
+            try
+            {
+                IsLoading = true;
+                _logger.LogInformation("Manual refresh triggered");
+                await _hubConnector.SyncNowAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error refreshing data");
+            }
+            finally
+            {
+                IsLoading = false;
+            }
         }
 
-        #endregion
-
-        #region Private Methods
-
-        private void PopulateFromData(FullCategoryData data)
+        private void PopulateFromData(SharedModels.Categories.FullCategoryData? data)
         {
             Categories.Clear();
             Locations.Clear();
             Persons.Clear();
 
-            // Add "None" options at the top
-            Locations.Add(new LocationItem { Id = "", Name = "No Location" });
-            Persons.Add(new PersonItem { Id = "", Name = "No Person" });
-
-            // Set defaults
-            SelectedLocation = Locations.First();
-            SelectedPerson = Persons.First();
+            if (data == null)
+            {
+                _logger.LogWarning("No category data available");
+                return;
+            }
 
             // === LOCATIONS ===
+            Locations.Add(new LocationDisplayItem { Id = "", Name = "None" });
             foreach (var loc in data.Locations.Where(l => l.IsActive).OrderBy(l => l.SortOrder))
             {
-                Locations.Add(new LocationItem { Id = loc.Id, Name = loc.Name });
+                Locations.Add(new LocationDisplayItem { Id = loc.Id, Name = loc.Name });
             }
+            SelectedLocation = Locations[0];
 
             // === PERSONS ===
+            Persons.Add(new PersonDisplayItem { Id = "", Name = "None" });
             foreach (var person in data.Persons.Where(p => p.IsActive).OrderBy(p => p.SortOrder))
             {
-                Persons.Add(new PersonItem { Id = person.Id, Name = person.Name });
+                Persons.Add(new PersonDisplayItem { Id = person.Id, Name = person.Name });
             }
+            SelectedPerson = Persons[0];
 
             // === CATEGORIES ===
             foreach (var category in data.Categories.Where(c => c.IsActive).OrderBy(c => c.SortOrder))
@@ -304,7 +354,7 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             });
         }
 
-        private void OnDataUpdated(object? sender, FullCategoryData data)
+        private void OnDataUpdated(object? sender, SharedModels.Categories.FullCategoryData data)
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
@@ -351,8 +401,11 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
             {
                 _isExpanded = value;
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsExpanded)));
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ExpanderIcon)));
             }
         }
+
+        public string ExpanderIcon => IsExpanded ? "v" : ">";
 
         public ObservableCollection<SubCategoryDisplayItem> SubCategories { get; } = new();
 
@@ -368,13 +421,13 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
         public bool HasVAT { get; set; }
     }
 
-    public class LocationItem
+    public class LocationDisplayItem
     {
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
     }
 
-    public class PersonItem
+    public class PersonDisplayItem
     {
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
