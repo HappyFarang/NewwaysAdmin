@@ -307,9 +307,8 @@ namespace NewwaysAdmin.Mobile.ViewModels.Categories
         {
             if (subCategory == null) return;
 
-            // NEW: Auto-set VAT toggle based on subcategory's default (as a suggestion)
-            // User can still override before copying
-            IncludeVat = subCategory.HasVAT;
+            // VAT toggle is user-controlled - don't override it based on subcategory default
+            // User sets VAT on/off BEFORE selecting category
 
             // Build the note string
             var locationName = string.IsNullOrEmpty(SelectedLocation?.Id) ? "None" : SelectedLocation.Name;

@@ -232,28 +232,27 @@ namespace NewwaysAdmin.Mobile.Pages
             try
             {
 #if ANDROID
-                // Use Android folder picker
-                var intent = new Intent(Intent.ActionOpenDocumentTree);
-                intent.AddFlags(ActivityFlags.GrantReadUriPermission | ActivityFlags.GrantPersistableUriPermission);
+                // Use the FolderPickerService for proper async folder selection
+                var folderPicker = new NewwaysAdmin.Mobile.Platforms.Android.Services.FolderPickerService();
+                var path = await folderPicker.PickFolderAsync();
 
-                var activity = Platform.CurrentActivity;
-                if (activity != null)
+                if (!string.IsNullOrEmpty(path))
                 {
-                    activity.StartActivityForResult(intent, 1001);
+                    _selectedFolderPath = path;
+                    SelectedFolderLabel.Text = path;
 
-                    // Note: The result is handled via MainActivity
-                    // For now, show a manual entry option
-                    var result = await DisplayPromptAsync(
-                        "Enter Folder Path",
-                        "Enter the full path to the screenshot folder:",
-                        placeholder: "/storage/emulated/0/Pictures/KPLUS",
-                        keyboard: Keyboard.Text);
-
-                    if (!string.IsNullOrWhiteSpace(result))
+                    // Auto-suggest pattern name based on folder
+                    if (string.IsNullOrEmpty(PatternNameEntry.Text))
                     {
-                        _selectedFolderPath = result.Trim();
-                        SelectedFolderLabel.Text = _selectedFolderPath;
+                        var folderName = Path.GetFileName(path);
+                        PatternNameEntry.Text = folderName?.Replace(" ", "") ?? "";
                     }
+
+                    System.Diagnostics.Debug.WriteLine($"[FolderPicker] Selected: {path}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[FolderPicker] No folder selected or cancelled");
                 }
 #else
                 // Fallback for non-Android
@@ -443,6 +442,11 @@ namespace NewwaysAdmin.Mobile.Pages
                 await _credentialStorage.ClearCredentialsAsync();
                 await Shell.Current.GoToAsync("//LoginPage");
             }
+        }
+
+        private async void OnBackClicked(object? sender, EventArgs e)
+        {
+            await Shell.Current.GoToAsync("//CategoryBrowserPage");
         }
     }
 }

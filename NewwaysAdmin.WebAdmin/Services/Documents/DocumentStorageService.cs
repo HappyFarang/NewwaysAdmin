@@ -2,14 +2,16 @@
 // Handles storage of uploaded documents using IO Manager
 // 
 // SIMPLIFIED: No predefined mappings - pattern name from mobile IS the pattern name
-// OCR processor parses filename to get pattern: KPLUS_Superfox75_17_11_2025_10_04_36.bin → "KPLUS"
+// OCR processor parses filename to get pattern: KPLUS_Superfox75_2026_01_02_10_04_36.bin → "KPLUS"
 //
 // Storage structure:
 // BankSlipBill/                    ← Shared bills folder
-// └── Superfox75_Bills_07_12_2025_18_00_30.bin
+// └── Superfox75_Bills_2026_01_02_18_00_30.bin
 //
 // BankSlipsBin/                    ← All bank slips (flat, pattern in filename)
-// └── KPLUS_Superfox75_17_11_2025_10_04_36.bin
+// └── KPLUS_Superfox75_2026_01_02_10_04_36.bin
+//
+// UPDATED: Changed date format from dd_MM_yyyy to yyyy_MM_dd for proper sorting
 
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.Shared.IO;
@@ -76,15 +78,16 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
                 if (patternName.Contains("bill", StringComparison.OrdinalIgnoreCase))
                 {
                     // Bills: shared folder
+                    // Format: Username_Bills_yyyy_MM_dd_HH_mm_ss (ISO format for sorting)
                     binFolderName = BILLS_FOLDER;
-                    documentKey = $"{displayUsername}_Bills_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
+                    documentKey = $"{displayUsername}_Bills_{fileTimestamp:yyyy_MM_dd_HH_mm_ss}";
                 }
                 else
                 {
                     // Bank slips: Pattern_User_Timestamp format
-                    // e.g., KPLUS_Superfox75_17_11_2025_10_04_36
+                    // Format: KPLUS_Superfox75_2026_01_02_10_04_36 (ISO format for sorting)
                     binFolderName = BANKSLIPS_FOLDER;
-                    documentKey = $"{patternName}_{displayUsername}_{fileTimestamp:dd_MM_yyyy_HH_mm_ss}";
+                    documentKey = $"{patternName}_{displayUsername}_{fileTimestamp:yyyy_MM_dd_HH_mm_ss}";
                 }
 
                 // Get storage
@@ -99,61 +102,59 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
                         "📋 DUPLICATE DETECTED - File already exists: {DocumentKey}. Returning existing path.",
                         documentKey);
 
-                    var existingPath = $"{binFolderName}/{documentKey}";
-                    return DocumentSaveResult.CreateSuccess(documentKey, existingPath, binFolderName, isDuplicate: true);
+                    return DocumentSaveResult.CreateSuccess(
+                        documentKey,
+                        $"{binFolderName}/{documentKey}.bin",
+                        binFolderName,
+                        isDuplicate: true);
                 }
 
-                // Decode and save
+                // Convert base64 to bytes
                 var imageBytes = Convert.FromBase64String(request.ImageBase64);
-                var imageData = new ImageData { Bytes = imageBytes };
+                var imageData = new ImageData(imageBytes);
 
+                // Save to storage
                 await storage.SaveAsync(documentKey, imageData);
 
-                var storagePath = $"{binFolderName}/{documentKey}";
-                _logger.LogInformation("✅ Document saved: {DocumentKey} -> {Path} ({Size} bytes)",
-                    documentKey, storagePath, imageBytes.Length);
+                var storagePath = $"{binFolderName}/{documentKey}.bin";
+
+                _logger.LogInformation(
+                    "✅ Saved document: Pattern={Pattern}, User={User}, Size={Size}KB, Path={Path}",
+                    patternName,
+                    displayUsername,
+                    imageBytes.Length / 1024,
+                    storagePath);
 
                 return DocumentSaveResult.CreateSuccess(documentKey, storagePath, binFolderName);
             }
-            catch (FormatException ex)
-            {
-                _logger.LogError(ex, "Invalid base64 image data");
-                return DocumentSaveResult.CreateError("Invalid image data format");
-            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving document");
-                return DocumentSaveResult.CreateError($"Storage error: {ex.Message}");
+                _logger.LogError(ex, "Error saving document from {Source}/{User}",
+                    request.SourceFolder, request.Username);
+                return DocumentSaveResult.CreateError(ex.Message);
             }
         }
 
         /// <summary>
-        /// Load document by folder and key
+        /// Load a document by key
         /// </summary>
         public async Task<byte[]?> LoadDocumentAsync(string binFolderName, string documentKey)
         {
             try
             {
                 var storage = _storageFactory.GetStorage<ImageData>(binFolderName);
-
-                if (!await storage.ExistsAsync(documentKey))
-                {
-                    _logger.LogWarning("Document not found: {DocumentKey} in {Folder}", documentKey, binFolderName);
-                    return null;
-                }
-
                 var imageData = await storage.LoadAsync(documentKey);
-                return imageData.Bytes;
+                return imageData?.Bytes;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading document {DocumentKey}", documentKey);
+                _logger.LogError(ex, "Error loading document {Key} from {Folder}", documentKey, binFolderName);
                 return null;
             }
         }
 
         /// <summary>
-        /// Check if document exists
+        /// Check if a document exists
         /// </summary>
         public async Task<bool> DocumentExistsAsync(string binFolderName, string documentKey)
         {
@@ -203,8 +204,11 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
 
         /// <summary>
         /// Parse a bank slip filename to extract pattern, username, and timestamp
-        /// Format: PATTERN_Username_dd_MM_yyyy_HH_mm_ss
-        /// Example: KPLUS_Superfox75_17_11_2025_10_04_36 
+        /// Format: PATTERN_Username_yyyy_MM_dd_HH_mm_ss (ISO format)
+        /// Example: KPLUS_Superfox75_2026_01_02_10_04_36
+        /// 
+        /// Also supports legacy format: PATTERN_Username_dd_MM_yyyy_HH_mm_ss
+        /// Example: KPLUS_Superfox75_02_01_2026_10_04_36
         /// </summary>
         public static (string Pattern, string Username, DateTime? Timestamp) ParseBankSlipFilename(string filename)
         {
@@ -218,19 +222,31 @@ namespace NewwaysAdmin.WebAdmin.Services.Documents
             var pattern = parts[0];
             var username = parts[1];
 
-            // Try parse timestamp from remaining parts: dd_MM_yyyy_HH_mm_ss
+            // Try parse timestamp from remaining parts
+            // Try ISO format first: yyyy_MM_dd_HH_mm_ss
             if (parts.Length >= 8 &&
-                int.TryParse(parts[2], out int day) &&
-                int.TryParse(parts[3], out int month) &&
-                int.TryParse(parts[4], out int year) &&
+                int.TryParse(parts[2], out int part2) &&
+                int.TryParse(parts[3], out int part3) &&
+                int.TryParse(parts[4], out int part4) &&
                 int.TryParse(parts[5], out int hour) &&
                 int.TryParse(parts[6], out int minute) &&
                 int.TryParse(parts[7], out int second))
             {
                 try
                 {
-                    var timestamp = new DateTime(year, month, day, hour, minute, second);
-                    return (pattern, username, timestamp);
+                    // Detect format by checking if part2 looks like a year (>= 2020)
+                    if (part2 >= 2020)
+                    {
+                        // ISO format: yyyy_MM_dd
+                        var timestamp = new DateTime(part2, part3, part4, hour, minute, second);
+                        return (pattern, username, timestamp);
+                    }
+                    else
+                    {
+                        // Legacy format: dd_MM_yyyy
+                        var timestamp = new DateTime(part4, part3, part2, hour, minute, second);
+                        return (pattern, username, timestamp);
+                    }
                 }
                 catch { }
             }
