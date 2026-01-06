@@ -123,6 +123,14 @@ namespace NewwaysAdmin.WebAdmin.Services.Modules
                 },
                 new NavigationItem
                 {
+                    Id = "accounting.bankslip-projects",
+                    Name = "Bank Slip Projects",
+                    Path = "/accounting/bankslip-projects",
+                    Icon = "bi bi-folder-check",
+                    Description = "Review and export processed bank slip data"
+                },
+                new NavigationItem
+                {
                     Id = "accounting.categories",
                     Name = "Categories",
                     Path = "/accounting/categories",

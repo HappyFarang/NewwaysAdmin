@@ -1,0 +1,96 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/BankSlipProjectsPage.razor *@
+@page "/accounting/bankslip-projects"
+@using NewwaysAdmin.SharedModels.BankSlips
+@using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlipProjects.Components
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlipProjects.Modals
+
+<PageTitle>Bank Slip Projects</PageTitle>
+
+<div class="container-fluid">
+    @* Header *@
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">
+            <i class="bi bi-receipt me-2"></i>Bank Slip Projects
+        </h3>
+        <div>
+            <button class="btn btn-success" @onclick="OpenExportModal">
+                <i class="bi bi-file-earmark-excel me-1"></i>Export Excel
+            </button>
+        </div>
+    </div>
+
+    @* Filters *@
+    <ProjectFilters DateFrom="filterDateFrom"
+                    DateFromChanged="OnDateFromChanged"
+                    DateTo="filterDateTo"
+                    DateToChanged="OnDateToChanged"
+                    StatusFilter="filterStatus"
+                    StatusFilterChanged="OnStatusFilterChanged"
+                    UserFilter="filterUser"
+                    UserFilterChanged="OnUserFilterChanged"
+                    CategoryFilter="filterCategory"
+                    CategoryFilterChanged="OnCategoryFilterChanged"
+                    SearchText="filterSearch"
+                    SearchTextChanged="OnSearchTextChanged"
+                    ShowPrivate="showPrivate"
+                    ShowPrivateChanged="OnShowPrivateChanged"
+                    AvailableUsers="availableUsers"
+                    AvailableCategories="availableCategories"
+                    OnFiltersChanged="ApplyFilters" />
+
+    @* Stats bar *@
+    <div class="alert alert-light border mb-3 py-2">
+        <div class="d-flex justify-content-between align-items-center">
+            <span>
+                Showing <strong>@filteredProjects.Count</strong> projects
+                @if (reviewCount > 0)
+                {
+                    <span class="text-warning ms-2">
+                        (<i class="bi bi-exclamation-circle"></i> @reviewCount need review)
+                    </span>
+                }
+            </span>
+            <span class="text-muted small">
+                Total: @totalAmount.ToString("N2") ฿
+            </span>
+        </div>
+    </div>
+
+    @* Loading state *@
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2 text-muted">Loading projects...</p>
+        </div>
+    }
+    else if (filteredProjects.Count == 0)
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            No projects found matching your filters.
+        </div>
+    }
+    else
+    {
+        @* Project table *@
+        <ProjectTable Projects="filteredProjects"
+                      OnProjectClick="OpenReviewModal"
+                      OnSortChanged="HandleSortChanged"
+                      CurrentSortColumn="sortColumn"
+                      SortAscending="sortAscending" />
+    }
+</div>
+
+@* Modals *@
+<ReviewModal @ref="reviewModal"
+             OnSaved="HandleProjectSaved" />
+
+<ExportModal @ref="exportModal"
+             Projects="filteredProjects"
+             AvailableCategories="availableCategories" />
+
+<ImageViewerModal @ref="imageViewerModal" />

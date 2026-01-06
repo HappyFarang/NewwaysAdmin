@@ -1,0 +1,37 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Components/StatusBadge.razor *@
+@using NewwaysAdmin.SharedModels.BankSlips
+
+@if (Project.IsPrivate)
+{
+    <span class="badge bg-secondary" title="Private Transaction">
+        <i class="bi bi-lock"></i> Private
+    </span>
+}
+else if (Project.IsClosed)
+{
+    <span class="badge bg-success" title="Closed - All Complete">
+        <i class="bi bi-check-circle"></i> Closed
+    </span>
+}
+else if (!Project.HasStructuralNote)
+{
+    <span class="badge bg-warning text-dark" title="Missing structured note">
+        <i class="bi bi-exclamation-triangle"></i> No Note
+    </span>
+}
+else if (Project.HasVat == null)
+{
+    <span class="badge bg-info text-dark" title="VAT status needs review">
+        <i class="bi bi-question-circle"></i> Review
+    </span>
+}
+else
+{
+    <span class="badge bg-primary" title="Ready to close">
+        <i class="bi bi-clock"></i> Open
+    </span>
+}
+
+@code {
+    [Parameter] public BankSlipProject Project { get; set; } = default!;
+}

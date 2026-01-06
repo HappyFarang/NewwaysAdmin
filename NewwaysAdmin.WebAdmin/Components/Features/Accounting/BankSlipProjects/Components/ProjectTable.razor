@@ -1,0 +1,196 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Components/ProjectTable.razor *@
+@using NewwaysAdmin.SharedModels.BankSlips
+
+<div class="table-responsive">
+    <table class="table table-hover table-sm align-middle">
+        <thead class="table-light sticky-top">
+            <tr>
+                <th class="@GetSortClass("date")" @onclick="@(() => Sort("date"))" style="cursor: pointer;">
+                    Date <i class="bi @GetSortIcon("date")"></i>
+                </th>
+                <th>Time</th>
+                <th class="@GetSortClass("recipient")" @onclick="@(() => Sort("recipient"))" style="cursor: pointer;">
+                    To <i class="bi @GetSortIcon("recipient")"></i>
+                </th>
+                <th class="text-end @GetSortClass("amount")" @onclick="@(() => Sort("amount"))" style="cursor: pointer;">
+                    Amount <i class="bi @GetSortIcon("amount")"></i>
+                </th>
+                <th class="@GetSortClass("category")" @onclick="@(() => Sort("category"))" style="cursor: pointer;">
+                    Category <i class="bi @GetSortIcon("category")"></i>
+                </th>
+                <th class="text-center">VAT</th>
+                <th>Pattern</th>
+                <th>User</th>
+                <th class="text-center">Bill</th>
+                <th class="text-center @GetSortClass("status")" @onclick="@(() => Sort("status"))" style="cursor: pointer;">
+                    Status <i class="bi @GetSortIcon("status")"></i>
+                </th>
+                <th style="width: 50px;"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var project in Projects)
+            {
+                <tr class="@GetRowClass(project)" @onclick="@(() => OnProjectClick.InvokeAsync(project))" style="cursor: pointer;">
+                    @* Date *@
+                    <td>@project.TransactionTimestamp.ToString("yyyy/MM/dd")</td>
+
+                    @* Time *@
+                    <td class="text-muted">@project.TransactionTimestamp.ToString("HH:mm")</td>
+
+                    @* Recipient *@
+                    <td class="text-truncate" style="max-width: 200px;" title="@project.GetRecipient()">
+                        @TruncateText(project.GetRecipient(), 30)
+                    </td>
+
+                    @* Amount *@
+                    <td class="text-end fw-medium">
+                        @FormatAmount(project.GetTotal())
+                    </td>
+
+                    @* Category *@
+                    <td>
+                        @if (project.StructuredMemo != null && !string.IsNullOrEmpty(project.StructuredMemo.CategoryName))
+                        {
+                            <span class="badge bg-primary">@project.StructuredMemo.CategoryName</span>
+                            @if (!string.IsNullOrEmpty(project.StructuredMemo.SubCategoryName))
+                            {
+                                <span class="badge bg-secondary ms-1">@project.StructuredMemo.SubCategoryName</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="text-muted">—</span>
+                        }
+                    </td>
+
+                    @* VAT *@
+                    <td class="text-center">
+                        @if (project.HasVat == true)
+                        {
+                            <i class="bi bi-check-circle-fill text-success" title="VAT Included"></i>
+                        }
+                        else if (project.HasVat == false)
+                        {
+                            <i class="bi bi-x-circle text-secondary" title="No VAT"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-question-circle text-warning" title="VAT Unknown"></i>
+                        }
+                    </td>
+
+                    @* Pattern *@
+                    <td>
+                        <span class="badge bg-info text-dark">@project.PatternSetName</span>
+                    </td>
+
+                    @* User *@
+                    <td>@project.Username</td>
+
+                    @* Bill *@
+                    <td class="text-center">
+                        @if (project.HasBill)
+                        {
+                            <i class="bi bi-receipt text-success" title="Has Bill"></i>
+                            @if (project.BillFileReferences.Count > 0)
+                            {
+                                <span class="badge bg-success ms-1">@project.BillFileReferences.Count</span>
+                            }
+                        }
+                        else
+                        {
+                            <i class="bi bi-receipt text-muted" title="No Bill"></i>
+                        }
+                    </td>
+
+                    @* Status *@
+                    <td class="text-center">
+                        <StatusBadge Project="project" />
+                    </td>
+
+                    @* Actions *@
+                    <td class="text-end" @onclick:stopPropagation="true">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="@(() => OnProjectClick.InvokeAsync(project))" title="Review">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    [Parameter] public List<BankSlipProject> Projects { get; set; } = new();
+    [Parameter] public EventCallback<BankSlipProject> OnProjectClick { get; set; }
+    [Parameter] public EventCallback<(string column, bool ascending)> OnSortChanged { get; set; }
+    [Parameter] public string CurrentSortColumn { get; set; } = "date";
+    [Parameter] public bool SortAscending { get; set; } = false;
+
+    private void Sort(string column)
+    {
+        if (CurrentSortColumn == column)
+        {
+            // Toggle direction
+            OnSortChanged.InvokeAsync((column, !SortAscending));
+        }
+        else
+        {
+            // New column, default descending
+            OnSortChanged.InvokeAsync((column, false));
+        }
+    }
+
+    private string GetSortClass(string column)
+    {
+        return CurrentSortColumn == column ? "text-primary" : "";
+    }
+
+    private string GetSortIcon(string column)
+    {
+        if (CurrentSortColumn != column)
+            return "bi-chevron-expand";
+
+        return SortAscending ? "bi-chevron-up" : "bi-chevron-down";
+    }
+
+    private string GetRowClass(BankSlipProject project)
+    {
+        if (project.IsPrivate)
+            return "table-secondary";
+        if (!project.IsClosed && !project.HasStructuralNote)
+            return "table-warning";
+        if (project.IsClosed)
+            return "";
+        return "";
+    }
+
+    private string TruncateText(string text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text))
+            return "—";
+        if (text.Length <= maxLength)
+            return text;
+        return text.Substring(0, maxLength) + "...";
+    }
+
+    private string FormatAmount(string amountStr)
+    {
+        if (string.IsNullOrWhiteSpace(amountStr))
+            return "—";
+
+        var cleaned = amountStr
+            .Replace(",", "")
+            .Replace("฿", "")
+            .Replace("THB", "")
+            .Trim();
+
+        if (decimal.TryParse(cleaned, out var amount))
+        {
+            return amount.ToString("N0");
+        }
+
+        return amountStr;
+    }
+}

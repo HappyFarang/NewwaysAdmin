@@ -74,7 +74,8 @@ public class Program
             .AddSignalRServices()                       // SignalR Hub Communication
             .AddCategoryServices()                      // Category Management System
             .AddMobileApiServices()                     // Mobile API Controllers
-            .AddBackgroundServices();                   // Blazor Server, Background Workers
+            .AddBackgroundServices()                    // Blazor Server, Background Workers
+            .AddBankSlipProjectServices();
 
         // HttpContextAccessor - needed for Login.razor to get client IP
         services.AddHttpContextAccessor();
@@ -113,6 +114,7 @@ public class Program
 
         // ===== APPLICATION INITIALIZATION =====
         await app.InitializeApplicationDataAsync();
+        await app.Services.ScanUnprocessedBankSlipsAsync();
 
         app.Logger.LogInformation("🚀 NewwaysAdmin.WebAdmin started successfully!");
     }

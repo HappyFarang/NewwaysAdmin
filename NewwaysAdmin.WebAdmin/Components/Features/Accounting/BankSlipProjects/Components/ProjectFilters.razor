@@ -1,0 +1,218 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Components/ProjectFilters.razor *@
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            @* Date Range *@
+            <div class="col-auto">
+                <label class="form-label small mb-1">From</label>
+                <input type="date"
+                       class="form-control form-control-sm"
+                       value="@DateFrom?.ToString("yyyy-MM-dd")"
+                       @onchange="e => OnDateFromChanged(e.Value?.ToString())" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-1">To</label>
+                <input type="date"
+                       class="form-control form-control-sm"
+                       value="@DateTo?.ToString("yyyy-MM-dd")"
+                       @onchange="e => OnDateToChanged(e.Value?.ToString())" />
+            </div>
+
+            @* Status *@
+            <div class="col-auto">
+                <label class="form-label small mb-1">Status</label>
+                <select class="form-select form-select-sm"
+                        value="@StatusFilter"
+                        @onchange="e => OnStatusChanged(e.Value?.ToString())">
+                    <option value="all">All</option>
+                    <option value="review">Needs Review</option>
+                    <option value="closed">Closed</option>
+                </select>
+            </div>
+
+            @* User *@
+            <div class="col-auto">
+                <label class="form-label small mb-1">User</label>
+                <select class="form-select form-select-sm"
+                        value="@UserFilter"
+                        @onchange="e => OnUserChanged(e.Value?.ToString())">
+                    <option value="all">All Users</option>
+                    @foreach (var user in AvailableUsers)
+                    {
+                        <option value="@user">@user</option>
+                    }
+                </select>
+            </div>
+
+            @* Category *@
+            <div class="col-auto">
+                <label class="form-label small mb-1">Category</label>
+                <select class="form-select form-select-sm"
+                        value="@CategoryFilter"
+                        @onchange="e => OnCategoryChanged(e.Value?.ToString())">
+                    <option value="all">All Categories</option>
+                    @foreach (var cat in AvailableCategories)
+                    {
+                        <option value="@cat.Name">@cat.Name</option>
+                    }
+                </select>
+            </div>
+
+            @* Search *@
+            <div class="col">
+                <label class="form-label small mb-1">Search</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text"
+                           class="form-control"
+                           placeholder="Search recipient, note..."
+                           value="@SearchText"
+                           @oninput="e => OnSearchChanged(e.Value?.ToString())" />
+                </div>
+            </div>
+
+            @* Show Private *@
+            <div class="col-auto">
+                <div class="form-check mt-4">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           id="showPrivate"
+                           checked="@ShowPrivate"
+                           @onchange="e => OnShowPrivateChanged((bool?)e.Value ?? false)" />
+                    <label class="form-check-label small" for="showPrivate">
+                        Show Private
+                    </label>
+                </div>
+            </div>
+
+            @* Quick date buttons *@
+            <div class="col-auto">
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary" @onclick="SetThisMonth" title="This Month">
+                        <i class="bi bi-calendar-month"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="SetLastMonth" title="Last Month">
+                        <i class="bi bi-calendar-minus"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="ClearFilters" title="Clear All">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public DateTime? DateFrom { get; set; }
+    [Parameter] public EventCallback<DateTime?> DateFromChanged { get; set; }
+
+    [Parameter] public DateTime? DateTo { get; set; }
+    [Parameter] public EventCallback<DateTime?> DateToChanged { get; set; }
+
+    [Parameter] public string StatusFilter { get; set; } = "all";
+    [Parameter] public EventCallback<string> StatusFilterChanged { get; set; }
+
+    [Parameter] public string UserFilter { get; set; } = "all";
+    [Parameter] public EventCallback<string> UserFilterChanged { get; set; }
+
+    [Parameter] public string CategoryFilter { get; set; } = "all";
+    [Parameter] public EventCallback<string> CategoryFilterChanged { get; set; }
+
+    [Parameter] public string SearchText { get; set; } = "";
+    [Parameter] public EventCallback<string> SearchTextChanged { get; set; }
+
+    [Parameter] public bool ShowPrivate { get; set; }
+    [Parameter] public EventCallback<bool> ShowPrivateChanged { get; set; }
+
+    [Parameter] public List<string> AvailableUsers { get; set; } = new();
+    [Parameter] public List<CategoryInfo> AvailableCategories { get; set; } = new();
+
+    [Parameter] public EventCallback OnFiltersChanged { get; set; }
+
+    private async Task OnDateFromChanged(string? value)
+    {
+        DateFrom = DateTime.TryParse(value, out var date) ? date : null;
+        await DateFromChanged.InvokeAsync(DateFrom);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task OnDateToChanged(string? value)
+    {
+        DateTo = DateTime.TryParse(value, out var date) ? date : null;
+        await DateToChanged.InvokeAsync(DateTo);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task OnStatusChanged(string? value)
+    {
+        StatusFilter = value ?? "all";
+        await StatusFilterChanged.InvokeAsync(StatusFilter);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task OnUserChanged(string? value)
+    {
+        UserFilter = value ?? "all";
+        await UserFilterChanged.InvokeAsync(UserFilter);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task OnCategoryChanged(string? value)
+    {
+        CategoryFilter = value ?? "all";
+        await CategoryFilterChanged.InvokeAsync(CategoryFilter);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task OnSearchChanged(string? value)
+    {
+        SearchText = value ?? "";
+        await SearchTextChanged.InvokeAsync(SearchText);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task OnShowPrivateChanged(bool value)
+    {
+        ShowPrivate = value;
+        await ShowPrivateChanged.InvokeAsync(ShowPrivate);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task SetThisMonth()
+    {
+        var now = DateTime.Now;
+        DateFrom = new DateTime(now.Year, now.Month, 1);
+        DateTo = DateFrom.Value.AddMonths(1).AddDays(-1);
+        await DateFromChanged.InvokeAsync(DateFrom);
+        await DateToChanged.InvokeAsync(DateTo);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task SetLastMonth()
+    {
+        var now = DateTime.Now;
+        DateFrom = new DateTime(now.Year, now.Month, 1).AddMonths(-1);
+        DateTo = new DateTime(now.Year, now.Month, 1).AddDays(-1);
+        await DateFromChanged.InvokeAsync(DateFrom);
+        await DateToChanged.InvokeAsync(DateTo);
+        await OnFiltersChanged.InvokeAsync();
+    }
+
+    private async Task ClearFilters()
+    {
+        StatusFilter = "all";
+        UserFilter = "all";
+        CategoryFilter = "all";
+        SearchText = "";
+        ShowPrivate = false;
+
+        await StatusFilterChanged.InvokeAsync(StatusFilter);
+        await UserFilterChanged.InvokeAsync(UserFilter);
+        await CategoryFilterChanged.InvokeAsync(CategoryFilter);
+        await SearchTextChanged.InvokeAsync(SearchText);
+        await ShowPrivateChanged.InvokeAsync(ShowPrivate);
+        await OnFiltersChanged.InvokeAsync();
+    }
+}

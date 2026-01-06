@@ -2,11 +2,13 @@
 // Combined handler for all MAUI ExpenseTracker messages (categories + documents)
 // Replaces CategorySyncHandler - handles both category sync AND document uploads
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NewwaysAdmin.SignalR.Contracts.Models;
 using NewwaysAdmin.SignalR.Universal.Services;
 using NewwaysAdmin.WebAdmin.Services.Categories;
 using NewwaysAdmin.WebAdmin.Services.Documents;
+using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
 using NewwaysAdmin.SharedModels.Categories;
 using System.Text.Json;
 using System.Linq;
@@ -24,6 +26,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
     {
         private readonly CategoryService _categoryService;
         private readonly DocumentStorageService _documentStorageService;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ExpenseTrackerSyncHandler> _logger;
 
         public string AppName => "MAUI_ExpenseTracker";
@@ -47,10 +50,12 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         public ExpenseTrackerSyncHandler(
             CategoryService categoryService,
             DocumentStorageService documentStorageService,
+            IServiceProvider serviceProvider,
             ILogger<ExpenseTrackerSyncHandler> logger)
         {
             _categoryService = categoryService;
             _documentStorageService = documentStorageService;
+            _serviceProvider = serviceProvider;
             _logger = logger;
         }
 
@@ -243,8 +248,8 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                         "Document saved: {DocumentId} -> {Path}",
                         saveResult.DocumentId, saveResult.StoragePath);
 
-                    // TODO: Queue for OCR processing in future phase
-                    // await _ocrQueueService.EnqueueAsync(saveResult.DocumentId, saveResult.StoragePath);
+                    // Trigger OCR processing immediately
+                    await ProcessBankSlipAsync(saveResult.StoragePath!);
 
                     return MessageHandlerResult.CreateSuccess(
                         DocumentUploadResponse.CreateSuccess(saveResult.DocumentId!, saveResult.StoragePath!));
@@ -260,6 +265,43 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             {
                 _logger.LogWarning(ex, "Invalid JSON in upload request");
                 return MessageHandlerResult.CreateError("Invalid request format");
+            }
+        }
+
+        /// <summary>
+        /// Process a newly uploaded bank slip through OCR and project creation
+        /// </summary>
+        private async Task ProcessBankSlipAsync(string filePath)
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Triggering OCR processing for: {FilePath}", Path.GetFileName(filePath));
+
+                // Use a scope since BankSlipProjectService is scoped
+                using var scope = _serviceProvider.CreateScope();
+                var projectService = scope.ServiceProvider.GetRequiredService<BankSlipProjectService>();
+
+                var project = await projectService.ProcessBankSlipAsync(filePath);
+
+                if (project != null)
+                {
+                    _logger.LogInformation(
+                        "✅ Bank slip processed: {ProjectId} (HasNote: {HasNote}, VAT: {Vat})",
+                        project.ProjectId, project.HasStructuralNote, project.HasVat);
+
+                    // TODO: Future - notify mobile via SignalR that project is ready for review
+                    // await NotifyProjectReadyAsync(project);
+                }
+                else
+                {
+                    _logger.LogWarning("⚠️ Bank slip processing returned null (may already exist or failed)");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Don't fail the upload if OCR processing fails
+                // The startup scanner will catch it later
+                _logger.LogError(ex, "❌ Error processing bank slip (upload still succeeded): {FilePath}", filePath);
             }
         }
 
