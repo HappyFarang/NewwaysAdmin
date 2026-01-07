@@ -35,7 +35,7 @@ public partial class BankSlipProjectsPage : ComponentBase
 
     // Sorting
     private string sortColumn = "date";
-    private bool sortAscending = false; // Default: newest first
+    private bool sortAscending = false;
 
     // Stats
     private int reviewCount;
@@ -56,18 +56,14 @@ public partial class BankSlipProjectsPage : ComponentBase
 
         try
         {
-            // Load all projects from storage
             allProjects = await ProjectService.GetAllProjectsAsync();
-
-            // Extract unique users and categories for filter dropdowns
             ExtractFilterOptions();
 
-            // Apply default date filter (current month)
+            // Default: current month
             var now = DateTime.Now;
             filterDateFrom = new DateTime(now.Year, now.Month, 1);
             filterDateTo = filterDateFrom.Value.AddMonths(1).AddDays(-1);
 
-            // Apply filters
             ApplyFilters();
 
             Logger.LogInformation("Loaded {Count} projects", allProjects.Count);
@@ -85,7 +81,6 @@ public partial class BankSlipProjectsPage : ComponentBase
 
     private void ExtractFilterOptions()
     {
-        // Get unique usernames
         availableUsers = allProjects
             .Select(p => p.Username)
             .Where(u => !string.IsNullOrEmpty(u))
@@ -93,7 +88,6 @@ public partial class BankSlipProjectsPage : ComponentBase
             .OrderBy(u => u)
             .ToList();
 
-        // Get unique categories with subcategories
         var categoryDict = new Dictionary<string, HashSet<string>>();
 
         foreach (var project in allProjects.Where(p => p.StructuredMemo != null))
@@ -104,14 +98,10 @@ public partial class BankSlipProjectsPage : ComponentBase
             if (!string.IsNullOrEmpty(catName))
             {
                 if (!categoryDict.ContainsKey(catName))
-                {
                     categoryDict[catName] = new HashSet<string>();
-                }
 
                 if (!string.IsNullOrEmpty(subCatName))
-                {
                     categoryDict[catName].Add(subCatName);
-                }
             }
         }
 
@@ -125,57 +115,26 @@ public partial class BankSlipProjectsPage : ComponentBase
             .ToList();
     }
 
-    // Callback methods for filter changes
-    private void OnDateFromChanged(DateTime? value)
-    {
-        filterDateFrom = value;
-    }
+    #region Filter Callbacks
 
-    private void OnDateToChanged(DateTime? value)
-    {
-        filterDateTo = value;
-    }
-
-    private void OnStatusFilterChanged(string value)
-    {
-        filterStatus = value;
-    }
-
-    private void OnUserFilterChanged(string value)
-    {
-        filterUser = value;
-    }
-
-    private void OnCategoryFilterChanged(string value)
-    {
-        filterCategory = value;
-    }
-
-    private void OnSearchTextChanged(string value)
-    {
-        filterSearch = value;
-    }
-
-    private void OnShowPrivateChanged(bool value)
-    {
-        showPrivate = value;
-    }
+    private void OnDateFromChanged(DateTime? value) => filterDateFrom = value;
+    private void OnDateToChanged(DateTime? value) => filterDateTo = value;
+    private void OnStatusFilterChanged(string value) => filterStatus = value;
+    private void OnUserFilterChanged(string value) => filterUser = value;
+    private void OnCategoryFilterChanged(string value) => filterCategory = value;
+    private void OnSearchTextChanged(string value) => filterSearch = value;
+    private void OnShowPrivateChanged(bool value) => showPrivate = value;
 
     private void ApplyFilters()
     {
         var query = allProjects.AsEnumerable();
 
-        // Date filter
         if (filterDateFrom.HasValue)
-        {
             query = query.Where(p => p.TransactionTimestamp.Date >= filterDateFrom.Value.Date);
-        }
-        if (filterDateTo.HasValue)
-        {
-            query = query.Where(p => p.TransactionTimestamp.Date <= filterDateTo.Value.Date);
-        }
 
-        // Status filter
+        if (filterDateTo.HasValue)
+            query = query.Where(p => p.TransactionTimestamp.Date <= filterDateTo.Value.Date);
+
         query = filterStatus switch
         {
             "review" => query.Where(p => !p.IsClosed),
@@ -183,19 +142,12 @@ public partial class BankSlipProjectsPage : ComponentBase
             _ => query
         };
 
-        // User filter
         if (filterUser != "all")
-        {
             query = query.Where(p => p.Username == filterUser);
-        }
 
-        // Category filter
         if (filterCategory != "all")
-        {
             query = query.Where(p => p.StructuredMemo?.CategoryName == filterCategory);
-        }
 
-        // Search filter
         if (!string.IsNullOrWhiteSpace(filterSearch))
         {
             var search = filterSearch.ToLower();
@@ -205,18 +157,12 @@ public partial class BankSlipProjectsPage : ComponentBase
                 (p.StructuredMemo?.Memo?.ToLower().Contains(search) ?? false));
         }
 
-        // Private filter
         if (!showPrivate)
-        {
             query = query.Where(p => !p.IsPrivate);
-        }
 
-        // Apply sorting
         query = ApplySorting(query);
 
         filteredProjects = query.ToList();
-
-        // Calculate stats
         reviewCount = filteredProjects.Count(p => !p.IsClosed);
         totalAmount = filteredProjects.Sum(p => ParseAmount(p.GetTotal()));
 
@@ -253,35 +199,47 @@ public partial class BankSlipProjectsPage : ComponentBase
         ApplyFilters();
     }
 
+    #endregion
+
+    #region Modal Handlers
+
     private async Task OpenReviewModal(BankSlipProject project)
     {
         if (reviewModal != null)
-        {
             await reviewModal.OpenAsync(project);
-        }
     }
 
     private async Task OpenExportModal()
     {
         if (exportModal != null)
-        {
             await exportModal.OpenAsync(filterDateFrom, filterDateTo);
-        }
+    }
+
+    private async Task HandleViewBankSlip(string projectId)
+    {
+        if (imageViewerModal != null)
+            await imageViewerModal.OpenBankSlipAsync(projectId);
+    }
+
+    private async Task HandleViewBills(string projectId)
+    {
+        if (imageViewerModal != null)
+            await imageViewerModal.OpenBillsAsync(projectId);
     }
 
     private async Task HandleProjectSaved(BankSlipProject project)
     {
-        // Update in local list
         var index = allProjects.FindIndex(p => p.ProjectId == project.ProjectId);
         if (index >= 0)
-        {
             allProjects[index] = project;
-        }
 
-        // Re-apply filters to refresh view
         ExtractFilterOptions();
         ApplyFilters();
     }
+
+    #endregion
+
+    #region Helpers
 
     private decimal ParseAmount(string amountStr)
     {
@@ -296,6 +254,8 @@ public partial class BankSlipProjectsPage : ComponentBase
 
         return decimal.TryParse(cleaned, out var amount) ? amount : 0;
     }
+
+    #endregion
 }
 
 /// <summary>

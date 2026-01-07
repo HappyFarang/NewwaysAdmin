@@ -2,45 +2,42 @@
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.IO.Manager;
+using NewwaysAdmin.Shared.IO;
+using NewwaysAdmin.Shared.IO.Structure;
+using NewwaysAdmin.SharedModels.BankSlips;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
 
 /// <summary>
 /// Scans BankSlipsBin folder for unprocessed files on startup.
-/// Also provides manual scan functionality for admin use.
+/// Uses hybrid approach:
+/// - BankSlipsBin: Direct file access (raw binary files)
+/// - BankSlipJson: Storage system (JSON objects)
 /// </summary>
 public class BankSlipStartupScanner
 {
     private readonly ILogger<BankSlipStartupScanner> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly IOManager _ioManager;
+    private readonly EnhancedStorageFactory _storageFactory;
 
-    // Folder paths (matching StorageFolderDefinitions)
-    private const string BANK_SLIPS_BIN_PATH = "BankSlipsBin";
-    private const string BANK_SLIPS_JSON_PATH = "BankSlipJson";
+    // Folder names (registered in storage system)
+    private const string BIN_FOLDER = "BankSlipsBin";
+    private const string JSON_FOLDER = "BankSlipJson";
+    private const string PROJECTS_SUBFOLDER = "Projects";
 
     public BankSlipStartupScanner(
         ILogger<BankSlipStartupScanner> logger,
         IServiceProvider serviceProvider,
-        IOManager ioManager)
+        EnhancedStorageFactory storageFactory)
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _ioManager = ioManager;
+        _storageFactory = storageFactory;
     }
 
     /// <summary>
-    /// Get the full path to a storage folder
-    /// </summary>
-    private string GetFolderPath(string folderPath)
-    {
-        return Path.Combine(_ioManager.LocalBaseFolder, folderPath);
-    }
-
-    /// <summary>
-    /// Scan and process all unprocessed files in BankSlipsBin.
-    /// Call this on application startup.
+    /// Scan for and process any unprocessed bank slips.
+    /// Called on application startup.
     /// </summary>
     public async Task ScanAndProcessAsync()
     {
@@ -48,25 +45,51 @@ public class BankSlipStartupScanner
 
         try
         {
-            // Get all .bin files from BankSlipsBin folder
-            var binFiles = await GetUnprocessedFilesAsync();
+            // Step 1: Get list of .bin files using storage system's path resolution
+            var binFolderPath = GetStorageFolderPath(BIN_FOLDER);
 
-            if (!binFiles.Any())
+            if (!Directory.Exists(binFolderPath))
             {
+                _logger.LogWarning("BankSlipsBin folder not found: {Path}", binFolderPath);
                 _logger.LogInformation("✅ No unprocessed bank slips found");
                 return;
             }
 
-            _logger.LogInformation("📁 Found {Count} files to check", binFiles.Count);
+            var allBinFiles = Directory.GetFiles(binFolderPath, "*.bin", SearchOption.AllDirectories);
 
-            // Process in a scoped service (BankSlipProjectService is scoped)
+            if (allBinFiles.Length == 0)
+            {
+                _logger.LogInformation("✅ No bank slip files found in BankSlipsBin");
+                return;
+            }
+
+            _logger.LogInformation("📁 Found {Count} files in BankSlipsBin", allBinFiles.Length);
+
+            // Step 2: Get existing project IDs using storage system
+            var existingProjectIds = await GetExistingProjectIdsAsync();
+            _logger.LogDebug("Found {Count} existing projects", existingProjectIds.Count);
+
+            // Step 3: Find unprocessed files
+            var unprocessedFiles = allBinFiles
+                .Where(f => !existingProjectIds.Contains(Path.GetFileNameWithoutExtension(f)))
+                .ToList();
+
+            if (unprocessedFiles.Count == 0)
+            {
+                _logger.LogInformation("✅ All {Count} bank slips already processed", allBinFiles.Length);
+                return;
+            }
+
+            _logger.LogInformation("📋 Found {Unprocessed} unprocessed files (out of {Total} total)",
+                unprocessedFiles.Count, allBinFiles.Length);
+
+            // Step 4: Process using the project service
             using var scope = _serviceProvider.CreateScope();
             var projectService = scope.ServiceProvider.GetRequiredService<BankSlipProjectService>();
 
-            var result = await projectService.ProcessBatchAsync(binFiles);
+            var result = await projectService.ProcessBatchAsync(unprocessedFiles);
 
-            _logger.LogInformation(
-                "✅ Startup scan complete: {Succeeded} processed, {Skipped} already done, {Failed} failed",
+            _logger.LogInformation("✅ Startup scan complete: {Processed} processed, {Skipped} already done, {Failed} failed",
                 result.Succeeded, result.Skipped, result.Failed);
         }
         catch (Exception ex)
@@ -76,55 +99,17 @@ public class BankSlipStartupScanner
     }
 
     /// <summary>
-    /// Get list of .bin files that haven't been processed yet.
-    /// Compares BankSlipsBin files against existing projects in BankSlipsJson/Projects.
+    /// Get the full path to a registered storage folder.
+    /// Uses StorageConfiguration.DEFAULT_BASE_DIRECTORY + folder name.
     /// </summary>
-    private async Task<List<string>> GetUnprocessedFilesAsync()
+    private string GetStorageFolderPath(string folderName)
     {
-        var unprocessedFiles = new List<string>();
-
-        try
-        {
-            // Get the BankSlipsBin folder path
-            var bankSlipsBinPath = GetFolderPath(BANK_SLIPS_BIN_PATH);
-
-            if (string.IsNullOrEmpty(bankSlipsBinPath) || !Directory.Exists(bankSlipsBinPath))
-            {
-                _logger.LogWarning("BankSlipsBin folder not found: {Path}", bankSlipsBinPath);
-                return unprocessedFiles;
-            }
-
-            // Get all .bin files (including subfolders)
-            var allBinFiles = Directory.GetFiles(bankSlipsBinPath, "*.bin", SearchOption.AllDirectories);
-            _logger.LogDebug("Found {Count} total .bin files in BankSlipsBin", allBinFiles.Length);
-
-            // Get existing project IDs
-            var existingProjectIds = await GetExistingProjectIdsAsync();
-            _logger.LogDebug("Found {Count} existing projects", existingProjectIds.Count);
-
-            // Filter to only unprocessed files
-            foreach (var filePath in allBinFiles)
-            {
-                var projectId = Path.GetFileNameWithoutExtension(filePath);
-
-                if (!existingProjectIds.Contains(projectId))
-                {
-                    unprocessedFiles.Add(filePath);
-                }
-            }
-
-            _logger.LogDebug("{Count} files are unprocessed", unprocessedFiles.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting unprocessed files");
-        }
-
-        return unprocessedFiles;
+        // Simple approach: folder name = folder path for our folders
+        return Path.Combine(StorageConfiguration.DEFAULT_BASE_DIRECTORY, folderName);
     }
 
     /// <summary>
-    /// Get set of existing project IDs from BankSlipsJson/Projects folder
+    /// Get set of existing project IDs from BankSlipJson/Projects folder
     /// </summary>
     private async Task<HashSet<string>> GetExistingProjectIdsAsync()
     {
@@ -132,70 +117,50 @@ public class BankSlipStartupScanner
 
         try
         {
-            var projectsPath = Path.Combine(GetFolderPath(BANK_SLIPS_JSON_PATH), "Projects");
+            var storage = _storageFactory.GetStorage<BankSlipProject>(JSON_FOLDER);
+            var allIdentifiers = await storage.ListIdentifiersAsync();
 
-            if (!Directory.Exists(projectsPath))
+            foreach (var identifier in allIdentifiers)
             {
-                // Projects folder doesn't exist yet - no existing projects
-                return projectIds;
-            }
-
-            var projectFiles = Directory.GetFiles(projectsPath, "*.json");
-
-            foreach (var file in projectFiles)
-            {
-                var projectId = Path.GetFileNameWithoutExtension(file);
-                projectIds.Add(projectId);
+                if (identifier.StartsWith($"{PROJECTS_SUBFOLDER}/"))
+                {
+                    var projectId = identifier.Replace($"{PROJECTS_SUBFOLDER}/", "");
+                    projectIds.Add(projectId);
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting existing project IDs");
+            _logger.LogWarning(ex, "Error getting existing project IDs, assuming none exist");
         }
 
-        return await Task.FromResult(projectIds);
+        return projectIds;
     }
 
     /// <summary>
-    /// Get statistics about the current state
+    /// Get statistics about bank slip processing
     /// </summary>
-    public async Task<ScanStatistics> GetStatisticsAsync()
+    public async Task<(int total, int processed, int pending)> GetStatisticsAsync()
     {
-        var stats = new ScanStatistics();
-
         try
         {
-            var bankSlipsBinPath = GetFolderPath(BANK_SLIPS_BIN_PATH);
-            if (!string.IsNullOrEmpty(bankSlipsBinPath) && Directory.Exists(bankSlipsBinPath))
+            var binFolderPath = GetStorageFolderPath(BIN_FOLDER);
+            var total = 0;
+
+            if (Directory.Exists(binFolderPath))
             {
-                stats.TotalBinFiles = Directory.GetFiles(bankSlipsBinPath, "*.bin", SearchOption.AllDirectories).Length;
+                total = Directory.GetFiles(binFolderPath, "*.bin", SearchOption.AllDirectories).Length;
             }
 
-            stats.ExistingProjects = (await GetExistingProjectIdsAsync()).Count;
-            stats.UnprocessedFiles = (await GetUnprocessedFilesAsync()).Count;
+            var existingProjectIds = await GetExistingProjectIdsAsync();
+            var processed = existingProjectIds.Count;
 
-            // Get review queue count
-            using var scope = _serviceProvider.CreateScope();
-            var projectService = scope.ServiceProvider.GetRequiredService<BankSlipProjectService>();
-            var reviewQueue = await projectService.GetReviewQueueAsync();
-            stats.PendingReview = reviewQueue.Count;
+            return (total, processed, total - processed);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting statistics");
+            return (0, 0, 0);
         }
-
-        return stats;
     }
-}
-
-/// <summary>
-/// Statistics about bank slip processing state
-/// </summary>
-public class ScanStatistics
-{
-    public int TotalBinFiles { get; set; }
-    public int ExistingProjects { get; set; }
-    public int UnprocessedFiles { get; set; }
-    public int PendingReview { get; set; }
 }

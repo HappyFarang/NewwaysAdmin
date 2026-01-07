@@ -1,15 +1,11 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Modals/ReviewModal.razor *@
+@namespace NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlipProjects.Modals
 @using NewwaysAdmin.SharedModels.BankSlips
-@using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing
-@using NewwaysAdmin.WebAdmin.Services.Categories
-@inject BankSlipProjectService ProjectService
-@inject CategoryService CategoryService
-@inject ILogger<ReviewModal> Logger
 
 @if (isVisible)
 {
     <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title">
@@ -28,173 +24,239 @@
                     else
                     {
                         <div class="row">
-                            @* Left: Image preview *@
+                            @* Left column: Image preview *@
                             <div class="col-md-4">
-                                <div class="card">
+                                <div class="card mb-3">
+                                    <div class="card-header py-2">
+                                        <small class="fw-bold">Bank Slip</small>
+                                    </div>
                                     <div class="card-body text-center p-2">
-                                        @if (!string.IsNullOrEmpty(imagePreviewUrl))
+                                        @if (isLoadingImage)
                                         {
-                                            <img src="@imagePreviewUrl" class="img-fluid rounded" style="max-height: 300px;" alt="Bank Slip" />
+                                            <div class="bg-light rounded p-4">
+                                                <div class="spinner-border spinner-border-sm text-primary"></div>
+                                            </div>
+                                        }
+                                        else if (!string.IsNullOrEmpty(imagePreviewUrl))
+                                        {
+                                            <img src="@imagePreviewUrl"
+                                                 class="img-fluid rounded cursor-pointer"
+                                                 style="max-height: 200px; cursor: pointer;"
+                                                 alt="Bank Slip"
+                                                 @onclick="ViewFullImage"
+                                                 title="Click to view full size" />
                                         }
                                         else
                                         {
-                                            <div class="bg-light rounded p-5">
-                                                <i class="bi bi-image display-4 text-muted"></i>
-                                                <p class="text-muted small mt-2">No preview</p>
+                                            <div class="bg-light rounded p-4">
+                                                <i class="bi bi-image display-6 text-muted"></i>
+                                                <p class="text-muted small mt-2 mb-0">No preview</p>
                                             </div>
                                         }
-                                        <button class="btn btn-sm btn-outline-primary mt-2" @onclick="ViewFullImage">
-                                            <i class="bi bi-zoom-in"></i> View Full
+                                        <button class="btn btn-sm btn-outline-primary mt-2 w-100" @onclick="ViewFullImage">
+                                            <i class="bi bi-arrows-fullscreen me-1"></i>View Full
                                         </button>
                                     </div>
                                 </div>
 
-                                @* Project ID *@
-                                <div class="small text-muted mt-2 text-break">
-                                    <strong>ID:</strong> @project.ProjectId
+                                @* Transaction info card *@
+                                <div class="card mb-3">
+                                    <div class="card-header py-2">
+                                        <small class="fw-bold">Transaction</small>
+                                    </div>
+                                    <div class="card-body small">
+                                        <div class="mb-2">
+                                            <span class="text-muted">Amount:</span>
+                                            <strong class="text-success float-end">@project.GetTotal() ฿</strong>
+                                        </div>
+                                        <div class="mb-2">
+                                            <span class="text-muted">Date:</span>
+                                            <span class="float-end">@project.TransactionTimestamp.ToString("dd/MM/yyyy HH:mm")</span>
+                                        </div>
+                                        <div class="mb-2">
+                                            <span class="text-muted">User:</span>
+                                            <span class="float-end">@project.Username</span>
+                                        </div>
+                                        <div class="mb-0">
+                                            <span class="text-muted">Bank:</span>
+                                            <span class="float-end badge bg-secondary">@project.PatternSetName</span>
+                                        </div>
+                                        @if (project.ExtractedFields.TryGetValue("_FallbackPattern", out var fallbackPattern))
+                                        {
+                                            <div class="mt-2">
+                                                <span class="text-muted">Used:</span>
+                                                <span class="float-end badge bg-warning text-dark">@fallbackPattern</span>
+                                            </div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(project.ProcessingError))
+                                        {
+                                            <div class="mt-2 text-danger small">
+                                                <i class="bi bi-exclamation-triangle me-1"></i>@project.ProcessingError
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                @* Bills section *@
+                                <div class="card">
+                                    <div class="card-header py-2">
+                                        <small class="fw-bold">Bills/Receipts</small>
+                                    </div>
+                                    <div class="card-body small">
+                                        <div class="form-check mb-2">
+                                            <input type="checkbox" class="form-check-input" id="hasBill"
+                                                   @bind="editHasBill" />
+                                            <label class="form-check-label" for="hasBill">Has bill/receipt</label>
+                                        </div>
+                                        @if (project.BillFileReferences.Any())
+                                        {
+                                            <div class="d-flex flex-wrap gap-1 mb-2">
+                                                @foreach (var bill in project.BillFileReferences)
+                                                {
+                                                    <span class="badge bg-success cursor-pointer" @onclick="ViewBills" title="Click to view">
+                                                        <i class="bi bi-file-image me-1"></i>@Path.GetFileName(bill)
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <p class="text-muted mb-2">No bills attached</p>
+                                        }
+                                        <button class="btn btn-sm btn-outline-success w-100" disabled title="Coming soon">
+                                            <i class="bi bi-upload me-1"></i>Upload Bill
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
-                            @* Right: Details *@
+                            @* Right column: Edit form *@
                             <div class="col-md-8">
-                                @* Transaction Info (read-only) *@
+                                @* Recipient info *@
                                 <div class="card mb-3">
                                     <div class="card-header py-2">
-                                        <i class="bi bi-info-circle me-1"></i>Transaction Details
+                                        <small class="fw-bold">Recipient</small>
                                     </div>
-                                    <div class="card-body py-2">
-                                        <div class="row g-2">
-                                            <div class="col-6">
-                                                <small class="text-muted">Date/Time</small>
-                                                <div>@project.TransactionTimestamp.ToString("yyyy/MM/dd HH:mm:ss")</div>
-                                            </div>
-                                            <div class="col-6">
-                                                <small class="text-muted">Amount</small>
-                                                <div class="fw-bold text-success">@project.GetTotal() ฿</div>
-                                            </div>
-                                            <div class="col-12">
-                                                <small class="text-muted">To</small>
-                                                <div>@project.GetRecipient()</div>
-                                            </div>
-                                            <div class="col-6">
-                                                <small class="text-muted">Pattern</small>
-                                                <div><span class="badge bg-info text-dark">@project.PatternSetName</span></div>
-                                            </div>
-                                            <div class="col-6">
-                                                <small class="text-muted">User</small>
-                                                <div>@project.Username</div>
-                                            </div>
-                                        </div>
+                                    <div class="card-body">
+                                        <p class="mb-0 small" style="word-break: break-word;">
+                                            @project.GetRecipient()
+                                        </p>
                                     </div>
                                 </div>
 
-                                @* Category & VAT (editable) *@
+                                @* Category info *@
                                 <div class="card mb-3">
                                     <div class="card-header py-2">
-                                        <i class="bi bi-tag me-1"></i>Category & VAT
+                                        <small class="fw-bold">Categorization</small>
                                     </div>
-                                    <div class="card-body py-2">
+                                    <div class="card-body">
                                         <div class="row g-2">
-                                            <div class="col-6">
+                                            @* Location *@
+                                            <div class="col-md-6">
+                                                <label class="form-label small mb-1">Location</label>
+                                                <select class="form-select form-select-sm"
+                                                        value="@editLocation"
+                                                        @onchange="OnLocationChanged">
+                                                    <option value="">-- No Location --</option>
+                                                    @foreach (var loc in locations)
+                                                    {
+                                                        <option value="@loc.Name">@loc.Name</option>
+                                                    }
+                                                </select>
+                                            </div>
+
+                                            @* Person *@
+                                            <div class="col-md-6">
+                                                <label class="form-label small mb-1">Person</label>
+                                                <select class="form-select form-select-sm"
+                                                        value="@editPerson"
+                                                        @onchange="OnPersonChanged">
+                                                    <option value="">-- No Person --</option>
+                                                    @foreach (var person in persons)
+                                                    {
+                                                        <option value="@person.Name">@person.Name</option>
+                                                    }
+                                                </select>
+                                            </div>
+
+                                            @* Category *@
+                                            <div class="col-md-6">
                                                 <label class="form-label small mb-1">Category</label>
-                                                <select class="form-select form-select-sm" @bind="editCategory">
-                                                    <option value="">— Select —</option>
+                                                <select class="form-select form-select-sm"
+                                                        value="@editCategory"
+                                                        @onchange="OnCategoryChanged">
+                                                    <option value="">-- Select Category --</option>
                                                     @foreach (var cat in categories)
                                                     {
                                                         <option value="@cat.Name">@cat.Name</option>
                                                     }
                                                 </select>
                                             </div>
-                                            <div class="col-6">
+
+                                            @* SubCategory *@
+                                            <div class="col-md-6">
                                                 <label class="form-label small mb-1">SubCategory</label>
-                                                <select class="form-select form-select-sm" @bind="editSubCategory" disabled="@(string.IsNullOrEmpty(editCategory))">
-                                                    <option value="">— Select —</option>
-                                                    @foreach (var sub in GetSubCategories(editCategory))
+                                                <select class="form-select form-select-sm"
+                                                        value="@editSubCategory"
+                                                        @onchange="OnSubCategoryChanged"
+                                                        disabled="@(!subCategories.Any())">
+                                                    <option value="">-- Select SubCategory --</option>
+                                                    @foreach (var sub in subCategories)
                                                     {
                                                         <option value="@sub">@sub</option>
                                                     }
                                                 </select>
                                             </div>
-                                            <div class="col-12">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @* VAT & Privacy *@
+                                <div class="card mb-3">
+                                    <div class="card-header py-2">
+                                        <small class="fw-bold">Options</small>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row g-2">
+                                            <div class="col-md-6">
                                                 <label class="form-label small mb-1">VAT Status</label>
-                                                <div class="btn-group w-100" role="group">
-                                                    <input type="radio" class="btn-check" name="vat" id="vatYes"
-                                                           checked="@(editHasVat == true)" @onchange="() => editHasVat = true" />
-                                                    <label class="btn btn-outline-success btn-sm" for="vatYes">
-                                                        <i class="bi bi-check"></i> VAT
-                                                    </label>
-
-                                                    <input type="radio" class="btn-check" name="vat" id="vatNo"
-                                                           checked="@(editHasVat == false)" @onchange="() => editHasVat = false" />
-                                                    <label class="btn btn-outline-secondary btn-sm" for="vatNo">
-                                                        <i class="bi bi-x"></i> No VAT
-                                                    </label>
-
-                                                    <input type="radio" class="btn-check" name="vat" id="vatUnknown"
-                                                           checked="@(editHasVat == null)" @onchange="() => editHasVat = null" />
-                                                    <label class="btn btn-outline-warning btn-sm" for="vatUnknown">
-                                                        <i class="bi bi-question"></i> Unknown
+                                                <select class="form-select form-select-sm"
+                                                        value="@(editHasVat?.ToString().ToLower() ?? "")"
+                                                        @onchange="OnVatChanged">
+                                                    <option value="">-- Needs Review --</option>
+                                                    <option value="true">VAT Included</option>
+                                                    <option value="false">No VAT</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label small mb-1">&nbsp;</label>
+                                                <div class="form-check mt-1">
+                                                    <input type="checkbox" class="form-check-input" id="isPrivate"
+                                                           @bind="editIsPrivate" />
+                                                    <label class="form-check-label" for="isPrivate">
+                                                        <i class="bi bi-lock me-1"></i>Private transaction
                                                     </label>
                                                 </div>
-                                            </div>
-                                            <div class="col-12">
-                                                <label class="form-label small mb-1">Memo</label>
-                                                <input type="text" class="form-control form-control-sm" @bind="editMemo"
-                                                       placeholder="Additional notes..." />
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                @* Status Flags *@
-                                <div class="card mb-3">
+                                @* Memo *@
+                                <div class="card">
                                     <div class="card-header py-2">
-                                        <i class="bi bi-flag me-1"></i>Status
+                                        <small class="fw-bold">Memo</small>
                                     </div>
-                                    <div class="card-body py-2">
-                                        <div class="row g-2">
-                                            <div class="col-6">
-                                                <div class="form-check">
-                                                    <input type="checkbox" class="form-check-input" id="isPrivate" @bind="editIsPrivate" />
-                                                    <label class="form-check-label" for="isPrivate">
-                                                        <i class="bi bi-lock text-secondary"></i> Private Transaction
-                                                    </label>
-                                                </div>
-                                            </div>
-                                            <div class="col-6">
-                                                <div class="form-check">
-                                                    <input type="checkbox" class="form-check-input" id="hasBill" @bind="editHasBill" />
-                                                    <label class="form-check-label" for="hasBill">
-                                                        <i class="bi bi-receipt text-success"></i> Has Bill
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        @* Attached Bills *@
-                                        <div class="mt-3">
-                                            <label class="form-label small mb-1">
-                                                Attached Bills (@project.BillFileReferences.Count)
-                                            </label>
-                                            @if (project.BillFileReferences.Count > 0)
-                                            {
-                                                <div class="d-flex flex-wrap gap-1">
-                                                    @foreach (var bill in project.BillFileReferences)
-                                                    {
-                                                        <span class="badge bg-success">
-                                                            <i class="bi bi-file-image"></i> @Path.GetFileName(bill)
-                                                        </span>
-                                                    }
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                <div class="text-muted small">No bills attached yet</div>
-                                            }
-                                            <button class="btn btn-sm btn-outline-success mt-2" disabled title="Coming soon">
-                                                <i class="bi bi-upload"></i> Upload Bill
-                                            </button>
-                                        </div>
+                                    <div class="card-body">
+                                        <textarea class="form-control form-control-sm" rows="2"
+                                                  placeholder="Optional memo..."
+                                                  @bind="editMemo"></textarea>
+                                        @if (!string.IsNullOrEmpty(project.GetNote()))
+                                        {
+                                            <small class="text-muted d-block mt-2">
+                                                <strong>Original note:</strong> @project.GetNote()
+                                            </small>
+                                        }
                                     </div>
                                 </div>
                             </div>
@@ -203,17 +265,31 @@
                 </div>
 
                 <div class="modal-footer">
+                    <div class="me-auto">
+                        <button type="button" class="btn btn-outline-warning" @onclick="RescanAsync"
+                                disabled="@(isSaving || isRescanning)" title="Re-run OCR with fallback patterns">
+                            @if (isRescanning)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-arrow-repeat me-1"></i>
+                            }
+                            Rescan OCR
+                        </button>
+                    </div>
                     <button type="button" class="btn btn-secondary" @onclick="Close">
                         Cancel
                     </button>
-                    <button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@isSaving">
+                    <button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@(isSaving || isRescanning)">
                         @if (isSaving)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
                         <i class="bi bi-check me-1"></i>Save
                     </button>
-                    <button type="button" class="btn btn-success" @onclick="SaveAndCloseAsync" disabled="@isSaving">
+                    <button type="button" class="btn btn-success" @onclick="SaveAndCloseAsync" disabled="@(isSaving || isRescanning)">
                         @if (isSaving)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
@@ -224,145 +300,4 @@
             </div>
         </div>
     </div>
-}
-
-@code {
-    [Parameter] public EventCallback<BankSlipProject> OnSaved { get; set; }
-
-    private bool isVisible = false;
-    private bool isSaving = false;
-    private BankSlipProject? project;
-    private string? imagePreviewUrl;
-
-    // Edit fields
-    private string editCategory = "";
-    private string editSubCategory = "";
-    private bool? editHasVat;
-    private string editMemo = "";
-    private bool editIsPrivate;
-    private bool editHasBill;
-
-    // Category data
-    private List<CategoryInfo> categories = new();
-
-    public async Task OpenAsync(BankSlipProject projectToEdit)
-    {
-        project = projectToEdit;
-        isVisible = true;
-
-        // Load categories from service
-        await LoadCategoriesAsync();
-
-        // Initialize edit fields
-        editCategory = project.StructuredMemo?.CategoryName ?? "";
-        editSubCategory = project.StructuredMemo?.SubCategoryName ?? "";
-        editHasVat = project.HasVat;
-        editMemo = project.StructuredMemo?.Memo ?? "";
-        editIsPrivate = project.IsPrivate;
-        editHasBill = project.HasBill;
-
-        // TODO: Generate image preview URL from .bin file
-        imagePreviewUrl = null;
-
-        StateHasChanged();
-    }
-
-    private async Task LoadCategoriesAsync()
-    {
-        try
-        {
-            var data = await CategoryService.GetFullDataAsync();
-            categories = data.Categories.Select(c => new CategoryInfo
-                {
-                    Name = c.Name,
-                    SubCategories = c.SubCategories.Select(s => s.Name).ToList()
-                }).ToList();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading categories");
-        }
-    }
-
-    private List<string> GetSubCategories(string categoryName)
-    {
-        if (string.IsNullOrEmpty(categoryName))
-            return new List<string>();
-
-        var cat = categories.FirstOrDefault(c => c.Name == categoryName);
-        return cat?.SubCategories ?? new List<string>();
-    }
-
-    private void Close()
-    {
-        isVisible = false;
-        project = null;
-        StateHasChanged();
-    }
-
-    private async Task SaveAsync()
-    {
-        await SaveProjectAsync(closeProject: false);
-    }
-
-    private async Task SaveAndCloseAsync()
-    {
-        await SaveProjectAsync(closeProject: true);
-    }
-
-    private async Task SaveProjectAsync(bool closeProject)
-    {
-        if (project == null) return;
-
-        isSaving = true;
-        StateHasChanged();
-
-        try
-        {
-            // Update project from edit fields
-            project.StructuredMemo ??= new ParsedMemo();
-            project.StructuredMemo.CategoryName = string.IsNullOrEmpty(editCategory) ? null : editCategory;
-            project.StructuredMemo.SubCategoryName = string.IsNullOrEmpty(editSubCategory) ? null : editSubCategory;
-            project.StructuredMemo.Memo = string.IsNullOrEmpty(editMemo) ? null : editMemo;
-
-            project.HasVat = editHasVat;
-            project.IsPrivate = editIsPrivate;
-            project.HasBill = editHasBill;
-
-            // Update structural note flag if we now have category info
-            project.HasStructuralNote = !string.IsNullOrEmpty(project.StructuredMemo.CategoryName);
-
-            if (closeProject)
-            {
-                project.IsClosed = true;
-                await ProjectService.CloseProjectAsync(project.ProjectId);
-            }
-            else
-            {
-                await ProjectService.UpdateProjectAsync(project);
-            }
-
-            await OnSaved.InvokeAsync(project);
-
-            Logger.LogInformation("Saved project: {ProjectId} (closed: {Closed})", project.ProjectId, closeProject);
-
-            Close();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error saving project");
-            // TODO: Show error to user
-        }
-        finally
-        {
-            isSaving = false;
-            StateHasChanged();
-        }
-    }
-
-    private void ViewFullImage()
-    {
-        // TODO: Open image viewer modal
-        Logger.LogInformation("View full image requested for: {ProjectId}", project?.ProjectId);
-    }
 }

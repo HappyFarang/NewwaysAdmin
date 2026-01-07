@@ -87,7 +87,9 @@
 
 @* Modals *@
 <ReviewModal @ref="reviewModal"
-             OnSaved="HandleProjectSaved" />
+             OnSaved="HandleProjectSaved"
+             OnViewFullImage="HandleViewBankSlip"
+             OnViewBills="HandleViewBills" />
 
 <ExportModal @ref="exportModal"
              Projects="filteredProjects"

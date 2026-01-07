@@ -1,4 +1,7 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Modals/ImageViewerModal.razor *@
+@using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing
+@inject BankSlipImageService ImageService
+@inject ILogger<ImageViewerModal> Logger
 
 @if (isVisible)
 {
@@ -7,15 +10,27 @@
             <div class="modal-content bg-dark" @onclick:stopPropagation="true">
                 <div class="modal-header border-0">
                     <h5 class="modal-title text-white">
-                        <i class="bi bi-image me-2"></i>@fileName
+                        <i class="bi bi-image me-2"></i>@title
+                        @if (imageMode == ImageMode.Bills && totalImages > 1)
+                        {
+                            <span class="badge bg-secondary ms-2">@(currentIndex + 1) / @totalImages</span>
+                        }
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="Close"></button>
                 </div>
 
-                <div class="modal-body text-center p-2">
-                    @if (!string.IsNullOrEmpty(imageUrl))
+                <div class="modal-body text-center p-2" style="min-height: 400px;">
+                    @if (isLoading)
                     {
-                        <img src="@imageUrl" class="img-fluid" style="max-height: 80vh;" alt="Bank Slip" />
+                        <div class="d-flex align-items-center justify-content-center" style="height: 400px;">
+                            <div class="spinner-border text-light" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    }
+                    else if (!string.IsNullOrEmpty(currentImageUrl))
+                    {
+                        <img src="@currentImageUrl" class="img-fluid" style="max-height: 75vh;" alt="@title" />
                     }
                     else
                     {
@@ -26,10 +41,38 @@
                     }
                 </div>
 
-                <div class="modal-footer border-0">
-                    <button type="button" class="btn btn-secondary" @onclick="Close">
-                        Close
-                    </button>
+                <div class="modal-footer border-0 justify-content-between">
+                    @* Navigation for bills *@
+                    @if (imageMode == ImageMode.Bills && totalImages > 1)
+                    {
+                        <div>
+                            <button class="btn btn-outline-light me-2" @onclick="PreviousImage" disabled="@(currentIndex == 0)">
+                                <i class="bi bi-chevron-left"></i> Previous
+                            </button>
+                            <button class="btn btn-outline-light" @onclick="NextImage" disabled="@(currentIndex >= totalImages - 1)">
+                                Next <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div></div>
+                    }
+
+                    <div>
+                        @if (!string.IsNullOrEmpty(currentImageUrl))
+                        {
+                            <a href="@currentImageUrl"
+                               download="@GetDownloadFilename()"
+                               class="btn btn-outline-success me-2"
+                               title="Save image for OCR pattern analysis">
+                                <i class="bi bi-download me-1"></i>Save as PNG
+                            </a>
+                        }
+                        <button type="button" class="btn btn-secondary" @onclick="Close">
+                            <i class="bi bi-x-lg me-1"></i>Close
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -37,28 +80,141 @@
 }
 
 @code {
+    private enum ImageMode { BankSlip, Bills }
+
     private bool isVisible = false;
-    private string? imageUrl;
-    private string fileName = "";
+    private bool isLoading = false;
+    private string title = "";
+    private string? currentImageUrl;
+    private string projectId = "";
+    private ImageMode imageMode;
+    private int currentIndex = 0;
+    private int totalImages = 0;
 
-    public Task OpenAsync(string projectId, string? imageUrlOrPath)
+    /// <summary>
+    /// Open modal to view the original bank slip
+    /// </summary>
+    public async Task OpenBankSlipAsync(string projectId)
     {
-        fileName = projectId;
-
-        // TODO: Convert .bin file path to viewable image URL
-        // For now, this is a placeholder
-        imageUrl = imageUrlOrPath;
+        this.projectId = projectId;
+        this.title = $"Bank Slip: {projectId}";
+        this.imageMode = ImageMode.BankSlip;
+        this.currentIndex = 0;
+        this.totalImages = 1;
 
         isVisible = true;
+        isLoading = true;
         StateHasChanged();
 
-        return Task.CompletedTask;
+        try
+        {
+            currentImageUrl = await ImageService.GetBankSlipImageAsync(projectId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading bank slip image");
+            currentImageUrl = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Open modal to view bills (with navigation if multiple)
+    /// </summary>
+    public async Task OpenBillsAsync(string projectId, int startIndex = 0)
+    {
+        this.projectId = projectId;
+        this.imageMode = ImageMode.Bills;
+
+        isVisible = true;
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            // Get total bill count
+            totalImages = await ImageService.GetBillCountAsync(projectId);
+
+            if (totalImages == 0)
+            {
+                title = "No Bills";
+                currentImageUrl = null;
+            }
+            else
+            {
+                currentIndex = Math.Clamp(startIndex, 0, totalImages - 1);
+                await LoadCurrentBillAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading bills");
+            currentImageUrl = null;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadCurrentBillAsync()
+    {
+        title = totalImages > 1
+            ? $"Bill {currentIndex + 1} of {totalImages}"
+            : "Bill";
+
+        currentImageUrl = await ImageService.GetBillImageAsync(projectId, currentIndex);
+        StateHasChanged();
+    }
+
+    private async Task PreviousImage()
+    {
+        if (currentIndex > 0)
+        {
+            currentIndex--;
+            isLoading = true;
+            StateHasChanged();
+
+            await LoadCurrentBillAsync();
+
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NextImage()
+    {
+        if (currentIndex < totalImages - 1)
+        {
+            currentIndex++;
+            isLoading = true;
+            StateHasChanged();
+
+            await LoadCurrentBillAsync();
+
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
     private void Close()
     {
         isVisible = false;
-        imageUrl = null;
+        currentImageUrl = null;
+        projectId = "";
         StateHasChanged();
+    }
+
+    private string GetDownloadFilename()
+    {
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        return imageMode == ImageMode.BankSlip
+            ? $"{projectId}_{timestamp}.png"
+            : $"{projectId}_bill{currentIndex + 1}_{timestamp}.png";
     }
 }

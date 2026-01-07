@@ -8,7 +8,7 @@ namespace NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
 /// <summary>
 /// Parses structured memo format from bank slip note field.
 /// Expected format: "Location: X - Person: Y - Category: A + B - VAT - Memo: Z"
-/// Also handles old format (no VAT segment) and missing/malformed notes.
+/// Also handles OCR variations like "Location : X" (space before colon)
 /// </summary>
 public class MemoParserService
 {
@@ -22,8 +22,6 @@ public class MemoParserService
     /// <summary>
     /// Parse a note field into structured memo data
     /// </summary>
-    /// <param name="noteText">The raw note text from OCR</param>
-    /// <returns>Parse result with structured data and status</returns>
     public MemoParseResult Parse(string? noteText)
     {
         var result = new MemoParseResult
@@ -31,7 +29,6 @@ public class MemoParserService
             RawNoteText = noteText ?? string.Empty
         };
 
-        // Empty or whitespace-only note
         if (string.IsNullOrWhiteSpace(noteText))
         {
             _logger.LogDebug("Note field is empty");
@@ -42,11 +39,13 @@ public class MemoParserService
 
         try
         {
-            // Split by " - " delimiter
-            var segments = noteText.Split(" - ", StringSplitOptions.None);
+            // Normalize the text - handle OCR variations like "Location :" vs "Location:"
+            var normalizedText = NormalizeNoteText(noteText);
+            _logger.LogDebug("Normalized note: {Original} -> {Normalized}", noteText, normalizedText);
 
-            // Check for minimum expected segments: Location, Person, Category
-            // At minimum we need "Location: X - Person: Y - Category: A + B"
+            // Split by " - " delimiter
+            var segments = normalizedText.Split(" - ", StringSplitOptions.None);
+
             if (segments.Length < 3)
             {
                 _logger.LogDebug("Note has too few segments ({Count}): {Note}", segments.Length, noteText);
@@ -64,20 +63,20 @@ public class MemoParserService
                 var trimmed = segment.Trim();
 
                 // Location: X
-                if (trimmed.StartsWith("Location:", StringComparison.OrdinalIgnoreCase))
+                if (StartsWithKey(trimmed, "Location"))
                 {
-                    parsedMemo.LocationName = ExtractValue(trimmed, "Location:");
+                    parsedMemo.LocationName = ExtractValue(trimmed, "Location");
                     hasLocation = true;
                 }
                 // Person: Y
-                else if (trimmed.StartsWith("Person:", StringComparison.OrdinalIgnoreCase))
+                else if (StartsWithKey(trimmed, "Person"))
                 {
-                    parsedMemo.PersonName = ExtractValue(trimmed, "Person:");
+                    parsedMemo.PersonName = ExtractValue(trimmed, "Person");
                 }
                 // Category: A + B
-                else if (trimmed.StartsWith("Category:", StringComparison.OrdinalIgnoreCase))
+                else if (StartsWithKey(trimmed, "Category"))
                 {
-                    var categoryValue = ExtractValue(trimmed, "Category:");
+                    var categoryValue = ExtractValue(trimmed, "Category");
                     ParseCategoryPath(categoryValue, parsedMemo);
                     hasCategory = true;
                 }
@@ -90,14 +89,13 @@ public class MemoParserService
                 {
                     result.HasVat = false;
                 }
-                // Memo: Z (free text - take everything after "Memo:")
-                else if (trimmed.StartsWith("Memo:", StringComparison.OrdinalIgnoreCase))
+                // Memo: Z
+                else if (StartsWithKey(trimmed, "Memo"))
                 {
-                    parsedMemo.Memo = ExtractValue(trimmed, "Memo:");
+                    parsedMemo.Memo = ExtractValue(trimmed, "Memo");
                 }
             }
 
-            // Validate we got the minimum required fields
             if (!hasLocation || !hasCategory)
             {
                 _logger.LogDebug("Note missing required fields (Location: {HasLoc}, Category: {HasCat}): {Note}",
@@ -111,15 +109,9 @@ public class MemoParserService
             result.IsStructuralNote = true;
             result.ParsedMemo = parsedMemo;
 
-            // Log VAT status for debugging
-            if (result.HasVat == null)
-            {
-                _logger.LogDebug("Parsed note (old format - no VAT segment): {Note}", noteText);
-            }
-            else
-            {
-                _logger.LogDebug("Parsed note (VAT={Vat}): {Note}", result.HasVat, noteText);
-            }
+            _logger.LogDebug("✅ Parsed structural note: Location={Loc}, Person={Per}, Category={Cat}/{Sub}, VAT={Vat}",
+                parsedMemo.LocationName, parsedMemo.PersonName,
+                parsedMemo.CategoryName, parsedMemo.SubCategoryName, result.HasVat);
 
             return result;
         }
@@ -133,16 +125,40 @@ public class MemoParserService
     }
 
     /// <summary>
-    /// Extract value after a prefix (e.g., "Location: Office" → "Office")
+    /// Normalize OCR text variations - handle "Location :" vs "Location:"
     /// </summary>
-    private string? ExtractValue(string segment, string prefix)
+    private string NormalizeNoteText(string text)
     {
-        if (segment.Length <= prefix.Length)
+        // Replace " :" with ":" to handle OCR spacing variations
+        // But be careful not to break " - " delimiters
+        return text
+            .Replace(" :", ":")      // "Location :" -> "Location:"
+            .Replace(":  ", ": ");   // "Location:  X" -> "Location: X" (double space)
+    }
+
+    /// <summary>
+    /// Check if segment starts with a key (handles "Key:" or "Key :" patterns)
+    /// </summary>
+    private bool StartsWithKey(string segment, string key)
+    {
+        // After normalization, we should have "Key:" format
+        return segment.StartsWith($"{key}:", StringComparison.OrdinalIgnoreCase) ||
+               segment.StartsWith($"{key} :", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extract value after a key (handles "Key: Value" or "Key : Value")
+    /// </summary>
+    private string? ExtractValue(string segment, string key)
+    {
+        // Find the colon position
+        var colonIndex = segment.IndexOf(':');
+        if (colonIndex < 0 || colonIndex >= segment.Length - 1)
             return null;
 
-        var value = segment.Substring(prefix.Length).Trim();
+        var value = segment.Substring(colonIndex + 1).Trim();
 
-        // Treat "None" as null (user selected "No Location" etc.)
+        // Treat "None" as null
         if (value.Equals("None", StringComparison.OrdinalIgnoreCase))
             return null;
 
@@ -174,31 +190,9 @@ public class MemoParserService
 /// </summary>
 public class MemoParseResult
 {
-    /// <summary>
-    /// The raw note text that was parsed
-    /// </summary>
     public string RawNoteText { get; set; } = string.Empty;
-
-    /// <summary>
-    /// True if the note matched the structural format and was parsed successfully
-    /// </summary>
     public bool IsStructuralNote { get; set; }
-
-    /// <summary>
-    /// Parsed structured data (null if IsStructuralNote is false)
-    /// </summary>
     public ParsedMemo? ParsedMemo { get; set; }
-
-    /// <summary>
-    /// VAT status from note:
-    /// true = "VAT" segment found
-    /// false = "NoVAT" segment found  
-    /// null = old format (no VAT segment) - needs review
-    /// </summary>
     public bool? HasVat { get; set; }
-
-    /// <summary>
-    /// Why parsing failed (only set if IsStructuralNote is false)
-    /// </summary>
     public string? FailureReason { get; set; }
 }

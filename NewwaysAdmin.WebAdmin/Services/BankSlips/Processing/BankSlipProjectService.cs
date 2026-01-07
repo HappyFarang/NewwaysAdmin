@@ -1,15 +1,19 @@
 ﻿// NewwaysAdmin.WebAdmin/Services/BankSlips/Processing/BankSlipProjectService.cs
 
 using Microsoft.Extensions.Logging;
-using NewwaysAdmin.IO.Manager;
+using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.SharedModels.BankSlips;
+using NewwaysAdmin.SharedModels.Services.Ocr;
+using NewwaysAdmin.WebAdmin.Services.Documents;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
 
 /// <summary>
 /// Orchestrates bank slip processing: OCR → memo parsing → project creation → storage.
-/// Called when new files arrive via SignalR or during batch processing.
+/// Uses hybrid approach:
+/// - BankSlipsBin: Direct file access (raw binary files)  
+/// - BankSlipJson: Storage system (JSON objects)
 /// </summary>
 public class BankSlipProjectService
 {
@@ -18,9 +22,10 @@ public class BankSlipProjectService
     private readonly BankSlipFilenameParser _filenameParser;
     private readonly MemoParserService _memoParser;
     private readonly EnhancedStorageFactory _storageFactory;
-    private readonly IOManager _ioManager;
+    private readonly PatternManagementService _patternManagement;
 
-    // Storage identifiers
+    // Storage folder names
+    private const string BIN_FOLDER = "BankSlipsBin";
     private const string PROJECTS_FOLDER = "BankSlipJson";
     private const string PROJECTS_SUBFOLDER = "Projects";
     private const string INDEX_FILENAME = "ProjectIndex";
@@ -32,14 +37,14 @@ public class BankSlipProjectService
         BankSlipFilenameParser filenameParser,
         MemoParserService memoParser,
         EnhancedStorageFactory storageFactory,
-        IOManager ioManager)
+        PatternManagementService patternManagement)  // <-- ADD THIS
     {
         _logger = logger;
         _documentParser = documentParser;
         _filenameParser = filenameParser;
         _memoParser = memoParser;
         _storageFactory = storageFactory;
-        _ioManager = ioManager;
+        _patternManagement = patternManagement;  // <-- ADD THIS
     }
 
     #region Main Processing
@@ -73,8 +78,8 @@ public class BankSlipProjectService
                 return null;
             }
 
-            // Step 3: Run OCR
-            var extractedFields = await RunOcrAsync(binFilePath, filenameInfo.PatternSetName);
+            // Step 3: Run OCR (DocumentParser uses the file path directly)
+            var extractedFields = await RunOcrWithFallbackAsync(binFilePath, filenameInfo.PatternSetName);
 
             // Step 4: Create project (even if OCR failed partially)
             var project = CreateProject(filenameInfo, extractedFields);
@@ -146,33 +151,119 @@ public class BankSlipProjectService
 
     #region OCR Processing
 
-    private async Task<Dictionary<string, string>> RunOcrAsync(string imagePath, string patternSetName)
+    private async Task<Dictionary<string, string>> RunOcrAsync(string binFilePath, string patternSetName)
     {
         try
         {
             _logger.LogDebug("🔍 Running OCR with pattern set: {PatternSet}", patternSetName);
 
-            var result = await _documentParser.ParseAsync(
-                ocrText: "",  // Not used - DocumentParser extracts its own
-                imagePath: imagePath,
-                documentType: "BankSlips",
-                formatName: patternSetName
-            );
-
-            if (result != null && result.Count > 0)
+            // Step 1: Load image bytes using IOManager (same as DocumentStorageService)
+            byte[] imageBytes;
+            try
             {
-                _logger.LogDebug("✅ OCR extracted {Count} fields", result.Count);
-                return result;
+                var identifier = Path.GetFileNameWithoutExtension(binFilePath);
+                var storage = _storageFactory.GetStorage<ImageData>(BIN_FOLDER);
+                var imageData = await storage.LoadAsync(identifier);
+
+                if (imageData?.Bytes == null || imageData.Bytes.Length == 0)
+                {
+                    _logger.LogError("❌ ImageData is null or empty for: {Identifier}", identifier);
+                    return CreateMissingPatternResult(binFilePath);
+                }
+
+                imageBytes = imageData.Bytes;
+                _logger.LogDebug("📦 Loaded {Bytes} bytes via IOManager", imageBytes.Length);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to load image via IOManager: {Path}", binFilePath);
+                return CreateMissingPatternResult(binFilePath);
             }
 
-            _logger.LogWarning("⚠️ OCR returned no fields for {PatternSet}", patternSetName);
-            return new Dictionary<string, string>();
+            // Step 2: Detect image format and create temp file
+            var extension = DetectImageFormat(imageBytes);
+            var tempImagePath = Path.Combine(Path.GetTempPath(), $"bankslip_{Guid.NewGuid()}{extension}");
+
+            try
+            {
+                await File.WriteAllBytesAsync(tempImagePath, imageBytes);
+                _logger.LogDebug("📝 Created temp image file: {Path}", tempImagePath);
+
+                // Step 3: Run OCR on the temp image file
+                var result = await _documentParser.ParseAsync(
+                    ocrText: "",  // Not used - DocumentParser extracts its own
+                    imagePath: tempImagePath,
+                    documentType: "BankSlips",
+                    formatName: patternSetName
+                );
+
+                if (result != null && result.Count > 0)
+                {
+                    // Override FileName with original bin filename (not temp file name)
+                    result["FileName"] = Path.GetFileName(binFilePath);
+
+                    _logger.LogDebug("✅ OCR extracted {Count} fields", result.Count);
+                    return result;
+                }
+
+                _logger.LogWarning("⚠️ OCR returned no fields for {PatternSet}", patternSetName);
+                return CreateMissingPatternResult(binFilePath);
+            }
+            finally
+            {
+                // Step 4: Clean up temp file
+                if (File.Exists(tempImagePath))
+                {
+                    try { File.Delete(tempImagePath); }
+                    catch { /* ignore cleanup errors */ }
+                }
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ OCR failed for pattern set: {PatternSet}", patternSetName);
-            return new Dictionary<string, string>();
+            return CreateMissingPatternResult(binFilePath);
         }
+    }
+
+    /// <summary>
+    /// Detect image format from magic bytes
+    /// </summary>
+    private string DetectImageFormat(byte[] bytes)
+    {
+        if (bytes.Length >= 3)
+        {
+            // JPEG: FF D8 FF
+            if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF)
+                return ".jpg";
+
+            // PNG: 89 50 4E 47
+            if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47)
+                return ".png";
+
+            // GIF: 47 49 46
+            if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46)
+                return ".gif";
+
+            // BMP: 42 4D
+            if (bytes[0] == 0x42 && bytes[1] == 0x4D)
+                return ".bmp";
+        }
+
+        // Default to JPG (most common for bank slips)
+        return ".jpg";
+    }
+
+    /// <summary>
+    /// Create a result dictionary indicating OCR/pattern failure
+    /// </summary>
+    private Dictionary<string, string> CreateMissingPatternResult(string filePath)
+    {
+        return new Dictionary<string, string>
+        {
+            ["FileName"] = Path.GetFileName(filePath),
+            ["_error"] = "OCR extraction failed"
+        };
     }
 
     #endregion
@@ -255,8 +346,7 @@ public class BankSlipProjectService
         try
         {
             var storage = _storageFactory.GetStorage<BankSlipProject>(PROJECTS_FOLDER);
-            var existing = await storage.LoadAsync($"{PROJECTS_SUBFOLDER}/{projectId}");
-            return existing != null;
+            return await storage.ExistsAsync($"{PROJECTS_SUBFOLDER}/{projectId}");
         }
         catch
         {
@@ -275,26 +365,18 @@ public class BankSlipProjectService
     {
         try
         {
-            // Load existing index
             var storage = _storageFactory.GetStorage<BankSlipProjectIndex>(PROJECTS_FOLDER);
-            var index = await storage.LoadAsync(INDEX_FILENAME) ?? new BankSlipProjectIndex();
+            var index = await LoadOrCreateAsync(storage, INDEX_FILENAME, () => new BankSlipProjectIndex());
 
-            // Create/update entry
             var entry = BankSlipProjectIndexEntry.FromProject(project);
+            index.UpdateEntry(entry);
 
-            // Remove old entry if exists, add new
-            index.Entries.RemoveAll(e => e.ProjectId == project.ProjectId);
-            index.Entries.Add(entry);
-            index.LastUpdated = DateTime.UtcNow;
-
-            // Save
             await storage.SaveAsync(INDEX_FILENAME, index);
-            _logger.LogDebug("📇 Updated index for: {ProjectId}", project.ProjectId);
+            _logger.LogDebug("📋 Updated project index");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update index for {ProjectId}", project.ProjectId);
-            // Don't throw - project was saved successfully
+            _logger.LogWarning(ex, "⚠️ Failed to update index for: {ProjectId}", project.ProjectId);
         }
     }
 
@@ -303,30 +385,41 @@ public class BankSlipProjectService
         try
         {
             var storage = _storageFactory.GetStorage<ReviewQueue>(PROJECTS_FOLDER);
-            var queue = await storage.LoadAsync(REVIEW_QUEUE_FILENAME) ?? new ReviewQueue();
+            var queue = await LoadOrCreateAsync(storage, REVIEW_QUEUE_FILENAME, () => new ReviewQueue());
 
-            // Don't add duplicates
-            if (queue.Entries.Any(e => e.ProjectId == projectId))
-            {
-                _logger.LogDebug("⏭️ Project already in review queue: {ProjectId}", projectId);
-                return;
-            }
-
-            queue.Entries.Add(new ReviewQueueEntry
+            queue.AddEntry(new ReviewQueueEntry
             {
                 ProjectId = projectId,
-                Reason = reason,
-                AddedAt = DateTime.UtcNow
+                AddedAt = DateTime.UtcNow,
+                Reason = reason
             });
 
             await storage.SaveAsync(REVIEW_QUEUE_FILENAME, queue);
-            _logger.LogDebug("📋 Added to review queue: {ProjectId} ({Reason})", projectId, reason);
+            _logger.LogDebug("📝 Added to review queue: {ProjectId} ({Reason})", projectId, reason);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to add to review queue: {ProjectId}", projectId);
-            // Don't throw - project was saved successfully
+            _logger.LogWarning(ex, "⚠️ Failed to add to review queue: {ProjectId}", projectId);
         }
+    }
+
+    /// <summary>
+    /// Helper to load existing or create new object
+    /// </summary>
+    private async Task<T> LoadOrCreateAsync<T>(IDataStorage<T> storage, string identifier, Func<T> createNew)
+        where T : class, new()
+    {
+        try
+        {
+            if (await storage.ExistsAsync(identifier))
+            {
+                var existing = await storage.LoadAsync(identifier);
+                if (existing != null) return existing;
+            }
+        }
+        catch { /* ignore load errors, create new */ }
+
+        return createNew();
     }
 
     #endregion
@@ -342,28 +435,33 @@ public class BankSlipProjectService
 
         try
         {
+            // ListIdentifiersAsync doesn't search subfolders, so we need to list directly
             var projectsPath = Path.Combine(
-                _ioManager.LocalBaseFolder,
-                "BankSlipJson",
-                "Projects");
+                StorageConfiguration.DEFAULT_BASE_DIRECTORY,
+                PROJECTS_FOLDER,
+                PROJECTS_SUBFOLDER);
+
+            _logger.LogDebug("📂 Looking for projects in: {Path}", projectsPath);
 
             if (!Directory.Exists(projectsPath))
             {
-                _logger.LogDebug("Projects folder does not exist yet");
+                _logger.LogWarning("⚠️ Projects folder doesn't exist: {Path}", projectsPath);
                 return projects;
             }
 
             var projectFiles = Directory.GetFiles(projectsPath, "*.json");
-            _logger.LogDebug("Found {Count} project files", projectFiles.Length);
+            _logger.LogInformation("📋 Found {Count} project files", projectFiles.Length);
 
             var storage = _storageFactory.GetStorage<BankSlipProject>(PROJECTS_FOLDER);
 
-            foreach (var file in projectFiles)
+            foreach (var filePath in projectFiles)
             {
                 try
                 {
-                    var projectId = Path.GetFileNameWithoutExtension(file);
-                    var project = await storage.LoadAsync($"{PROJECTS_SUBFOLDER}/{projectId}");
+                    var projectId = Path.GetFileNameWithoutExtension(filePath);
+                    var identifier = $"{PROJECTS_SUBFOLDER}/{projectId}";
+
+                    var project = await storage.LoadAsync(identifier);
                     if (project != null)
                     {
                         projects.Add(project);
@@ -371,11 +469,11 @@ public class BankSlipProjectService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error loading project file: {File}", file);
+                    _logger.LogWarning(ex, "Error loading project: {File}", filePath);
                 }
             }
 
-            _logger.LogInformation("Loaded {Count} projects", projects.Count);
+            _logger.LogInformation("✅ Loaded {Count} projects", projects.Count);
         }
         catch (Exception ex)
         {
@@ -393,8 +491,12 @@ public class BankSlipProjectService
         try
         {
             var storage = _storageFactory.GetStorage<ReviewQueue>(PROJECTS_FOLDER);
-            var queue = await storage.LoadAsync(REVIEW_QUEUE_FILENAME);
-            return queue?.Entries ?? new List<ReviewQueueEntry>();
+            if (await storage.ExistsAsync(REVIEW_QUEUE_FILENAME))
+            {
+                var queue = await storage.LoadAsync(REVIEW_QUEUE_FILENAME);
+                return queue?.Entries ?? new List<ReviewQueueEntry>();
+            }
+            return new List<ReviewQueueEntry>();
         }
         catch (Exception ex)
         {
@@ -404,14 +506,18 @@ public class BankSlipProjectService
     }
 
     /// <summary>
-    /// Load a specific project by ID
+    /// Get a specific project by ID
     /// </summary>
     public async Task<BankSlipProject?> GetProjectAsync(string projectId)
     {
         try
         {
             var storage = _storageFactory.GetStorage<BankSlipProject>(PROJECTS_FOLDER);
-            return await storage.LoadAsync($"{PROJECTS_SUBFOLDER}/{projectId}");
+            if (await storage.ExistsAsync($"{PROJECTS_SUBFOLDER}/{projectId}"))
+            {
+                return await storage.LoadAsync($"{PROJECTS_SUBFOLDER}/{projectId}");
+            }
+            return null;
         }
         catch (Exception ex)
         {
@@ -421,7 +527,16 @@ public class BankSlipProjectService
     }
 
     /// <summary>
-    /// Close a project (mark as reviewed, remove from queue)
+    /// Update an existing project
+    /// </summary>
+    public async Task UpdateProjectAsync(BankSlipProject project)
+    {
+        await SaveProjectAsync(project);
+        await UpdateIndexAsync(project);
+    }
+
+    /// <summary>
+    /// Close a project (remove from review queue)
     /// </summary>
     public async Task CloseProjectAsync(string projectId)
     {
@@ -437,7 +552,16 @@ public class BankSlipProjectService
             }
 
             // Remove from review queue
-            await RemoveFromReviewQueueAsync(projectId);
+            var storage = _storageFactory.GetStorage<ReviewQueue>(PROJECTS_FOLDER);
+            if (await storage.ExistsAsync(REVIEW_QUEUE_FILENAME))
+            {
+                var queue = await storage.LoadAsync(REVIEW_QUEUE_FILENAME);
+                if (queue != null)
+                {
+                    queue.RemoveEntry(projectId);
+                    await storage.SaveAsync(REVIEW_QUEUE_FILENAME, queue);
+                }
+            }
 
             _logger.LogInformation("✅ Closed project: {ProjectId}", projectId);
         }
@@ -448,56 +572,166 @@ public class BankSlipProjectService
         }
     }
 
+    #endregion
+
+    #region Fallback Pattern Logic
+
     /// <summary>
-    /// Update a project (after review edits)
+    /// Run OCR with automatic fallback pattern discovery
+    /// Tries primary pattern first, then KBIZ_Fallback01, KBIZ_Fallback02, etc.
     /// </summary>
-    public async Task UpdateProjectAsync(BankSlipProject project)
+    private async Task<Dictionary<string, string>> RunOcrWithFallbackAsync(string imagePath, string patternSetName)
     {
-        await SaveProjectAsync(project);
-        await UpdateIndexAsync(project);
-        _logger.LogInformation("✅ Updated project: {ProjectId}", project.ProjectId);
+        // Try primary pattern first
+        var result = await RunOcrAsync(imagePath, patternSetName);
+
+        if (HasCriticalFields(result))
+        {
+            _logger.LogDebug("✅ Primary pattern {Pattern} succeeded", patternSetName);
+            return result;
+        }
+
+        _logger.LogWarning("⚠️ Primary pattern {Pattern} failed to extract critical fields, trying fallbacks...", patternSetName);
+
+        // Try fallback patterns: PatternName_Fallback01, PatternName_Fallback02, etc.
+        var fallbackIndex = 1;
+        while (fallbackIndex <= 10) // Max 10 fallbacks
+        {
+            var fallbackPattern = $"{patternSetName}_Fallback{fallbackIndex:D2}";
+
+            // Check if fallback pattern exists
+            if (!await _patternManagement.HasPatternsAsync("BankSlips", fallbackPattern))
+            {
+                _logger.LogDebug("🔚 No more fallback patterns found (stopped at {Pattern})", fallbackPattern);
+                break;
+            }
+
+            _logger.LogInformation("🔄 Trying fallback pattern: {Pattern}", fallbackPattern);
+            result = await RunOcrAsync(imagePath, fallbackPattern);
+
+            if (HasCriticalFields(result))
+            {
+                _logger.LogInformation("✅ Fallback pattern {Pattern} succeeded!", fallbackPattern);
+                result["_UsedPattern"] = fallbackPattern; // Track which pattern worked
+                return result;
+            }
+
+            fallbackIndex++;
+        }
+
+        _logger.LogWarning("❌ All patterns failed for {PatternSet}", patternSetName);
+        return result; // Return last attempt (may have partial data)
     }
 
-    private async Task RemoveFromReviewQueueAsync(string projectId)
+    /// <summary>
+    /// Check if result has critical fields (Total is the key one)
+    /// </summary>
+    private bool HasCriticalFields(Dictionary<string, string> result)
     {
-        try
-        {
-            var storage = _storageFactory.GetStorage<ReviewQueue>(PROJECTS_FOLDER);
-            var queue = await storage.LoadAsync(REVIEW_QUEUE_FILENAME);
+        if (result == null || result.Count == 0)
+            return false;
 
-            if (queue != null)
-            {
-                queue.Entries.RemoveAll(e => e.ProjectId == projectId);
-                await storage.SaveAsync(REVIEW_QUEUE_FILENAME, queue);
-                _logger.LogDebug("📋 Removed from review queue: {ProjectId}", projectId);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error removing from review queue: {ProjectId}", projectId);
-        }
+        // Must have Total - this is the critical field
+        if (!result.TryGetValue("Total", out var total))
+            return false;
+
+        if (string.IsNullOrWhiteSpace(total))
+            return false;
+
+        // Check it's not an error placeholder
+        if (total.StartsWith("Missing") || total == "Error")
+            return false;
+
+        return true;
     }
 
     #endregion
-}
 
-#region Supporting Types
+    #region Rescan
 
-/// <summary>
-/// Container for the project index
-/// </summary>
-public class BankSlipProjectIndex
-{
-    public List<BankSlipProjectIndexEntry> Entries { get; set; } = new();
-    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
-}
+    /// <summary>
+    /// Rescan an existing project - re-runs OCR with fallback logic
+    /// </summary>
+    public async Task<BankSlipProject?> RescanProjectAsync(string projectId)
+    {
+        _logger.LogInformation("🔄 Rescanning project: {ProjectId}", projectId);
 
-/// <summary>
-/// Container for the review queue
-/// </summary>
-public class ReviewQueue
-{
-    public List<ReviewQueueEntry> Entries { get; set; } = new();
+        try
+        {
+            // Step 1: Load existing project
+            var project = await GetProjectAsync(projectId);
+            if (project == null)
+            {
+                _logger.LogWarning("❌ Project not found: {ProjectId}", projectId);
+                return null;
+            }
+
+            // Step 2: Find the .bin file
+            var binFilePath = GetBinFilePath(projectId);
+            if (!File.Exists(binFilePath))
+            {
+                _logger.LogWarning("❌ Binary file not found: {FilePath}", binFilePath);
+                return null;
+            }
+
+            // Step 3: Re-run OCR with fallback logic
+            var extractedFields = await RunOcrWithFallbackAsync(binFilePath, project.PatternSetName);
+
+            // Step 4: Update project with new fields
+            project.ExtractedFields = extractedFields;
+            project.ProcessedAt = DateTime.UtcNow;
+
+            // Track if fallback was used
+            if (extractedFields.TryGetValue("_UsedPattern", out var usedPattern))
+            {
+                project.ExtractedFields["_FallbackPattern"] = usedPattern;
+                extractedFields.Remove("_UsedPattern");
+            }
+
+            // Step 5: Update processing error status
+            if (HasCriticalFields(extractedFields))
+            {
+                project.ProcessingError = null; // Clear error - we got data!
+            }
+            else
+            {
+                project.ProcessingError = "OCR failed to extract critical fields after all fallback attempts";
+            }
+
+            // Step 6: Re-parse memo field
+            ParseMemoField(project);
+
+            // Step 7: Save updated project
+            await SaveProjectAsync(project);
+
+            // Step 8: Update review queue
+            var reviewReason = DetermineReviewReason(project);
+            await AddToReviewQueueAsync(project.ProjectId, reviewReason);
+
+            _logger.LogInformation("✅ Rescan complete for {ProjectId}: {FieldCount} fields extracted",
+                projectId, extractedFields.Count);
+
+            return project;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error rescanning project: {ProjectId}", projectId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Get the binary file path for a project
+    /// </summary>
+    private string GetBinFilePath(string projectId)
+    {
+        return Path.Combine(
+            StorageConfiguration.DEFAULT_BASE_DIRECTORY,
+            "BankSlipsBin",
+            $"{projectId}.bin");
+    }
+
+    #endregion
 }
 
 /// <summary>
@@ -510,8 +744,43 @@ public class BatchProcessResult
     public int Failed { get; set; }
     public List<string> ProcessedProjectIds { get; set; } = new();
     public List<string> FailedFiles { get; set; } = new();
-
-    public int Total => Succeeded + Skipped + Failed;
 }
 
-#endregion
+/// <summary>
+/// Container for the project index - stored as ProjectIndex.json
+/// </summary>
+public class BankSlipProjectIndex
+{
+    public List<BankSlipProjectIndexEntry> Entries { get; set; } = new();
+    public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+
+    public void UpdateEntry(BankSlipProjectIndexEntry entry)
+    {
+        // Remove old entry if exists, add new
+        Entries.RemoveAll(e => e.ProjectId == entry.ProjectId);
+        Entries.Add(entry);
+        LastUpdated = DateTime.UtcNow;
+    }
+}
+
+/// <summary>
+/// Container for the review queue - stored as ReviewQueue.json
+/// </summary>
+public class ReviewQueue
+{
+    public List<ReviewQueueEntry> Entries { get; set; } = new();
+
+    public void AddEntry(ReviewQueueEntry entry)
+    {
+        // Don't add duplicates
+        if (!Entries.Any(e => e.ProjectId == entry.ProjectId))
+        {
+            Entries.Add(entry);
+        }
+    }
+
+    public void RemoveEntry(string projectId)
+    {
+        Entries.RemoveAll(e => e.ProjectId == projectId);
+    }
+}
