@@ -50,6 +50,26 @@
             console.log('✅ Downloaded file:', filename);
         };
 
+        // ✅ Excel/Binary Download Function (from Base64)
+        window.downloadFileFromBase64 = function (filename, base64, mimeType) {
+            const byteCharacters = atob(base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType });
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            console.log('✅ Downloaded binary file:', filename);
+        };
+
         // ✅ Copy to Clipboard Function
         window.copyToClipboard = function (text) {
             if (navigator.clipboard && navigator.clipboard.writeText) {

@@ -9,6 +9,7 @@ using NewwaysAdmin.GoogleSheets.Services;
 using NewwaysAdmin.SharedModels.Models.Ocr.Core;
 using NewwaysAdmin.WebAdmin.Extensions;
 using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
+using NewwaysAdmin.WebAdmin.Services.BankSlips.Export;
 // Email service - check actual namespace when we see the error
 
 namespace NewwaysAdmin.WebAdmin.Registration
@@ -34,6 +35,7 @@ namespace NewwaysAdmin.WebAdmin.Registration
             services.AddScoped<BankSlipExportService>();
             services.AddScoped<BankSlipCollectionExtensions>();
             services.AddScoped<BankSlipImageService>();
+            services.AddScoped<BankSlipExcelExportService>();
 
             // ===== OCR & SPATIAL SERVICES =====
             services.AddScoped<ISpatialOcrService, SpatialOcrService>();
