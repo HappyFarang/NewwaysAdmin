@@ -1,6 +1,5 @@
 ﻿// File: NewwaysAdmin.WebAdmin/Security/AuthGateMiddleware.cs
-// Zero-trust middleware: Only login is public, everything else requires authentication
-// 3 failed login attempts = IP ban
+// Zero-trust middleware - Lock-free implementation
 
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
@@ -13,12 +12,8 @@ namespace NewwaysAdmin.WebAdmin.Security
         private readonly RequestDelegate _next;
         private readonly ILogger<AuthGateMiddleware> _logger;
 
-        // Track failed logins and bans per IP
         private static readonly ConcurrentDictionary<string, LoginAttemptInfo> _attempts = new();
-
-        // Clean up old entries periodically
-        private static DateTime _lastCleanup = DateTime.UtcNow;
-        private static readonly object _cleanupLock = new();
+        private static long _lastCleanupTicks = DateTime.UtcNow.Ticks;
 
         public AuthGateMiddleware(RequestDelegate next, ILogger<AuthGateMiddleware> logger)
         {
@@ -31,56 +26,51 @@ namespace NewwaysAdmin.WebAdmin.Security
             var ip = GetClientIp(context);
             var path = context.Request.Path.Value ?? "/";
 
-            // Periodic cleanup of old entries (every 10 minutes)
-            CleanupOldEntries();
+            // Non-blocking cleanup check
+            TryCleanupOldEntries();
 
             // 1. Check if IP is banned
             if (IsBanned(ip, out var remainingMinutes))
             {
-                _logger.LogWarning("[AuthGate] 🚫 Banned IP attempted access: {IP} ({Minutes}m remaining)",
-                    ip, remainingMinutes);
-
+                _logger.LogWarning("[AuthGate] Banned IP: {IP} ({Minutes}m remaining)", ip, remainingMinutes);
                 context.Response.StatusCode = 403;
                 context.Response.ContentType = "text/plain";
                 await context.Response.WriteAsync($"Access denied. Try again in {remainingMinutes} minutes.");
                 return;
             }
 
-            // 2. Authenticated users (web session via claims OR session cookie) → Full access
+            // 2. Authenticated users → Full access
             if (context.User?.Identity?.IsAuthenticated == true)
             {
                 await _next(context);
                 return;
             }
 
-            // 2b. Check for session cookie (Blazor might set this)
-            if (context.Request.Cookies.ContainsKey(".AspNetCore.Session") ||
-                context.Request.Cookies.ContainsKey("NewwaysSession") ||
+            // 2b. Check for session cookie
+            if (context.Request.Cookies.ContainsKey("SessionId") ||
                 context.Request.Query.ContainsKey("sessionId"))
             {
-                // Has session indicator - let the auth system validate it
                 await _next(context);
                 return;
             }
 
-            // 3. Mobile API with valid key → Allow through to authenticate
+            // 3. Mobile API with valid key
             if (HasValidMobileApiKey(context))
             {
                 await _next(context);
                 return;
             }
 
-            // 4. Check if this is a public path (login-related)
+            // 4. Public paths
             if (IsPublicPath(path))
             {
                 await _next(context);
                 return;
             }
 
-            // 5. Everything else requires authentication
-            _logger.LogDebug("[AuthGate] Unauthenticated request blocked: {Path} from {IP}", path, ip);
+            // 5. Everything else → redirect to login
+            _logger.LogDebug("[AuthGate] Unauthenticated: {Path} from {IP}", path, ip);
 
-            // Redirect to login for web browsers, 401 for API calls
             if (IsApiRequest(context))
             {
                 context.Response.StatusCode = 401;
@@ -93,134 +83,101 @@ namespace NewwaysAdmin.WebAdmin.Security
             }
         }
 
-        // ===== PUBLIC PATHS =====
-        // These are the ONLY paths accessible without authentication
+        // ===== LOCK-FREE CLEANUP =====
 
-        private static bool IsPublicPath(string path)
+        private static void TryCleanupOldEntries()
         {
-            var lowerPath = path.ToLowerInvariant();
+            var now = DateTime.UtcNow;
+            var lastCleanup = new DateTime(Interlocked.Read(ref _lastCleanupTicks));
 
-            // Login page and API
-            if (lowerPath == "/" ||
-                lowerPath == "/login" ||
-                lowerPath.StartsWith("/login/") ||
-                lowerPath == "/api/auth/login" ||
-                lowerPath == "/api/auth/mobile-login" ||
-                lowerPath == "/api/mobile/auth/login")
+            // Only every 10 minutes
+            if ((now - lastCleanup).TotalMinutes < 10)
+                return;
+
+            // Try to claim the cleanup (non-blocking)
+            var originalTicks = Interlocked.CompareExchange(
+                ref _lastCleanupTicks,
+                now.Ticks,
+                lastCleanup.Ticks);
+
+            if (originalTicks != lastCleanup.Ticks)
+                return; // Another thread is doing cleanup
+
+            // Do cleanup without blocking other requests
+            var cutoff = now.AddHours(-4);
+            var keysToRemove = _attempts
+                .Where(kvp => ShouldRemove(kvp.Value, cutoff))
+                .Select(kvp => kvp.Key)
+                .Take(100)  // Limit per cleanup cycle to avoid long iteration
+                .ToList();
+
+            foreach (var key in keysToRemove)
             {
-                return true;
+                _attempts.TryRemove(key, out _);
             }
-
-            // SignalR hubs (mobile app needs these, protected by API key check)
-            if (lowerPath.StartsWith("/hubs/") ||
-                lowerPath.StartsWith("/mobilehub") ||
-                lowerPath.StartsWith("/categoryhub") ||
-                lowerPath.StartsWith("/synchub"))
-            {
-                return true;
-            }
-
-            // Static files required for the login page to render
-            if (lowerPath.StartsWith("/_framework/") ||
-                lowerPath.StartsWith("/_blazor") ||
-                lowerPath.StartsWith("/_content/") ||
-                lowerPath.StartsWith("/css/") ||
-                lowerPath.StartsWith("/js/") ||
-                lowerPath.StartsWith("/lib/") ||
-                lowerPath.StartsWith("/fonts/") ||
-                lowerPath.EndsWith(".css") ||
-                lowerPath.EndsWith(".js") ||
-                lowerPath.EndsWith(".woff") ||
-                lowerPath.EndsWith(".woff2") ||
-                lowerPath.EndsWith(".ico"))
-            {
-                return true;
-            }
-
-            return false;
         }
 
-        // ===== MOBILE API KEY =====
-
-        private bool HasValidMobileApiKey(HttpContext context)
+        private static bool ShouldRemove(LoginAttemptInfo info, DateTime cutoff)
         {
-            // Check for mobile API key in header
-            if (context.Request.Headers.TryGetValue("X-Mobile-Api-Key", out var apiKey))
-            {
-                // The mobile API key - should match AppConfig.MobileApiKey
-                const string ValidMobileApiKey = "NwAdmin2024!Mx9$kL#pQ7zR";
-                return apiKey == ValidMobileApiKey;
-            }
-            return false;
+            // Remove if: not banned AND old, OR ban has expired
+            if (info.BannedUntil.HasValue)
+                return info.BannedUntil.Value < DateTime.UtcNow;
+
+            return info.LastAttempt < cutoff;
         }
 
-        // ===== LOGIN ATTEMPT TRACKING =====
+        // ===== LOGIN TRACKING (Lock-free) =====
 
-        /// <summary>
-        /// Call this when a login attempt fails
-        /// </summary>
         public static void RecordFailedLogin(string ip, ILogger? logger = null)
         {
-            var info = _attempts.GetOrAdd(ip, _ => new LoginAttemptInfo());
+            var info = _attempts.AddOrUpdate(
+                ip,
+                _ => new LoginAttemptInfo { FailedAttempts = 1, LastAttempt = DateTime.UtcNow },
+                (_, existing) =>
+                {
+                    existing.FailedAttempts++;
+                    existing.LastAttempt = DateTime.UtcNow;
 
-            lock (info)
+                    if (existing.FailedAttempts >= 3 && !existing.IsBanned)
+                    {
+                        existing.BannedUntil = DateTime.UtcNow.AddHours(4);
+                    }
+                    return existing;
+                });
+
+            if (info.IsBanned)
             {
-                info.FailedAttempts++;
-                info.LastAttempt = DateTime.UtcNow;
-
-                if (info.FailedAttempts >= 3 && !info.IsBanned)
-                {
-                    info.BannedUntil = DateTime.UtcNow.AddHours(4);
-                    logger?.LogWarning("[AuthGate] 🔒 IP BANNED after {Count} failed logins: {IP}",
-                        info.FailedAttempts, ip);
-                }
-                else
-                {
-                    logger?.LogInformation("[AuthGate] Failed login attempt {Count}/3 from {IP}",
-                        info.FailedAttempts, ip);
-                }
+                logger?.LogWarning("[AuthGate] IP BANNED after {Count} failed logins: {IP}",
+                    info.FailedAttempts, ip);
+            }
+            else
+            {
+                logger?.LogInformation("[AuthGate] Failed login {Count}/3 from {IP}",
+                    info.FailedAttempts, ip);
             }
         }
 
-        /// <summary>
-        /// Call this when a login succeeds - clears failed attempts
-        /// </summary>
         public static void RecordSuccessfulLogin(string ip, ILogger? logger = null)
         {
             if (_attempts.TryRemove(ip, out _))
             {
-                logger?.LogDebug("[AuthGate] Cleared failed attempts for {IP} after successful login", ip);
+                logger?.LogDebug("[AuthGate] Cleared attempts for {IP}", ip);
             }
         }
 
-        /// <summary>
-        /// Get the current status for an IP (for diagnostics)
-        /// </summary>
         public static (int failedAttempts, bool isBanned, DateTime? bannedUntil) GetStatus(string ip)
         {
             if (_attempts.TryGetValue(ip, out var info))
-            {
                 return (info.FailedAttempts, info.IsBanned, info.BannedUntil);
-            }
             return (0, false, null);
         }
 
-        /// <summary>
-        /// Manually unban an IP (for admin use)
-        /// </summary>
-        public static bool UnbanIp(string ip)
-        {
-            return _attempts.TryRemove(ip, out _);
-        }
+        public static bool UnbanIp(string ip) => _attempts.TryRemove(ip, out _);
 
-        /// <summary>
-        /// Get list of currently banned IPs
-        /// </summary>
         public static IEnumerable<(string ip, DateTime bannedUntil, int attempts)> GetBannedIps()
         {
-            var now = DateTime.UtcNow;
             return _attempts
-                .Where(kvp => kvp.Value.BannedUntil.HasValue && kvp.Value.BannedUntil > now)
+                .Where(kvp => kvp.Value.IsBanned)
                 .Select(kvp => (kvp.Key, kvp.Value.BannedUntil!.Value, kvp.Value.FailedAttempts))
                 .ToList();
         }
@@ -230,85 +187,70 @@ namespace NewwaysAdmin.WebAdmin.Security
         private bool IsBanned(string ip, out int remainingMinutes)
         {
             remainingMinutes = 0;
-
             if (_attempts.TryGetValue(ip, out var info) && info.IsBanned)
             {
-                remainingMinutes = (int)(info.BannedUntil!.Value - DateTime.UtcNow).TotalMinutes;
-                if (remainingMinutes < 1) remainingMinutes = 1;
+                remainingMinutes = Math.Max(1, (int)(info.BannedUntil!.Value - DateTime.UtcNow).TotalMinutes);
                 return true;
             }
-
             return false;
         }
 
         private static string GetClientIp(HttpContext context)
         {
-            // Check for forwarded IP (behind reverse proxy)
-            var forwardedFor = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(forwardedFor))
+            var forwarded = context.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(forwarded))
             {
-                var ip = forwardedFor.Split(',').First().Trim();
+                var ip = forwarded.Split(',').First().Trim();
                 if (!string.IsNullOrEmpty(ip)) return ip;
             }
-
             return context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         }
 
         private static bool IsApiRequest(HttpContext context)
         {
             var path = context.Request.Path.Value ?? "";
-            var accept = context.Request.Headers["Accept"].FirstOrDefault() ?? "";
-
             return path.StartsWith("/api/") ||
-                   accept.Contains("application/json") ||
-                   context.Request.ContentType?.Contains("application/json") == true;
+                   context.Request.Headers["Accept"].FirstOrDefault()?.Contains("application/json") == true;
         }
 
-        private static void CleanupOldEntries()
+        private bool HasValidMobileApiKey(HttpContext context)
         {
-            // Only cleanup every 10 minutes
-            if ((DateTime.UtcNow - _lastCleanup).TotalMinutes < 10)
-                return;
-
-            lock (_cleanupLock)
-            {
-                if ((DateTime.UtcNow - _lastCleanup).TotalMinutes < 10)
-                    return;
-
-                _lastCleanup = DateTime.UtcNow;
-
-                var cutoff = DateTime.UtcNow.AddHours(-4);
-                var toRemove = _attempts
-                    .Where(kvp => kvp.Value.LastAttempt < cutoff && !kvp.Value.IsBanned)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-
-                foreach (var ip in toRemove)
-                {
-                    _attempts.TryRemove(ip, out _);
-                }
-
-                // Also remove expired bans
-                var expiredBans = _attempts
-                    .Where(kvp => kvp.Value.BannedUntil.HasValue && kvp.Value.BannedUntil < DateTime.UtcNow)
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-
-                foreach (var ip in expiredBans)
-                {
-                    _attempts.TryRemove(ip, out _);
-                }
-            }
+            return context.Request.Headers.TryGetValue("X-Mobile-Api-Key", out var key)
+                   && key == "NwAdmin2024!Mx9$kL#pQ7zR";
         }
 
-        // ===== INNER CLASS =====
+        private static bool IsPublicPath(string path)
+        {
+            var lower = path.ToLowerInvariant();
+
+            // Login paths
+            if (lower == "/" || lower == "/login" || lower.StartsWith("/login/") ||
+                lower == "/api/auth/login" || lower == "/api/auth/mobile-login" ||
+                lower == "/api/mobile/auth/login")
+                return true;
+
+            // SignalR hubs
+            if (lower.StartsWith("/hubs/") || lower.StartsWith("/mobilehub") ||
+                lower.StartsWith("/categoryhub") || lower.StartsWith("/synchub"))
+                return true;
+
+            // Static files
+            if (lower.StartsWith("/_framework/") || lower.StartsWith("/_blazor") ||
+                lower.StartsWith("/_content/") || lower.StartsWith("/css/") ||
+                lower.StartsWith("/js/") || lower.StartsWith("/lib/") ||
+                lower.StartsWith("/fonts/") ||
+                lower.EndsWith(".css") || lower.EndsWith(".js") ||
+                lower.EndsWith(".woff") || lower.EndsWith(".woff2") || lower.EndsWith(".ico"))
+                return true;
+
+            return false;
+        }
 
         private class LoginAttemptInfo
         {
             public int FailedAttempts { get; set; }
             public DateTime LastAttempt { get; set; } = DateTime.UtcNow;
             public DateTime? BannedUntil { get; set; }
-
             public bool IsBanned => BannedUntil.HasValue && BannedUntil > DateTime.UtcNow;
         }
     }
