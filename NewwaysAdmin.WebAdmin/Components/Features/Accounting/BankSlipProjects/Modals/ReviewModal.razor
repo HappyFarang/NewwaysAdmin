@@ -1,5 +1,6 @@
 ﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Modals/ReviewModal.razor *@
 @namespace NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlipProjects.Modals
+@using NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlipProjects.Components
 @using NewwaysAdmin.SharedModels.BankSlips
 
 @if (isVisible)
@@ -99,33 +100,19 @@
 
                                 @* Bills section *@
                                 <div class="card">
-                                    <div class="card-header py-2">
+                                    <div class="card-header py-2 d-flex justify-content-between align-items-center">
                                         <small class="fw-bold">Bills/Receipts</small>
-                                    </div>
-                                    <div class="card-body small">
-                                        <div class="form-check mb-2">
+                                        <div class="form-check form-check-inline mb-0">
                                             <input type="checkbox" class="form-check-input" id="hasBill"
                                                    @bind="editHasBill" />
-                                            <label class="form-check-label" for="hasBill">Has bill/receipt</label>
+                                            <label class="form-check-label small" for="hasBill">Has bill</label>
                                         </div>
-                                        @if (project.BillFileReferences.Any())
-                                        {
-                                            <div class="d-flex flex-wrap gap-1 mb-2">
-                                                @foreach (var bill in project.BillFileReferences)
-                                                {
-                                                    <span class="badge bg-success cursor-pointer" @onclick="ViewBills" title="Click to view">
-                                                        <i class="bi bi-file-image me-1"></i>@Path.GetFileName(bill)
-                                                    </span>
-                                                }
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <p class="text-muted mb-2">No bills attached</p>
-                                        }
-                                        <button class="btn btn-sm btn-outline-success w-100" disabled title="Coming soon">
-                                            <i class="bi bi-upload me-1"></i>Upload Bill
-                                        </button>
+                                    </div>
+                                    <div class="card-body small">
+                                        <BillUploadPanel ProjectId="@project.ProjectId"
+                                                         BillReferences="@project.BillFileReferences"
+                                                         BillReferencesChanged="OnBillReferencesChanged"
+                                                         OnHasBillChanged="OnHasBillChanged" />
                                     </div>
                                 </div>
                             </div>

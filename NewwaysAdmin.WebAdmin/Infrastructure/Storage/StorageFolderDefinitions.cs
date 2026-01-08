@@ -263,21 +263,22 @@ namespace NewwaysAdmin.WebAdmin.Infrastructure.Storage
                     CreateBackups = true,
                     MaxBackupCount = 10
                 },
-                
-                // Bank Slip System - Shared Bills
+
+                // Bank Slip System - Shared Bills (Raw file storage)
                 new StorageFolder
                 {
                     Name = "BankSlipBill",
-                    Description = "Shared bills and receipts from all users",
+                    Description = "Bill/receipt images - raw file storage",
                     Type = StorageType.Binary,
                     Path = "BankSlipBill",
                     IsShared = true,
                     CreateBackups = true,
                     MaxBackupCount = 100,
                     IndexFiles = true,
-                    IndexedExtensions = new[] { ".bin" }
+                    IndexedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".pdf" },
+                    RawFileMode = true  // NEW: Store files directly without wrapper
                 },
-                
+
                 // Bank Slip System - Bank Slips (dynamic subfolders per bank/user)
                 new StorageFolder
                 {

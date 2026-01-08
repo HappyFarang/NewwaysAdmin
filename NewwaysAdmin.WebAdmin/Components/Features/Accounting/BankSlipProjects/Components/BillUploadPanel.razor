@@ -1,0 +1,88 @@
+﻿@* File: NewwaysAdmin.WebAdmin/Components/Features/Accounting/BankSlipProjects/Components/BillUploadPanel.razor *@
+@namespace NewwaysAdmin.WebAdmin.Components.Features.Accounting.BankSlipProjects.Components
+
+<div class="bill-upload-panel">
+    @* Existing bills *@
+    @if (BillReferences.Any())
+    {
+        <div class="mb-2">
+            <small class="text-muted">Attached bills:</small>
+            <div class="d-flex flex-wrap gap-1 mt-1">
+                @foreach (var bill in BillReferences)
+                {
+                    <div class="badge bg-success d-flex align-items-center gap-1">
+                        <span class="cursor-pointer" @onclick="() => ViewBill(bill)" title="Click to view">
+                            <i class="bi bi-file-image me-1"></i>@GetBillDisplayName(bill)
+                        </span>
+                        <button type="button" class="btn-close btn-close-white ms-1"
+                                style="font-size: 0.6rem;"
+                                @onclick="() => DeleteBill(bill)"
+                                @onclick:stopPropagation="true"
+                                title="Remove bill"></button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <p class="text-muted small mb-2">No bills attached</p>
+    }
+
+    @* Upload section *@
+    @if (isUploading)
+    {
+        <div class="text-center py-2">
+            <div class="spinner-border spinner-border-sm text-success me-2"></div>
+            <small>Uploading...</small>
+        </div>
+    }
+    else if (previewUrl != null)
+    {
+        @* Preview before upload *@
+        <div class="border rounded p-2 mb-2">
+            <img src="@previewUrl" class="img-fluid rounded mb-2" style="max-height: 150px;" />
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-success flex-grow-1" @onclick="ConfirmUpload">
+                    <i class="bi bi-check-lg me-1"></i>Upload
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CancelPreview">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* File picker *@
+        <label class="btn btn-sm btn-outline-success w-100 mb-0">
+            <i class="bi bi-upload me-1"></i>Upload Bill
+            <InputFile OnChange="OnFileSelected" accept="image/*" class="d-none" />
+        </label>
+    }
+
+    @* Error message *@
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-sm py-1 px-2 mt-2 small mb-0">
+            <i class="bi bi-exclamation-triangle me-1"></i>@errorMessage
+        </div>
+    }
+</div>
+
+@* Bill viewer modal *@
+@if (viewingBillUrl != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.8);" @onclick="CloseBillViewer">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content bg-transparent border-0" @onclick:stopPropagation="true">
+                <div class="text-end mb-2">
+                    <button type="button" class="btn btn-light btn-sm" @onclick="CloseBillViewer">
+                        <i class="bi bi-x-lg"></i> Close
+                    </button>
+                </div>
+                <img src="@viewingBillUrl" class="img-fluid rounded shadow" style="max-height: 80vh;" />
+            </div>
+        </div>
+    </div>
+}

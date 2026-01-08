@@ -17,7 +17,6 @@ public partial class ReviewModal : ComponentBase
 
     [Parameter] public EventCallback<BankSlipProject> OnSaved { get; set; }
     [Parameter] public EventCallback<string> OnViewFullImage { get; set; }
-    [Parameter] public EventCallback<string> OnViewBills { get; set; }
 
     // Visibility state
     private bool isVisible = false;
@@ -189,14 +188,7 @@ public partial class ReviewModal : ComponentBase
         }
     }
 
-    private async Task ViewBills()
-    {
-        if (project != null)
-        {
-            await OnViewBills.InvokeAsync(project.ProjectId);
-        }
-    }
-
+    
     private async Task SaveAsync()
     {
         await SaveProjectAsync(closeProject: false);
@@ -309,7 +301,20 @@ public partial class ReviewModal : ComponentBase
             StateHasChanged();
         }
     }
+    private async Task OnBillReferencesChanged(List<string> newReferences)
+    {
+        if (project != null)
+        {
+            project.BillFileReferences = newReferences;
+            StateHasChanged();
+        }
+    }
 
+    private async Task OnHasBillChanged(bool hasBill)
+    {
+        editHasBill = hasBill;
+        StateHasChanged();
+    }
     // Helper classes for dropdowns
     private class CategoryItem
     {

@@ -12,6 +12,7 @@ using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
 using NewwaysAdmin.SharedModels.Categories;
 using System.Text.Json;
 using System.Linq;
+using NewwaysAdmin.WebAdmin.Services.BankSlips;
 
 namespace NewwaysAdmin.WebAdmin.Services.SignalR
 {
@@ -28,7 +29,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         private readonly DocumentStorageService _documentStorageService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ExpenseTrackerSyncHandler> _logger;
-
+        private readonly BillUploadService _billUploadService;
         public string AppName => "MAUI_ExpenseTracker";
 
         public IEnumerable<string> SupportedMessageTypes => new[]
@@ -45,11 +46,15 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             "AttachToProject",
             "GetSourceMappings",
             "GetUploadStatus",
+            "UploadBill",
+            "DeleteBill",
+            "GetBills",
         };
 
         public ExpenseTrackerSyncHandler(
             CategoryService categoryService,
             DocumentStorageService documentStorageService,
+            BillUploadService billUploadService,
             IServiceProvider serviceProvider,
             ILogger<ExpenseTrackerSyncHandler> logger)
         {
@@ -57,6 +62,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             _documentStorageService = documentStorageService;
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _billUploadService = billUploadService;
         }
 
         // ===== MESSAGE ROUTING =====
@@ -82,6 +88,11 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                     "GetSourceMappings" => await HandleGetSourceMappingsAsync(message, connectionId),
                     "AttachToProject" => await HandleAttachToProjectAsync(message, connectionId),
 
+                    // Bill messages
+                    "UploadBill" => await HandleUploadBillAsync(message, connectionId),
+                    "DeleteBill" => await HandleDeleteBillAsync(message, connectionId),
+                    "GetBills" => await HandleGetBillsAsync(message, connectionId),
+
                     _ => MessageHandlerResult.CreateError($"Unsupported message type: {message.MessageType}")
                 };
             }
@@ -90,6 +101,129 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                 _logger.LogError(ex, "Error handling {MessageType} from {ConnectionId}",
                     message.MessageType, connectionId);
                 return MessageHandlerResult.CreateError($"Internal error: {ex.Message}");
+            }
+        }
+
+        // ============================================================
+        // BILL UPLOAD METHODS
+        // ============================================================
+
+        private async Task<MessageHandlerResult> HandleUploadBillAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<BillUploadRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null)
+                {
+                    return MessageHandlerResult.CreateError("Invalid bill upload request format");
+                }
+
+                _logger.LogInformation(
+                    "Received bill upload for project {ProjectId} from {Username}",
+                    request.ProjectId, request.Username ?? "unknown");
+
+                // Decode base64 image data
+                byte[] imageData;
+                try
+                {
+                    imageData = Convert.FromBase64String(request.ImageDataBase64);
+                }
+                catch (FormatException)
+                {
+                    return MessageHandlerResult.CreateError("Invalid base64 image data");
+                }
+
+                // Upload via service
+                var result = await _billUploadService.UploadBillAsync(
+                    request.ProjectId,
+                    imageData,
+                    request.OriginalFilename);
+
+                if (result.IsSuccess)
+                {
+                    _logger.LogInformation(
+                        "✅ Bill uploaded: {BillFile} (bill #{Number}) for project {ProjectId}",
+                        result.BillFilename, result.BillNumber, request.ProjectId);
+
+                    return MessageHandlerResult.CreateSuccess(
+                        BillUploadResponse.FromSuccess(result.BillFilename!, result.BillNumber));
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "❌ Bill upload failed for project {ProjectId}: {Error}",
+                        request.ProjectId, result.ErrorMessage);
+
+                    return MessageHandlerResult.CreateError(result.ErrorMessage ?? "Upload failed");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling bill upload");
+                return MessageHandlerResult.CreateError($"Upload error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandleDeleteBillAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<BillDeleteRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null)
+                {
+                    return MessageHandlerResult.CreateError("Invalid delete request format");
+                }
+
+                _logger.LogInformation(
+                    "Received bill delete request: {BillId} from project {ProjectId}",
+                    request.BillId, request.ProjectId);
+
+                var success = await _billUploadService.DeleteBillAsync(request.ProjectId, request.BillId);
+
+                return MessageHandlerResult.CreateSuccess(new BillDeleteResponse
+                {
+                    Success = success,
+                    ErrorMessage = success ? null : "Failed to delete bill"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling bill delete");
+                return MessageHandlerResult.CreateError($"Delete error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandleGetBillsAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<GetBillsRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || string.IsNullOrEmpty(request.ProjectId))
+                {
+                    return MessageHandlerResult.CreateError("Invalid request: ProjectId required");
+                }
+
+                var billIds = await _billUploadService.GetBillReferencesAsync(request.ProjectId);
+
+                return MessageHandlerResult.CreateSuccess(new GetBillsResponse
+                {
+                    Success = true,
+                    BillIds = billIds
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting bills");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
             }
         }
 
