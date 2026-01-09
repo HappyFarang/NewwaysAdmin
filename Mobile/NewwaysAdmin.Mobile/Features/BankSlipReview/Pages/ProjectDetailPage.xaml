@@ -1,0 +1,272 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- File: Mobile/NewwaysAdmin.Mobile/Features/BankSlipReview/Pages/ProjectDetailPage.xaml -->
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:NewwaysAdmin.Mobile.Features.BankSlipReview.ViewModels"
+             x:Class="NewwaysAdmin.Mobile.Features.BankSlipReview.Pages.ProjectDetailPage"
+             Title="Project Details"
+             BackgroundColor="White">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- ===== HEADER ===== -->
+        <Frame Grid.Row="0" 
+               BackgroundColor="#2196F3" 
+               Padding="15,10" 
+               CornerRadius="0"
+               HasShadow="False">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <!-- Back Button -->
+                <Button Grid.Column="0"
+                        Text="←"
+                        Command="{Binding GoBackCommand}"
+                        BackgroundColor="Transparent"
+                        TextColor="White"
+                        FontSize="24"
+                        Padding="0"
+                        WidthRequest="40"/>
+
+                <!-- Status -->
+                <Label Grid.Column="1"
+                       Text="{Binding StatusMessage}"
+                       TextColor="White"
+                       FontSize="14"
+                       VerticalOptions="Center"
+                       HorizontalOptions="Center"/>
+
+                <!-- Closed Badge -->
+                <Frame Grid.Column="2"
+                       BackgroundColor="Green"
+                       Padding="8,4"
+                       CornerRadius="10"
+                       IsVisible="{Binding IsClosed}"
+                       HasShadow="False">
+                    <Label Text="Closed" TextColor="White" FontSize="12"/>
+                </Frame>
+            </Grid>
+        </Frame>
+
+        <!-- ===== MAIN CONTENT ===== -->
+        <ScrollView Grid.Row="1">
+            <StackLayout Padding="15" Spacing="15">
+
+                <!-- Transaction Info Card -->
+                <Frame BackgroundColor="#F5F5F5" Padding="15" CornerRadius="8" HasShadow="False">
+                    <StackLayout Spacing="8">
+                        <Label Text="Transaction Details" FontSize="14" FontAttributes="Bold" TextColor="Gray"/>
+
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="15" RowSpacing="5">
+                            <Label Grid.Row="0" Grid.Column="0" Text="Date:" TextColor="Gray"/>
+                            <Label Grid.Row="0" Grid.Column="1" Text="{Binding DateDisplay}" FontAttributes="Bold"/>
+
+                            <Label Grid.Row="1" Grid.Column="0" Text="To:" TextColor="Gray"/>
+                            <Label Grid.Row="1" Grid.Column="1" Text="{Binding Recipient}" FontAttributes="Bold"/>
+
+                            <Label Grid.Row="2" Grid.Column="0" Text="Amount:" TextColor="Gray"/>
+                            <Label Grid.Row="2" Grid.Column="1" Text="{Binding Amount}" FontAttributes="Bold" TextColor="#2196F3" FontSize="18"/>
+
+                            <Label Grid.Row="3" Grid.Column="0" Text="Person:" TextColor="Gray"/>
+                            <Label Grid.Row="3" Grid.Column="1" Text="{Binding PersonName}"/>
+                        </Grid>
+
+                        <!-- Memo/Note -->
+                        <Label Text="Note:" TextColor="Gray" IsVisible="{Binding Note, Converter={StaticResource NullToBoolConverter}}"/>
+                        <Label Text="{Binding Note}" IsVisible="{Binding Note, Converter={StaticResource NullToBoolConverter}}"/>
+                    </StackLayout>
+                </Frame>
+
+                <!-- Bank Slip Image Preview -->
+                <Frame BackgroundColor="#F5F5F5" Padding="15" CornerRadius="8" HasShadow="False">
+                    <StackLayout Spacing="10">
+                        <Label Text="Bank Slip Screenshot" FontSize="14" FontAttributes="Bold" TextColor="Gray"/>
+
+                        <Frame HeightRequest="150" 
+                               BackgroundColor="#E0E0E0" 
+                               CornerRadius="8" 
+                               Padding="0"
+                               HasShadow="False">
+                            <Frame.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ViewBankSlipCommand}"/>
+                            </Frame.GestureRecognizers>
+
+                            <Grid>
+                                <!-- Placeholder when no image -->
+                                <StackLayout VerticalOptions="Center" 
+                                             HorizontalOptions="Center"
+                                             IsVisible="{Binding HasBankSlipImage, Converter={StaticResource InverseBoolConverter}}">
+                                    <Label Text="📄" FontSize="48" HorizontalOptions="Center"/>
+                                    <Label Text="Tap to load" TextColor="Gray" FontSize="12"/>
+                                </StackLayout>
+
+                                <!-- Actual image -->
+                                <Image Source="{Binding BankSlipImage, Converter={StaticResource ByteArrayToImageSourceConverter}}"
+                                       Aspect="AspectFit"
+                                       IsVisible="{Binding HasBankSlipImage}"/>
+                            </Grid>
+                        </Frame>
+                    </StackLayout>
+                </Frame>
+
+                <!-- Category Selection -->
+                <Frame BackgroundColor="#F5F5F5" Padding="15" CornerRadius="8" HasShadow="False">
+                    <StackLayout Spacing="10">
+                        <Label Text="Category" FontSize="14" FontAttributes="Bold" TextColor="Gray"/>
+
+                        <Picker Title="Select Category"
+                                ItemsSource="{Binding CategoryNames}"
+                                SelectedItem="{Binding SelectedCategoryName}"
+                                BackgroundColor="White"/>
+
+                        <Picker Title="Select Subcategory"
+                                ItemsSource="{Binding SubCategoryNames}"
+                                SelectedItem="{Binding SelectedSubCategoryName}"
+                                IsEnabled="{Binding SelectedCategoryName, Converter={StaticResource NullToBoolConverter}}"
+                                BackgroundColor="White"/>
+
+                        <Picker Title="Select Location"
+                                ItemsSource="{Binding LocationNames}"
+                                SelectedItem="{Binding SelectedLocationName}"
+                                BackgroundColor="White"/>
+                    </StackLayout>
+                </Frame>
+
+                <!-- Options -->
+                <Frame BackgroundColor="#F5F5F5" Padding="15" CornerRadius="8" HasShadow="False">
+                    <StackLayout Spacing="10">
+                        <Label Text="Options" FontSize="14" FontAttributes="Bold" TextColor="Gray"/>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0" Text="Include VAT" VerticalOptions="Center"/>
+                            <Switch Grid.Column="1" IsToggled="{Binding HasVat}"/>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0" Text="Private (personal expense)" VerticalOptions="Center"/>
+                            <Switch Grid.Column="1" IsToggled="{Binding IsPrivate}"/>
+                        </Grid>
+                    </StackLayout>
+                </Frame>
+
+                <!-- Bills Section -->
+                <Frame BackgroundColor="#F5F5F5" Padding="15" CornerRadius="8" HasShadow="False">
+                    <StackLayout Spacing="10">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Label Grid.Column="0" Text="Bills / Receipts" FontSize="14" FontAttributes="Bold" TextColor="Gray"/>
+                            <Label Grid.Column="1" Text="{Binding Bills.Count, StringFormat='{0} attached'}" TextColor="Gray" FontSize="12"/>
+                        </Grid>
+
+                        <!-- Bill Thumbnails -->
+                        <CollectionView ItemsSource="{Binding Bills}"
+                                        HeightRequest="80"
+                                        IsVisible="{Binding HasBill}">
+                            <CollectionView.ItemsLayout>
+                                <LinearItemsLayout Orientation="Horizontal" ItemSpacing="10"/>
+                            </CollectionView.ItemsLayout>
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Frame WidthRequest="70" 
+                                           HeightRequest="70" 
+                                           CornerRadius="8" 
+                                           Padding="0"
+                                           BackgroundColor="#E0E0E0"
+                                           HasShadow="False">
+                                        <Frame.GestureRecognizers>
+                                            <TapGestureRecognizer 
+                                                Command="{Binding Source={RelativeSource AncestorType={x:Type vm:ProjectDetailViewModel}}, Path=ViewBillCommand}"
+                                                CommandParameter="{Binding BillId}"/>
+                                        </Frame.GestureRecognizers>
+                                        <StackLayout VerticalOptions="Center" HorizontalOptions="Center">
+                                            <Label Text="📷" FontSize="24"/>
+                                            <Label Text="{Binding DisplayName}" FontSize="10" TextColor="Gray"/>
+                                        </StackLayout>
+                                    </Frame>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+
+                        <!-- No bills message -->
+                        <Label Text="No bills attached yet"
+                               TextColor="Orange"
+                               FontSize="12"
+                               IsVisible="{Binding HasBill, Converter={StaticResource InverseBoolConverter}}"/>
+
+                        <!-- Add Bill Buttons -->
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10" IsVisible="{Binding IsClosed, Converter={StaticResource InverseBoolConverter}}">
+                            <Button Grid.Column="0"
+                                    Text="📷 Take Photo"
+                                    Command="{Binding TakeBillPhotoCommand}"
+                                    BackgroundColor="#4CAF50"
+                                    TextColor="White"
+                                    CornerRadius="8"/>
+                            <Button Grid.Column="1"
+                                    Text="🖼 Gallery"
+                                    Command="{Binding PickBillFromGalleryCommand}"
+                                    BackgroundColor="#2196F3"
+                                    TextColor="White"
+                                    CornerRadius="8"/>
+                        </Grid>
+                    </StackLayout>
+                </Frame>
+
+                <!-- Spacer for bottom buttons -->
+                <BoxView HeightRequest="60"/>
+
+            </StackLayout>
+        </ScrollView>
+
+        <!-- ===== BOTTOM ACTION BAR ===== -->
+        <Frame Grid.Row="2" 
+               BackgroundColor="White" 
+               Padding="15" 
+               CornerRadius="0"
+               HasShadow="True">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="15">
+                <!-- Save Button -->
+                <Button Grid.Column="0"
+                        Text="💾 Save"
+                        Command="{Binding SaveCommand}"
+                        BackgroundColor="{Binding HasChanges, Converter={StaticResource BoolToSaveButtonColorConverter}}"
+                        TextColor="White"
+                        FontSize="16"
+                        CornerRadius="8"
+                        HeightRequest="50"/>
+
+                <!-- Close Project Button -->
+                <Button Grid.Column="1"
+                        Text="✓ Close Project"
+                        Command="{Binding CloseProjectCommand}"
+                        BackgroundColor="#4CAF50"
+                        TextColor="White"
+                        FontSize="16"
+                        CornerRadius="8"
+                        HeightRequest="50"
+                        IsVisible="{Binding IsClosed, Converter={StaticResource InverseBoolConverter}}"/>
+
+                <!-- Already Closed indicator -->
+                <Frame Grid.Column="1"
+                       BackgroundColor="#E8F5E9"
+                       CornerRadius="8"
+                       Padding="0"
+                       HeightRequest="50"
+                       IsVisible="{Binding IsClosed}"
+                       HasShadow="False">
+                    <Label Text="✓ Already Closed"
+                           TextColor="Green"
+                           VerticalOptions="Center"
+                           HorizontalOptions="Center"/>
+                </Frame>
+            </Grid>
+        </Frame>
+
+        <!-- ===== LOADING OVERLAY ===== -->
+        <Grid Grid.RowSpan="3"
+              IsVisible="{Binding IsLoading}"
+              BackgroundColor="#80FFFFFF">
+            <StackLayout VerticalOptions="Center" HorizontalOptions="Center">
+                <ActivityIndicator IsRunning="{Binding IsLoading}" Color="#2196F3"/>
+                <Label Text="Loading..." TextColor="Gray" Margin="0,10,0,0"/>
+            </StackLayout>
+        </Grid>
+
+    </Grid>
+</ContentPage>

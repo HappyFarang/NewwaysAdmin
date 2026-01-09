@@ -1,5 +1,5 @@
 ﻿// File: Mobile/NewwaysAdmin.Mobile/Features/BankSlipReview/Converters/ProjectListConverters.cs
-// Value converters for the project list page
+// Value converters for the bank slip review feature
 
 using System.Globalization;
 
@@ -101,5 +101,47 @@ public class InverseBoolConverter : IValueConverter
             return !boolValue;
         }
         return false;
+    }
+}
+
+/// <summary>
+/// Converts byte[] to ImageSource for displaying images.
+/// Usage: Source="{Binding ImageBytes, Converter={StaticResource ByteArrayToImageSourceConverter}}"
+/// </summary>
+public class ByteArrayToImageSourceConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is byte[] bytes && bytes.Length > 0)
+        {
+            return ImageSource.FromStream(() => new MemoryStream(bytes));
+        }
+        return null;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Converts HasChanges boolean to Save button color.
+/// True (has changes) = blue, False = gray
+/// </summary>
+public class BoolToSaveButtonColorConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        if (value is bool hasChanges && hasChanges)
+        {
+            return Color.FromArgb("#2196F3"); // Blue - has changes to save
+        }
+        return Color.FromArgb("#9E9E9E"); // Gray - no changes
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
     }
 }

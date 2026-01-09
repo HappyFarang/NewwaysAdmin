@@ -78,6 +78,11 @@ namespace NewwaysAdmin.Mobile.Components
             {
                 MenuStack.Children.Add(CreateMenuButton("✏️  Edit Categories", OnEditCategoriesClicked));
             }
+            // Review Bank Slips - only if user has accounting permission
+            if (session?.HasPermission("accounting") == true)
+            {
+                MenuStack.Children.Add(CreateMenuButton("📋  Review Bank Slips", OnReviewBankSlipsClicked));
+            }
 
             // Settings - always visible
             MenuStack.Children.Add(CreateMenuButton("⚙️  Settings", OnSettingsClicked, "#5B4A99"));
@@ -117,6 +122,12 @@ namespace NewwaysAdmin.Mobile.Components
         {
             CollapseMenu();
             await Shell.Current.GoToAsync("CategoryManagementPage");
+        }
+
+        private async void OnReviewBankSlipsClicked(object sender, EventArgs e)
+        {
+            CollapseMenu();
+            await Shell.Current.GoToAsync("bankSlipReview");
         }
 
         private async void OnSettingsClicked(object sender, EventArgs e)

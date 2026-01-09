@@ -7,6 +7,7 @@ using NewwaysAdmin.Shared.IO;
 using NewwaysAdmin.Shared.IO.Structure;
 using NewwaysAdmin.SharedModels.BankSlips;
 using NewwaysAdmin.SignalR.Contracts.Models;
+using NewwaysAdmin.WebAdmin.Services.BankSlips.Processing;
 using System.Text.Json;
 
 namespace NewwaysAdmin.WebAdmin.Services.BankSlips;
@@ -15,9 +16,10 @@ public class BankSlipReviewSyncService
 {
     private readonly EnhancedStorageFactory _storageFactory;
     private readonly BillUploadService _billUploadService;
+    private readonly BankSlipProjectService _projectService;
     private readonly ILogger<BankSlipReviewSyncService> _logger;
 
-    private const string PROJECTS_FOLDER = "BankSlipsJson";
+    private const string PROJECTS_FOLDER = "BankSlipJson";
     private const string PROJECTS_SUBFOLDER = "Projects";
     private const string BANKSLIPS_BIN_FOLDER = "BankSlipsBin";
     private const string BILLS_FOLDER = "BankSlipBill";
@@ -29,12 +31,14 @@ public class BankSlipReviewSyncService
     };
 
     public BankSlipReviewSyncService(
-        EnhancedStorageFactory storageFactory,
-        BillUploadService billUploadService,
-        ILogger<BankSlipReviewSyncService> logger)
+    EnhancedStorageFactory storageFactory,
+    BillUploadService billUploadService,
+    BankSlipProjectService projectService,  // ADD
+    ILogger<BankSlipReviewSyncService> logger)
     {
         _storageFactory = storageFactory;
         _billUploadService = billUploadService;
+        _projectService = projectService;  // ADD
         _logger = logger;
     }
 
@@ -168,57 +172,37 @@ public class BankSlipReviewSyncService
     /// <param name="fromDate">Only include closed projects from this date forward</param>
     /// <param name="includeAllOpen">If true, include ALL open projects regardless of date</param>
     private async Task<List<ServerProjectMetadata>> GetServerProjectsMetadataAsync(
-        DateTime fromDate,
-        bool includeAllOpen = true)
+    DateTime fromDate,
+    bool includeAllOpen = true)
     {
         var result = new List<ServerProjectMetadata>();
 
         try
         {
-            var storage = _storageFactory.GetStorage<BankSlipProject>(PROJECTS_FOLDER);
-            var allIdentifiers = await storage.ListIdentifiersAsync();
+            // Use the working BankSlipProjectService!
+            var allProjects = await _projectService.GetAllProjectsAsync();
+            _logger.LogInformation("Got {Count} projects from ProjectService", allProjects.Count);
 
-            // Filter for projects subfolder and extract project IDs
-            var projectIds = allIdentifiers
-                .Where(id => id.StartsWith($"{PROJECTS_SUBFOLDER}/"))
-                .Select(id => id.Replace($"{PROJECTS_SUBFOLDER}/", ""))
-                .ToList();
-
-            foreach (var projectId in projectIds)
+            foreach (var project in allProjects)
             {
-                try
+                // Include project if within date range OR open
+                var isWithinDateRange = project.TransactionTimestamp >= fromDate;
+                var isOpenProject = !project.IsClosed;
+
+                if (!isWithinDateRange && !(includeAllOpen && isOpenProject))
+                    continue;
+
+                result.Add(new ServerProjectMetadata
                 {
-                    var project = await storage.LoadAsync($"{PROJECTS_SUBFOLDER}/{projectId}");
-                    if (project == null) continue;
-
-                    // Include project if:
-                    // 1. It's within the date range, OR
-                    // 2. It's open (not closed) and we're including all open
-                    var isWithinDateRange = project.TransactionTimestamp >= fromDate;
-                    var isOpenProject = !project.IsClosed;
-
-                    if (!isWithinDateRange && !(includeAllOpen && isOpenProject))
-                    {
-                        continue;
-                    }
-
-                    // Get bill count
-                    var billIds = await _billUploadService.GetBillReferencesAsync(projectId);
-
-                    result.Add(new ServerProjectMetadata
-                    {
-                        ProjectId = projectId,
-                        LastModified = project.ProcessedAt,
-                        PersonName = project.StructuredMemo?.PersonName,
-                        BillCount = billIds.Count,
-                        IsClosed = project.IsClosed
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error loading project metadata for {ProjectId}", projectId);
-                }
+                    ProjectId = project.ProjectId,
+                    LastModified = project.ProcessedAt,
+                    PersonName = project.StructuredMemo?.PersonName,
+                    BillCount = project.BillFileReferences?.Count ?? 0,
+                    IsClosed = project.IsClosed
+                });
             }
+
+            _logger.LogInformation("Found {Count} projects for sync (after filtering)", result.Count);
         }
         catch (Exception ex)
         {

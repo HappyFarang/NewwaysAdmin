@@ -255,7 +255,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                     }
 
                     // Fallback: route to version exchange if that's waiting
-                    // (for backward compatibility with existing code)
+                    // (for backward compatibility with existing category sync code)
                     var responseStr = response.ToString();
                     _logger.LogDebug("Response content: {Json}",
                         responseStr.Length > 300 ? responseStr.Substring(0, 300) + "..." : responseStr);

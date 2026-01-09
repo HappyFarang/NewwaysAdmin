@@ -65,9 +65,11 @@ public static class MauiProgram
 
         // ===== BANK SLIP REVIEW VIEWMODELS =====
         builder.Services.AddTransient<ProjectListViewModel>();
+        builder.Services.AddTransient<ProjectDetailViewModel>();
 
         // ===== BANK SLIP REVIEW PAGES =====
         builder.Services.AddTransient<ProjectListPage>();
+        builder.Services.AddTransient<ProjectDetailPage>();
 
         // ===== HTTP CLIENTS + AUTH/CONNECTION SERVICES =====
         builder.Services.AddHttpClient<IMauiAuthService, MauiAuthService>(client =>

@@ -82,6 +82,9 @@
     <MauiXaml Update="Components\NavigationHeader.xaml">
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
+    <MauiXaml Update="Features\BankSlipReview\Pages\ProjectDetailPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </MauiXaml>
     <MauiXaml Update="Features\BankSlipReview\Pages\ProjectListPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
@@ -110,6 +113,9 @@
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
     <MauiXaml Update="Features\BankSlipReview\Pages\ProjectListPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </MauiXaml>
+     <MauiXaml Update="Features\BankSlipReview\Pages\ProjectDetailPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </MauiXaml>
   </ItemGroup>

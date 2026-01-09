@@ -2,19 +2,22 @@
 <Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:NewwaysAdmin.Mobile"
-             xmlns:converters="clr-namespace:NewwaysAdmin.Mobile.Features.BankSlipReview.Converters"
+             xmlns:reviewConverters="clr-namespace:NewwaysAdmin.Mobile.Features.BankSlipReview.Converters"
              x:Class="NewwaysAdmin.Mobile.App">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Resources/Styles/Colors.xaml" />
                 <ResourceDictionary Source="Resources/Styles/Styles.xaml" />
-                <!-- Bank Slip Review Converters -->
-                <converters:FilterButtonColorConverter x:Key="FilterButtonColorConverter"/>
-                <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
-                <converters:NullToBoolConverter x:Key="NullToBoolConverter"/>
-                <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- Bank Slip Review Converters -->
+            <reviewConverters:FilterButtonColorConverter x:Key="FilterButtonColorConverter"/>
+            <reviewConverters:BoolToColorConverter x:Key="BoolToColorConverter"/>
+            <reviewConverters:NullToBoolConverter x:Key="NullToBoolConverter"/>
+            <reviewConverters:InverseBoolConverter x:Key="InverseBoolConverter"/>
+            <reviewConverters:ByteArrayToImageSourceConverter x:Key="ByteArrayToImageSourceConverter"/>
+            <reviewConverters:BoolToSaveButtonColorConverter x:Key="BoolToSaveButtonColorConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
