@@ -30,6 +30,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ExpenseTrackerSyncHandler> _logger;
         private readonly BillUploadService _billUploadService;
+        private readonly BankSlipReviewSyncService _reviewSyncService;
         public string AppName => "MAUI_ExpenseTracker";
 
         public IEnumerable<string> SupportedMessageTypes => new[]
@@ -49,12 +50,24 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             "UploadBill",
             "DeleteBill",
             "GetBills",
+
+        // ===== BANK SLIP REVIEW SYNC (new) =====
+            "SyncProjectMetadata",
+            "PullProject",
+            "BatchPullProjects",
+            "PushProject",
+            "BatchPushProjects",
+            "PullBankSlipImage",
+            "PullBillImage",
+            "CloseProject",
         };
+
 
         public ExpenseTrackerSyncHandler(
             CategoryService categoryService,
             DocumentStorageService documentStorageService,
             BillUploadService billUploadService,
+            BankSlipReviewSyncService reviewSyncService,
             IServiceProvider serviceProvider,
             ILogger<ExpenseTrackerSyncHandler> logger)
         {
@@ -62,6 +75,7 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
             _documentStorageService = documentStorageService;
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _reviewSyncService = reviewSyncService;
             _billUploadService = billUploadService;
         }
 
@@ -93,6 +107,16 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                     "DeleteBill" => await HandleDeleteBillAsync(message, connectionId),
                     "GetBills" => await HandleGetBillsAsync(message, connectionId),
 
+                    // Bank slip review sync messages
+                    "SyncProjectMetadata" => await HandleSyncProjectMetadataAsync(message, connectionId),
+                    "PullProject" => await HandlePullProjectAsync(message, connectionId),
+                    "BatchPullProjects" => await HandleBatchPullProjectsAsync(message, connectionId),
+                    "PushProject" => await HandlePushProjectAsync(message, connectionId),
+                    "BatchPushProjects" => await HandleBatchPushProjectsAsync(message, connectionId),
+                    "PullBankSlipImage" => await HandlePullBankSlipImageAsync(message, connectionId),
+                    "PullBillImage" => await HandlePullBillImageAsync(message, connectionId),
+                    "CloseProject" => await HandleCloseProjectAsync(message, connectionId),
+
                     _ => MessageHandlerResult.CreateError($"Unsupported message type: {message.MessageType}")
                 };
             }
@@ -101,6 +125,215 @@ namespace NewwaysAdmin.WebAdmin.Services.SignalR
                 _logger.LogError(ex, "Error handling {MessageType} from {ConnectionId}",
                     message.MessageType, connectionId);
                 return MessageHandlerResult.CreateError($"Internal error: {ex.Message}");
+            }
+        }
+
+        // ============================================================
+        // BANK SLIP REVIEW SYNC METHODS
+        // ============================================================
+
+        private async Task<MessageHandlerResult> HandleSyncProjectMetadataAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<SyncProjectMetadataRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null)
+                {
+                    return MessageHandlerResult.CreateError("Invalid sync metadata request");
+                }
+
+                _logger.LogInformation(
+                    "Sync metadata request from {DeviceId}: {LocalCount} local projects",
+                    request.DeviceId ?? connectionId, request.LocalProjects.Count);
+
+                var response = await _reviewSyncService.GetSyncMetadataAsync(request);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling sync metadata");
+                return MessageHandlerResult.CreateError($"Sync error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandlePullProjectAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<PullProjectRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || string.IsNullOrEmpty(request.ProjectId))
+                {
+                    return MessageHandlerResult.CreateError("Invalid pull project request");
+                }
+
+                _logger.LogDebug("Pull project request: {ProjectId}", request.ProjectId);
+
+                var response = await _reviewSyncService.PullProjectAsync(request.ProjectId);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling pull project");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandleBatchPullProjectsAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<BatchPullProjectsRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || request.ProjectIds.Count == 0)
+                {
+                    return MessageHandlerResult.CreateError("Invalid batch pull request");
+                }
+
+                _logger.LogInformation("Batch pull request: {Count} projects", request.ProjectIds.Count);
+
+                var response = await _reviewSyncService.BatchPullProjectsAsync(request.ProjectIds);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling batch pull");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandlePushProjectAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<PushProjectRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || string.IsNullOrEmpty(request.ProjectId))
+                {
+                    return MessageHandlerResult.CreateError("Invalid push project request");
+                }
+
+                _logger.LogInformation("Push project request: {ProjectId} from {User}",
+                    request.ProjectId, request.UpdatedBy ?? "unknown");
+
+                var response = await _reviewSyncService.PushProjectAsync(request);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling push project");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandleBatchPushProjectsAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<BatchPushProjectsRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || request.Projects.Count == 0)
+                {
+                    return MessageHandlerResult.CreateError("Invalid batch push request");
+                }
+
+                _logger.LogInformation("Batch push request: {Count} projects from {User}",
+                    request.Projects.Count, request.UpdatedBy ?? "unknown");
+
+                var response = await _reviewSyncService.BatchPushProjectsAsync(request);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling batch push");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandlePullBankSlipImageAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<PullBankSlipImageRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || string.IsNullOrEmpty(request.ProjectId))
+                {
+                    return MessageHandlerResult.CreateError("Invalid pull bank slip image request");
+                }
+
+                _logger.LogDebug("Pull bank slip image: {ProjectId}", request.ProjectId);
+
+                var response = await _reviewSyncService.PullBankSlipImageAsync(request.ProjectId);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling pull bank slip image");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandlePullBillImageAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<PullBillImageRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || string.IsNullOrEmpty(request.BillId))
+                {
+                    return MessageHandlerResult.CreateError("Invalid pull bill image request");
+                }
+
+                _logger.LogDebug("Pull bill image: {BillId}", request.BillId);
+
+                var response = await _reviewSyncService.PullBillImageAsync(request.BillId);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling pull bill image");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
+            }
+        }
+
+        private async Task<MessageHandlerResult> HandleCloseProjectAsync(UniversalMessage message, string connectionId)
+        {
+            try
+            {
+                var request = JsonSerializer.Deserialize<CloseProjectRequest>(
+                    message.Data.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (request == null || string.IsNullOrEmpty(request.ProjectId))
+                {
+                    return MessageHandlerResult.CreateError("Invalid close project request");
+                }
+
+                _logger.LogInformation("Close project request: {ProjectId} by {User}",
+                    request.ProjectId, request.ClosedBy ?? "unknown");
+
+                var response = await _reviewSyncService.CloseProjectAsync(request);
+                return MessageHandlerResult.CreateSuccess(response);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling close project");
+                return MessageHandlerResult.CreateError($"Error: {ex.Message}");
             }
         }
 

@@ -1,0 +1,318 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<!-- File: Mobile/NewwaysAdmin.Mobile/Features/BankSlipReview/Pages/ProjectListPage.xaml -->
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:NewwaysAdmin.Mobile.Features.BankSlipReview.ViewModels"
+             x:Class="NewwaysAdmin.Mobile.Features.BankSlipReview.Pages.ProjectListPage"
+             Title="Bank Slip Review"
+             BackgroundColor="White">
+
+    <Grid RowDefinitions="Auto,Auto,*">
+
+        <!-- ===== HEADER BAR ===== -->
+        <Frame Grid.Row="0" 
+               BackgroundColor="#2196F3" 
+               Padding="15,10" 
+               CornerRadius="0"
+               HasShadow="False">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <!-- Connection Status Dot -->
+                <Ellipse Grid.Column="0"
+                         WidthRequest="12"
+                         HeightRequest="12"
+                         Fill="{Binding ConnectionDotColor}"
+                         VerticalOptions="Center"
+                         Margin="0,0,10,0"/>
+
+                <!-- Sync Status -->
+                <Label Grid.Column="1"
+                       Text="{Binding SyncStatusText}"
+                       TextColor="White"
+                       FontSize="14"
+                       VerticalOptions="Center"/>
+
+                <!-- Count Summary -->
+                <Label Grid.Column="2"
+                       Text="{Binding CountSummary}"
+                       TextColor="White"
+                       FontSize="12"
+                       VerticalOptions="Center"
+                       Margin="10,0"/>
+
+                <!-- Sync Button -->
+                <Button Grid.Column="3"
+                        Text="⟳"
+                        Command="{Binding SyncNowCommand}"
+                        BackgroundColor="Transparent"
+                        TextColor="White"
+                        FontSize="20"
+                        Padding="5"
+                        WidthRequest="40"
+                        IsEnabled="{Binding IsOnline}"/>
+            </Grid>
+        </Frame>
+
+        <!-- ===== COLLAPSIBLE FILTER SECTION ===== -->
+        <Frame Grid.Row="1" 
+               BackgroundColor="#F5F5F5" 
+               Padding="10" 
+               CornerRadius="0"
+               HasShadow="False">
+            <StackLayout Spacing="10">
+
+                <!-- Filter Header (tap to expand/collapse) -->
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Label Grid.Column="0"
+                           Text="{Binding FilterExpandIcon}"
+                           FontSize="14"
+                           VerticalOptions="Center"
+                           Margin="0,0,8,0">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleFilterCommand}"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <Label Grid.Column="1"
+                           Text="Filters &amp; Sort"
+                           FontSize="16"
+                           FontAttributes="Bold"
+                           VerticalOptions="Center">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleFilterCommand}"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+
+                    <Label Grid.Column="2"
+                           Text="{Binding SelectedFilter}"
+                           TextColor="Gray"
+                           FontSize="12"
+                           VerticalOptions="Center"/>
+                </Grid>
+
+                <!-- Expandable Filter Content -->
+                <StackLayout IsVisible="{Binding IsFilterExpanded}" Spacing="10">
+
+                    <!-- Status Filter Buttons -->
+                    <Label Text="Status:" FontSize="12" TextColor="Gray"/>
+                    <FlexLayout Wrap="Wrap" JustifyContent="Start">
+                        <Button Text="All" 
+                                Command="{Binding SetFilterCommand}" 
+                                CommandParameter="All"
+                                BackgroundColor="{Binding SelectedFilter, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=All}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Open" 
+                                Command="{Binding SetFilterCommand}" 
+                                CommandParameter="Open"
+                                BackgroundColor="{Binding SelectedFilter, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=Open}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Needs Bill 📷" 
+                                Command="{Binding SetFilterCommand}" 
+                                CommandParameter="NeedsBill"
+                                BackgroundColor="{Binding SelectedFilter, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=NeedsBill}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Needs Category ⚠" 
+                                Command="{Binding SetFilterCommand}" 
+                                CommandParameter="NeedsCategory"
+                                BackgroundColor="{Binding SelectedFilter, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=NeedsCategory}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Closed ✓" 
+                                Command="{Binding SetFilterCommand}" 
+                                CommandParameter="Closed"
+                                BackgroundColor="{Binding SelectedFilter, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=Closed}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                    </FlexLayout>
+
+                    <!-- Sort Options -->
+                    <Label Text="Sort by:" FontSize="12" TextColor="Gray"/>
+                    <FlexLayout Wrap="Wrap" JustifyContent="Start">
+                        <Button Text="Date" 
+                                Command="{Binding SetSortCommand}" 
+                                CommandParameter="Date"
+                                BackgroundColor="{Binding SelectedSort, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=Date}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Person" 
+                                Command="{Binding SetSortCommand}" 
+                                CommandParameter="Person"
+                                BackgroundColor="{Binding SelectedSort, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=Person}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Amount" 
+                                Command="{Binding SetSortCommand}" 
+                                CommandParameter="Amount"
+                                BackgroundColor="{Binding SelectedSort, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=Amount}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                        <Button Text="Recipient" 
+                                Command="{Binding SetSortCommand}" 
+                                CommandParameter="Recipient"
+                                BackgroundColor="{Binding SelectedSort, Converter={StaticResource FilterButtonColorConverter}, ConverterParameter=Recipient}"
+                                TextColor="White"
+                                FontSize="12"
+                                Padding="12,8"
+                                Margin="0,0,8,8"
+                                CornerRadius="15"/>
+                    </FlexLayout>
+
+                    <!-- Person Filter -->
+                    <Label Text="Person:" FontSize="12" TextColor="Gray"/>
+                    <Picker ItemsSource="{Binding AvailablePersons}"
+                            SelectedItem="{Binding SelectedPerson}"
+                            Title="Filter by person"
+                            BackgroundColor="White"/>
+
+                </StackLayout>
+            </StackLayout>
+        </Frame>
+
+        <!-- ===== PROJECT LIST ===== -->
+        <RefreshView Grid.Row="2"
+                     Command="{Binding RefreshCommand}"
+                     IsRefreshing="{Binding IsRefreshing}">
+
+            <CollectionView ItemsSource="{Binding Projects}"
+                            SelectionMode="None">
+
+                <!-- Empty State -->
+                <CollectionView.EmptyView>
+                    <StackLayout VerticalOptions="Center" 
+                                 HorizontalOptions="Center"
+                                 Padding="20">
+                        <Label Text="📋" FontSize="48" HorizontalOptions="Center"/>
+                        <Label Text="No projects found" 
+                               FontSize="18" 
+                               TextColor="Gray"
+                               HorizontalOptions="Center"/>
+                        <Label Text="Pull down to refresh or adjust filters"
+                               FontSize="14"
+                               TextColor="LightGray"
+                               HorizontalOptions="Center"/>
+                    </StackLayout>
+                </CollectionView.EmptyView>
+
+                <!-- Project Item Template -->
+                <CollectionView.ItemTemplate>
+                    <DataTemplate>
+                        <Frame Margin="10,5" 
+                               Padding="12" 
+                               CornerRadius="8"
+                               BorderColor="#E0E0E0"
+                               HasShadow="False"
+                               BackgroundColor="White">
+                            <Frame.GestureRecognizers>
+                                <TapGestureRecognizer 
+                                    Command="{Binding Source={RelativeSource AncestorType={x:Type vm:ProjectListViewModel}}, Path=OpenProjectCommand}"
+                                    CommandParameter="{Binding}"/>
+                            </Frame.GestureRecognizers>
+
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+
+                                <!-- Row 0: Date + Status Icons -->
+                                <Label Grid.Row="0" Grid.Column="0"
+                                       Text="{Binding DateDisplay}"
+                                       FontSize="12"
+                                       TextColor="Gray"/>
+                                <Label Grid.Row="0" Grid.Column="1"
+                                       Text="{Binding StatusIcons}"
+                                       FontSize="14"
+                                       HorizontalOptions="End"/>
+
+                                <!-- Row 1: Recipient + Amount -->
+                                <Label Grid.Row="1" Grid.Column="0"
+                                       Text="{Binding Recipient}"
+                                       FontSize="16"
+                                       FontAttributes="Bold"
+                                       LineBreakMode="TailTruncation"/>
+                                <Label Grid.Row="1" Grid.Column="1"
+                                       Text="{Binding Amount}"
+                                       FontSize="16"
+                                       FontAttributes="Bold"
+                                       TextColor="#2196F3"
+                                       HorizontalOptions="End"/>
+
+                                <!-- Row 2: Category -->
+                                <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                       Text="{Binding CategoryDisplay}"
+                                       FontSize="13"
+                                       TextColor="{Binding HasStructuralNote, Converter={StaticResource BoolToColorConverter}}"
+                                       LineBreakMode="TailTruncation"/>
+
+                                <!-- Row 3: Person + Location -->
+                                <StackLayout Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2"
+                                             Orientation="Horizontal"
+                                             Spacing="15">
+                                    <Label FontSize="12" TextColor="Gray">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="👤 " FontSize="10"/>
+                                                <Span Text="{Binding PersonDisplay}"/>
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
+                                    <Label FontSize="12" 
+                                           TextColor="Gray"
+                                           IsVisible="{Binding LocationName, Converter={StaticResource NullToBoolConverter}}">
+                                        <Label.FormattedText>
+                                            <FormattedString>
+                                                <Span Text="📍 " FontSize="10"/>
+                                                <Span Text="{Binding LocationName}"/>
+                                            </FormattedString>
+                                        </Label.FormattedText>
+                                    </Label>
+                                </StackLayout>
+
+                                <!-- Status indicator bar on left -->
+                                <BoxView Grid.Row="0" Grid.RowSpan="4" Grid.Column="0"
+                                         WidthRequest="4"
+                                         Color="{Binding StatusColor}"
+                                         HorizontalOptions="Start"
+                                         Margin="-12,0,0,0"
+                                         CornerRadius="2"/>
+                            </Grid>
+                        </Frame>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </RefreshView>
+
+        <!-- Loading Overlay -->
+        <Grid Grid.Row="2" 
+              IsVisible="{Binding IsLoading}"
+              BackgroundColor="#80FFFFFF">
+            <ActivityIndicator IsRunning="{Binding IsLoading}"
+                               Color="#2196F3"
+                               VerticalOptions="Center"
+                               HorizontalOptions="Center"/>
+        </Grid>
+
+    </Grid>
+</ContentPage>

@@ -83,6 +83,9 @@ public class Program
 
     private static async Task ConfigureApplication(WebApplication app)
     {
+        // ===== HOST VALIDATION - FIRST! Block malicious Host headers =====
+        app.UseMiddleware<HostValidationMiddleware>();
+
         // ===== DEVELOPMENT SETTINGS =====
         if (!app.Environment.IsDevelopment())
         {

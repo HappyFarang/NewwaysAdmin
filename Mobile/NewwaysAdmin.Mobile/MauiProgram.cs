@@ -16,6 +16,11 @@ using NewwaysAdmin.Mobile.Services.SignalR;
 using NewwaysAdmin.Mobile.Services.Cache;
 using NewwaysAdmin.Mobile.Services.Sync;
 using NewwaysAdmin.Mobile.ViewModels.Settings;
+using NewwaysAdmin.Mobile.Features.BankSlipReview.Pages;
+using NewwaysAdmin.Mobile.Features.BankSlipReview.Services;
+using NewwaysAdmin.Mobile.Features.BankSlipReview.ViewModels;
+using NewwaysAdmin.Mobile.Features.BankSlipReview.Pages;
+
 
 #if ANDROID
 using NewwaysAdmin.Mobile.Platforms.Android.Services;
@@ -53,6 +58,16 @@ public static class MauiProgram
         // ===== CORE SERVICES =====
         builder.Services.AddSingleton<CredentialStorageService>();
         builder.Services.AddSingleton<PermissionsCache>();
+
+        // ===== BANK SLIP REVIEW SERVICES =====
+        builder.Services.AddSingleton<BankSlipLocalStorage>();
+        builder.Services.AddSingleton<BankSlipReviewSyncService>();
+
+        // ===== BANK SLIP REVIEW VIEWMODELS =====
+        builder.Services.AddTransient<ProjectListViewModel>();
+
+        // ===== BANK SLIP REVIEW PAGES =====
+        builder.Services.AddTransient<ProjectListPage>();
 
         // ===== HTTP CLIENTS + AUTH/CONNECTION SERVICES =====
         builder.Services.AddHttpClient<IMauiAuthService, MauiAuthService>(client =>

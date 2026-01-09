@@ -37,6 +37,7 @@ namespace NewwaysAdmin.WebAdmin.Registration
             services.AddScoped<BankSlipImageService>();
             services.AddScoped<BankSlipExcelExportService>();
             services.AddScoped<BillUploadService>();
+            services.AddScoped<BankSlipReviewSyncService>();
 
             // ===== OCR & SPATIAL SERVICES =====
             services.AddScoped<ISpatialOcrService, SpatialOcrService>();

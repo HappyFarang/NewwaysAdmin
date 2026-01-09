@@ -6,6 +6,7 @@
     xmlns:local="clr-namespace:NewwaysAdmin.Mobile"
     xmlns:pages="clr-namespace:NewwaysAdmin.Mobile.Pages"
     xmlns:catPages="clr-namespace:NewwaysAdmin.Mobile.Pages.Categories"
+    xmlns:pages="clr-namespace:NewwaysAdmin.Mobile.Features.BankSlipReview.Pages"
     Shell.FlyoutBehavior="Disabled"
     Title="NewwaysAdmin.Mobile">
 
@@ -20,6 +21,13 @@
         Title="Login"
         ContentTemplate="{DataTemplate pages:SimpleLoginPage}"
         Route="SimpleLoginPage" />
+
+    <Tab Title="Review" Icon="receipt.png">
+        <ShellContent 
+        Title="Bank Slips"
+        ContentTemplate="{DataTemplate pages:ProjectListPage}"
+        Route="bankSlipReview"/>
+    </Tab>
 
     <!-- Welcome Page -->
     <ShellContent

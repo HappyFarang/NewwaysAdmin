@@ -6,6 +6,7 @@ using NewwaysAdmin.SharedModels.Categories;
 using System.Text.Json;
 using NewwaysAdmin.SignalR.Contracts.Models;
 using NewwaysAdmin.Mobile.Config;
+using System.Collections.Concurrent;
 
 namespace NewwaysAdmin.Mobile.Services.Categories
 {
@@ -24,6 +25,7 @@ namespace NewwaysAdmin.Mobile.Services.Categories
         private HubConnection? _hubConnection;
         private bool _isConnected = false;
         private string _serverUrl = AppConfig.ServerUrl;
+        private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement?>> _pendingResponses = new();
 
         // For awaiting MessageResponse
         private TaskCompletionSource<JsonElement?>? _versionExchangeResponse;
@@ -221,13 +223,39 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 return Task.CompletedTask;
             };
 
-            // MessageResponse handler - use JsonElement for proper deserialization
+            // MessageResponse handler - routes to specific waiters
             _hubConnection.On<JsonElement>("MessageResponse", response =>
             {
-                _logger.LogInformation("*** MessageResponse RECEIVED!");
+                _logger.LogDebug("MessageResponse received");
 
                 try
                 {
+                    // Try to extract messageId for routing
+                    string? messageId = null;
+                    if (response.TryGetProperty("messageId", out var idProp))
+                    {
+                        messageId = idProp.GetString();
+                    }
+
+                    // Route to specific waiter if we have a messageId
+                    if (!string.IsNullOrEmpty(messageId) && _pendingResponses.TryRemove(messageId, out var tcs))
+                    {
+                        _logger.LogDebug("Routing response for messageId: {MessageId}", messageId);
+
+                        // Extract the data property if present
+                        if (response.TryGetProperty("data", out var dataProp))
+                        {
+                            tcs.TrySetResult(dataProp);
+                        }
+                        else
+                        {
+                            tcs.TrySetResult(response);
+                        }
+                        return;
+                    }
+
+                    // Fallback: route to version exchange if that's waiting
+                    // (for backward compatibility with existing code)
                     var responseStr = response.ToString();
                     _logger.LogDebug("Response content: {Json}",
                         responseStr.Length > 300 ? responseStr.Substring(0, 300) + "..." : responseStr);
@@ -237,7 +265,6 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to process MessageResponse");
-                    _versionExchangeResponse?.TrySetResult(null);
                 }
             });
 
@@ -627,6 +654,113 @@ namespace NewwaysAdmin.Mobile.Services.Categories
                 _logger.LogError(ex, "Error uploading document");
                 return DocumentUploadResponse.CreateError("Exception", ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Send a message and await a typed response.
+        /// Generic method for any SignalR request/response communication.
+        /// </summary>
+        /// <typeparam name="TRequest">Request type</typeparam>
+        /// <typeparam name="TResponse">Expected response type</typeparam>
+        /// <param name="messageType">Message type (e.g., "SyncProjectMetadata", "PullProject")</param>
+        /// <param name="request">Request data</param>
+        /// <param name="targetApp">Target app name (defaults to "MAUI_ExpenseTracker")</param>
+        /// <param name="timeoutSeconds">Timeout in seconds (default 30)</param>
+        /// <returns>Deserialized response or null on failure</returns>
+        public async Task<TResponse?> SendMessageAsync<TRequest, TResponse>(
+            string messageType,
+            TRequest request,
+            string targetApp = "MAUI_ExpenseTracker",
+            int timeoutSeconds = 30)
+            where TResponse : class
+        {
+            if (_hubConnection?.State != HubConnectionState.Connected)
+            {
+                _logger.LogWarning("Cannot send message - not connected");
+                return null;
+            }
+
+            var messageId = Guid.NewGuid().ToString("N");
+            var tcs = new TaskCompletionSource<JsonElement?>();
+
+            try
+            {
+                // Register for response
+                _pendingResponses[messageId] = tcs;
+
+                // Create universal message
+                var message = new UniversalMessage
+                {
+                    MessageId = messageId,
+                    MessageType = messageType,
+                    SourceApp = "MAUI_ExpenseTracker",
+                    TargetApp = targetApp,
+                    Data = JsonSerializer.SerializeToElement(request),
+                    Timestamp = DateTime.UtcNow,
+                    RequiresAck = false
+                };
+
+                _logger.LogDebug("Sending {MessageType} with messageId {MessageId}", messageType, messageId);
+
+                // Send message
+                await _hubConnection.InvokeAsync("SendMessageAsync", message);
+
+                // Wait for response with timeout
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+
+                var completedTask = await Task.WhenAny(
+                    tcs.Task,
+                    Task.Delay(Timeout.Infinite, cts.Token));
+
+                if (completedTask != tcs.Task)
+                {
+                    _logger.LogWarning("Timeout waiting for {MessageType} response", messageType);
+                    return null;
+                }
+
+                var responseJson = await tcs.Task;
+                if (responseJson == null)
+                {
+                    _logger.LogWarning("Null response for {MessageType}", messageType);
+                    return null;
+                }
+
+                // Deserialize response
+                var response = JsonSerializer.Deserialize<TResponse>(
+                    responseJson.Value.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                _logger.LogDebug("{MessageType} completed successfully", messageType);
+                return response;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Request {MessageType} was cancelled", messageType);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending {MessageType}", messageType);
+                return null;
+            }
+            finally
+            {
+                // Clean up pending response
+                _pendingResponses.TryRemove(messageId, out _);
+            }
+        }
+
+        /// <summary>
+        /// Send a message with object data and await typed response.
+        /// </summary>
+        public async Task<TResponse?> SendMessageAsync<TResponse>(
+            string messageType,
+            object request,
+            string targetApp = "MAUI_ExpenseTracker",
+            int timeoutSeconds = 30)
+            where TResponse : class
+        {
+            return await SendMessageAsync<object, TResponse>(messageType, request, targetApp, timeoutSeconds);
         }
 
         #endregion
